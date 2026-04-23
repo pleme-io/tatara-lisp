@@ -9,7 +9,7 @@ use std::any::Any;
 use std::fmt;
 use std::sync::Arc;
 
-use tatara_lisp::{Sexp, Span};
+use tatara_lisp::{Sexp, Span, Spanned};
 
 use crate::env::Env;
 use crate::ffi::Arity;
@@ -39,21 +39,24 @@ pub enum Value {
 /// A user-defined closure produced by `(lambda …)` or `(define (f …) …)`.
 pub struct Closure {
     pub params: Vec<Arc<str>>,
-    /// Optional rest parameter — `(lambda (a b . rest) …)`.
+    /// Optional rest parameter — `(lambda (a b . rest) …)` or
+    /// `(lambda (a b &rest rs) …)`.
     pub rest: Option<Arc<str>>,
-    pub body: Vec<Sexp>,
+    /// Body forms, preserved as `Spanned` so error locations inside the
+    /// body remain accurate after construction.
+    pub body: Vec<Spanned>,
     pub captured_env: Env,
     pub source: Span,
 }
 
-/// A host-registered Rust function exposed to Lisp code.
+/// A host-registered Rust function exposed to Lisp code. The actual
+/// callable lives in the `Interpreter<H>`'s `FnRegistry`, keyed by
+/// `name` — this struct carries just the lookup key and arity so
+/// `Value` remains non-generic over `H`.
+#[derive(Clone, Debug)]
 pub struct NativeFn {
     pub name: Arc<str>,
     pub arity: Arity,
-    /// Erased callable. The concrete fn is held by whatever `Interpreter<H>`
-    /// registered it; this type is parameterless so it can live in `Value`.
-    /// Actual dispatch happens through `ffi::FnRegistry` keyed by `name`.
-    pub(crate) _phantom: (),
 }
 
 // ── Convenience constructors ────────────────────────────────────────────

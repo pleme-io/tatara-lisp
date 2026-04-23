@@ -16,7 +16,7 @@ pub struct ReplSession<'i, H> {
     interp: &'i mut Interpreter<H>,
 }
 
-impl<'i, H> ReplSession<'i, H> {
+impl<'i, H: 'static> ReplSession<'i, H> {
     pub fn new(interp: &'i mut Interpreter<H>) -> Self {
         Self { interp }
     }

@@ -1,59 +1,98 @@
 //! Lexical environment holding `Value`s.
 //!
-//! Mirrors `tatara_lisp::Env` in shape but stores runtime values rather
-//! than source forms. Frames are pushed on lambda invocation and popped
-//! on return; closures capture a clone of the `Env` at lambda-creation.
+//! Each frame is an `Arc<RefCell<HashMap>>`. Cloning an `Env` Arc-clones
+//! the frames, so a closure that captures the env at creation shares
+//! state with subsequent definitions in those same frames — which is
+//! what makes top-level recursion and mutual recursion work: the closure
+//! looks up its own name in a frame that the enclosing `define` later
+//! populates.
+//!
+//! Not `Sync` (`RefCell`). Single-threaded eval is the expected mode;
+//! if cross-thread use ever needs to share a Value, migrate frames to
+//! `Arc<Mutex<...>>`.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::value::Value;
 
-/// A lexically-scoped environment of `Arc<str>` names to `Value`s.
-#[derive(Clone, Debug, Default)]
+#[derive(Default)]
+pub struct Frame {
+    bindings: RefCell<HashMap<Arc<str>, Value>>,
+}
+
+impl Frame {
+    fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl std::fmt::Debug for Frame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Frame")
+            .field("len", &self.bindings.borrow().len())
+            .finish()
+    }
+}
+
+/// A lexically-scoped environment of `Arc<str>` names to `Value`s. Frames
+/// are shared via `Arc`, so mutations to a frame are visible to every
+/// `Env` holding the same frame.
+#[derive(Clone, Debug)]
 pub struct Env {
-    frames: Vec<HashMap<Arc<str>, Value>>,
+    frames: Vec<Arc<Frame>>,
+}
+
+impl Default for Env {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Env {
     pub fn new() -> Self {
         Self {
-            frames: vec![HashMap::new()],
+            frames: vec![Arc::new(Frame::new())],
         }
     }
 
+    /// Push a fresh innermost frame, for `let` / lambda body scope.
     pub fn push(&mut self) {
-        self.frames.push(HashMap::new());
+        self.frames.push(Arc::new(Frame::new()));
     }
 
+    /// Drop the innermost frame. No-op if only the root frame remains.
     pub fn pop(&mut self) {
         if self.frames.len() > 1 {
             self.frames.pop();
         }
     }
 
-    /// Bind `name` in the innermost frame.
-    pub fn define(&mut self, name: impl Into<Arc<str>>, value: Value) {
-        if let Some(top) = self.frames.last_mut() {
-            top.insert(name.into(), value);
+    /// Bind `name` in the innermost frame. Shadows any outer binding.
+    /// Visible to every other `Env` holding the same innermost frame.
+    pub fn define(&self, name: impl Into<Arc<str>>, value: Value) {
+        if let Some(top) = self.frames.last() {
+            top.bindings.borrow_mut().insert(name.into(), value);
         }
     }
 
     /// Look up `name`, walking from innermost to outermost frame.
-    pub fn lookup(&self, name: &str) -> Option<&Value> {
+    pub fn lookup(&self, name: &str) -> Option<Value> {
         for frame in self.frames.iter().rev() {
-            if let Some(v) = frame.get(name) {
-                return Some(v);
+            if let Some(v) = frame.bindings.borrow().get(name) {
+                return Some(v.clone());
             }
         }
         None
     }
 
     /// Mutate an existing binding in the nearest enclosing frame. Returns
-    /// `false` if no such binding exists (caller should surface as error).
-    pub fn set(&mut self, name: &str, value: Value) -> bool {
-        for frame in self.frames.iter_mut().rev() {
-            if let Some(slot) = frame.get_mut(name) {
+    /// `false` if no such binding exists.
+    pub fn set(&self, name: &str, value: Value) -> bool {
+        for frame in self.frames.iter().rev() {
+            let mut bindings = frame.bindings.borrow_mut();
+            if let Some(slot) = bindings.get_mut(name) {
                 *slot = value;
                 return true;
             }
@@ -84,10 +123,32 @@ mod tests {
 
     #[test]
     fn set_mutates_existing_binding() {
-        let mut env = Env::new();
+        let env = Env::new();
         env.define("x", Value::Int(1));
         assert!(env.set("x", Value::Int(99)));
         assert!(matches!(env.lookup("x"), Some(Value::Int(99))));
         assert!(!env.set("no-such", Value::Nil));
+    }
+
+    #[test]
+    fn cloned_env_shares_frame_state() {
+        // This is the invariant that makes top-level recursion work:
+        // a closure captured via env.clone() sees subsequent defines on
+        // the same innermost frame.
+        let env_a = Env::new();
+        let env_b = env_a.clone();
+        env_a.define("x", Value::Int(42));
+        assert!(matches!(env_b.lookup("x"), Some(Value::Int(42))));
+    }
+
+    #[test]
+    fn push_after_clone_diverges() {
+        // After push, env_a has its own new frame; env_b doesn't see it.
+        let mut env_a = Env::new();
+        let env_b = env_a.clone();
+        env_a.push();
+        env_a.define("only-in-a", Value::Int(7));
+        assert!(matches!(env_a.lookup("only-in-a"), Some(Value::Int(7))));
+        assert!(env_b.lookup("only-in-a").is_none());
     }
 }

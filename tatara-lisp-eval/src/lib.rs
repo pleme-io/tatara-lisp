@@ -27,7 +27,8 @@ pub mod value;
 pub use env::Env;
 pub use error::{EvalError, Result};
 pub use eval::Interpreter;
-pub use ffi::{Arity, NativeCallable};
+pub use ffi::{Arity, FromValue, IntoValue, NativeCallable};
+pub use primitive::install_primitives;
 pub use repl::ReplSession;
 pub use value::Value;
 

@@ -12,7 +12,7 @@ use tatara_lisp::{Atom, Span, Spanned, SpannedForm};
 
 use crate::env::Env;
 use crate::error::{EvalError, Result};
-use crate::ffi::{Arity, FnEntry, FnRegistry, NativeCallable};
+use crate::ffi::{Arity, FnEntry, FnRegistry, FromValue, IntoValue, NativeCallable};
 use crate::special::SpecialForm;
 use crate::value::{Closure, NativeFn, Value};
 
@@ -75,6 +75,101 @@ impl<H: 'static> Interpreter<H> {
     pub fn define_global(&mut self, name: impl Into<Arc<str>>, value: Value) {
         self.globals.define(name, value);
     }
+
+    // ── Typed registration helpers ──────────────────────────────────
+
+    /// Register a 0-arity native fn with typed return value.
+    pub fn register_typed0<R, F>(&mut self, name: impl Into<Arc<str>>, f: F)
+    where
+        R: IntoValue + 'static,
+        F: Fn(&mut H) -> Result<R> + Send + Sync + 'static,
+    {
+        self.register_fn(
+            name,
+            Arity::Exact(0),
+            move |_args: &[Value], host: &mut H, _sp| f(host).map(IntoValue::into_value),
+        );
+    }
+
+    /// Register a 1-arity native fn with typed arg + return.
+    pub fn register_typed1<A, R, F>(&mut self, name: impl Into<Arc<str>>, f: F)
+    where
+        A: FromValue + 'static,
+        R: IntoValue + 'static,
+        F: Fn(&mut H, A) -> Result<R> + Send + Sync + 'static,
+    {
+        self.register_fn(
+            name,
+            Arity::Exact(1),
+            move |args: &[Value], host: &mut H, sp| {
+                let a = A::from_value(&args[0], sp)?;
+                f(host, a).map(IntoValue::into_value)
+            },
+        );
+    }
+
+    /// Register a 2-arity native fn with typed args + return.
+    pub fn register_typed2<A, B, R, F>(&mut self, name: impl Into<Arc<str>>, f: F)
+    where
+        A: FromValue + 'static,
+        B: FromValue + 'static,
+        R: IntoValue + 'static,
+        F: Fn(&mut H, A, B) -> Result<R> + Send + Sync + 'static,
+    {
+        self.register_fn(
+            name,
+            Arity::Exact(2),
+            move |args: &[Value], host: &mut H, sp| {
+                let a = A::from_value(&args[0], sp)?;
+                let b = B::from_value(&args[1], sp)?;
+                f(host, a, b).map(IntoValue::into_value)
+            },
+        );
+    }
+
+    /// Register a 3-arity native fn with typed args + return.
+    pub fn register_typed3<A, B, C, R, F>(&mut self, name: impl Into<Arc<str>>, f: F)
+    where
+        A: FromValue + 'static,
+        B: FromValue + 'static,
+        C: FromValue + 'static,
+        R: IntoValue + 'static,
+        F: Fn(&mut H, A, B, C) -> Result<R> + Send + Sync + 'static,
+    {
+        self.register_fn(
+            name,
+            Arity::Exact(3),
+            move |args: &[Value], host: &mut H, sp| {
+                let a = A::from_value(&args[0], sp)?;
+                let b = B::from_value(&args[1], sp)?;
+                let c = C::from_value(&args[2], sp)?;
+                f(host, a, b, c).map(IntoValue::into_value)
+            },
+        );
+    }
+
+    /// Register a 4-arity native fn with typed args + return.
+    pub fn register_typed4<A, B, C, D, R, F>(&mut self, name: impl Into<Arc<str>>, f: F)
+    where
+        A: FromValue + 'static,
+        B: FromValue + 'static,
+        C: FromValue + 'static,
+        D: FromValue + 'static,
+        R: IntoValue + 'static,
+        F: Fn(&mut H, A, B, C, D) -> Result<R> + Send + Sync + 'static,
+    {
+        self.register_fn(
+            name,
+            Arity::Exact(4),
+            move |args: &[Value], host: &mut H, sp| {
+                let a = A::from_value(&args[0], sp)?;
+                let b = B::from_value(&args[1], sp)?;
+                let c = C::from_value(&args[2], sp)?;
+                let d = D::from_value(&args[3], sp)?;
+                f(host, a, b, c, d).map(IntoValue::into_value)
+            },
+        );
+    }
 }
 
 impl<H: 'static> Default for Interpreter<H> {
@@ -97,7 +192,7 @@ pub(crate) fn eval_in<H: 'static>(
         SpannedForm::Nil => Ok(Value::Nil),
         SpannedForm::Atom(a) => eval_atom(a, form.span, env),
         SpannedForm::Quote(inner) => Ok(quoted_value(inner)),
-        SpannedForm::Quasiquote(_) => Err(EvalError::NotImplemented("quasiquote (Phase 2.5+)")),
+        SpannedForm::Quasiquote(inner) => quasiquote_eval(inner, env, registry, host),
         SpannedForm::Unquote(_) | SpannedForm::UnquoteSplice(_) => Err(EvalError::bad_form(
             "unquote",
             "unquote outside of quasiquote",
@@ -137,6 +232,68 @@ fn eval_atom(a: &Atom, span: Span, env: &Env) -> Result<Value> {
 /// so consumers can pattern-match on structure.
 fn quoted_value(inner: &Spanned) -> Value {
     Value::Sexp(inner.to_sexp(), inner.span)
+}
+
+/// Evaluate a quasiquoted form — unlike `quote`, `,expr` inside the form
+/// is evaluated and substituted, and `,@expr` splices the evaluated list
+/// into the enclosing list. Atoms lower to their runtime `Value`
+/// equivalents (Symbol → Value::Symbol, etc.). Nested quasiquote is not
+/// supported in v1 — it is returned as an opaque `Value::Sexp` literal.
+fn quasiquote_eval<H: 'static>(
+    form: &Spanned,
+    env: &mut Env,
+    registry: &FnRegistry<H>,
+    host: &mut H,
+) -> Result<Value> {
+    match &form.form {
+        SpannedForm::Unquote(inner) => eval_in(env, registry, inner, host),
+        SpannedForm::UnquoteSplice(_) => Err(EvalError::bad_form(
+            "unquote-splice",
+            "`,@` only valid directly inside a list",
+            form.span,
+        )),
+        SpannedForm::List(items) => {
+            let mut out: Vec<Value> = Vec::with_capacity(items.len());
+            for item in items {
+                if let SpannedForm::UnquoteSplice(inner) = &item.form {
+                    let v = eval_in(env, registry, inner, host)?;
+                    match v {
+                        Value::List(xs) => out.extend(xs.iter().cloned()),
+                        Value::Nil => {}
+                        other => {
+                            return Err(EvalError::type_mismatch(
+                                "list",
+                                other.type_name(),
+                                item.span,
+                            ))
+                        }
+                    }
+                } else {
+                    out.push(quasiquote_eval(item, env, registry, host)?);
+                }
+            }
+            if out.is_empty() {
+                Ok(Value::Nil)
+            } else {
+                Ok(Value::list(out))
+            }
+        }
+        SpannedForm::Nil => Ok(Value::Nil),
+        SpannedForm::Atom(a) => Ok(match a {
+            Atom::Symbol(s) => Value::Symbol(Arc::from(s.as_str())),
+            Atom::Keyword(s) => Value::Keyword(Arc::from(s.as_str())),
+            Atom::Str(s) => Value::Str(Arc::from(s.as_str())),
+            Atom::Int(n) => Value::Int(*n),
+            Atom::Float(n) => Value::Float(*n),
+            Atom::Bool(b) => Value::Bool(*b),
+        }),
+        // Inside quasiquote, an inner `quote` is preserved structurally —
+        // we treat it as an opaque literal subtree so downstream consumers
+        // can see it as a source form if they care.
+        SpannedForm::Quote(_) | SpannedForm::Quasiquote(_) => {
+            Ok(Value::Sexp(form.to_sexp(), form.span))
+        }
+    }
 }
 
 // ── Function application ──────────────────────────────────────────────
@@ -245,7 +402,16 @@ fn eval_special<H: 'static>(
 ) -> Result<Value> {
     match sf {
         SpecialForm::Quote => sf_quote(items, call_span),
-        SpecialForm::Quasiquote => Err(EvalError::NotImplemented("quasiquote (Phase 2.5+)")),
+        SpecialForm::Quasiquote => {
+            if items.len() != 2 {
+                return Err(EvalError::bad_form(
+                    "quasiquote",
+                    format!("expected 1 arg, got {}", items.len() - 1),
+                    call_span,
+                ));
+            }
+            quasiquote_eval(&items[1], env, registry, host)
+        }
         SpecialForm::If => sf_if(items, call_span, env, registry, host),
         SpecialForm::Cond => sf_cond(items, call_span, env, registry, host),
         SpecialForm::When => sf_when_unless(items, call_span, env, registry, host, false),
@@ -936,6 +1102,124 @@ mod tests {
 
     // ── Host context reachable via register_fn ────────────────────
 
+    // ── Quasiquote ────────────────────────────────────────────────
+
+    #[test]
+    fn quasiquote_plain_list_is_runtime_list() {
+        let v = eval_ok("`(a b c)");
+        match v {
+            Value::List(xs) => {
+                assert_eq!(xs.len(), 3);
+                assert!(matches!(&xs[0], Value::Symbol(s) if s.as_ref() == "a"));
+                assert!(matches!(&xs[1], Value::Symbol(s) if s.as_ref() == "b"));
+                assert!(matches!(&xs[2], Value::Symbol(s) if s.as_ref() == "c"));
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn quasiquote_unquote_substitutes_evaluated_value() {
+        let v = eval_ok("(let ((x 42)) `(a ,x c))");
+        match v {
+            Value::List(xs) => {
+                assert_eq!(xs.len(), 3);
+                assert!(matches!(&xs[1], Value::Int(42)));
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn quasiquote_unquote_arbitrary_expr() {
+        let v = eval_ok("`(x ,(+ 1 2 3) y)");
+        match v {
+            Value::List(xs) => {
+                assert!(matches!(&xs[1], Value::Int(6)));
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn quasiquote_splice_inlines_list() {
+        let v = eval_ok("`(a ,@(list 1 2 3) b)");
+        match v {
+            Value::List(xs) => {
+                assert_eq!(xs.len(), 5);
+                assert!(matches!(&xs[0], Value::Symbol(s) if s.as_ref() == "a"));
+                assert!(matches!(&xs[1], Value::Int(1)));
+                assert!(matches!(&xs[2], Value::Int(2)));
+                assert!(matches!(&xs[3], Value::Int(3)));
+                assert!(matches!(&xs[4], Value::Symbol(s) if s.as_ref() == "b"));
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn quasiquote_splice_empty_list_splices_nothing() {
+        let v = eval_ok("`(a ,@(list) b)");
+        match v {
+            Value::List(xs) => {
+                assert_eq!(xs.len(), 2);
+                assert!(matches!(&xs[0], Value::Symbol(s) if s.as_ref() == "a"));
+                assert!(matches!(&xs[1], Value::Symbol(s) if s.as_ref() == "b"));
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn quasiquote_splice_non_list_errors() {
+        let e = eval_err("`(a ,@42)");
+        assert!(matches!(e, EvalError::TypeMismatch { .. }));
+    }
+
+    #[test]
+    fn quasiquote_atom_yields_atom_value() {
+        assert!(matches!(eval_ok("`foo"), Value::Symbol(s) if s.as_ref() == "foo"));
+        assert!(matches!(eval_ok("`42"), Value::Int(42)));
+    }
+
+    #[test]
+    fn quasiquote_with_nested_list_and_unquote() {
+        // `(foo (bar ,x) baz) where x=99 → (foo (bar 99) baz)
+        let v = eval_ok("(let ((x 99)) `(foo (bar ,x) baz))");
+        match v {
+            Value::List(xs) => {
+                assert_eq!(xs.len(), 3);
+                match &xs[1] {
+                    Value::List(inner) => {
+                        assert!(matches!(&inner[1], Value::Int(99)));
+                    }
+                    other => panic!("{other:?}"),
+                }
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn quasiquote_symbol_keyword_distinction_preserved() {
+        let v = eval_ok("`(:key val)");
+        match v {
+            Value::List(xs) => {
+                assert!(matches!(&xs[0], Value::Keyword(s) if s.as_ref() == "key"));
+                assert!(matches!(&xs[1], Value::Symbol(s) if s.as_ref() == "val"));
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn bare_unquote_outside_quasiquote_errors() {
+        let e = eval_err(",x");
+        assert!(matches!(e, EvalError::BadSpecialForm { .. }));
+    }
+
+    // ── Host context reachable via register_fn ────────────────────
+
     #[test]
     fn native_fn_reads_host_state() {
         struct Counter {
@@ -960,5 +1244,79 @@ mod tests {
         let mut host = Counter { n: 0 };
         let v = i.eval_program(&forms, &mut host).unwrap();
         assert!(matches!(v, Value::Int(3)));
+    }
+
+    // ── Typed FFI registration ────────────────────────────────────
+
+    struct Ctx {
+        records: Vec<(String, i64)>,
+    }
+
+    #[test]
+    fn register_typed1_marshals_string_arg() {
+        let mut i: Interpreter<Ctx> = Interpreter::new();
+        install_primitives(&mut i);
+        i.register_typed1("greet", |_h: &mut Ctx, name: String| -> Result<String> {
+            Ok(format!("hello {name}"))
+        });
+        let forms = read_spanned(r#"(greet "luis")"#).unwrap();
+        let mut h = Ctx { records: vec![] };
+        let v = i.eval_program(&forms, &mut h).unwrap();
+        match v {
+            Value::Str(s) => assert_eq!(&*s, "hello luis"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn register_typed2_marshals_host_state_mutation() {
+        let mut i: Interpreter<Ctx> = Interpreter::new();
+        install_primitives(&mut i);
+        i.register_typed2(
+            "record",
+            |h: &mut Ctx, name: String, n: i64| -> Result<()> {
+                h.records.push((name, n));
+                Ok(())
+            },
+        );
+        let forms = read_spanned(r#"(record "a" 1) (record "b" 2)"#).unwrap();
+        let mut h = Ctx { records: vec![] };
+        let _ = i.eval_program(&forms, &mut h).unwrap();
+        assert_eq!(h.records.len(), 2);
+        assert_eq!(h.records[0], ("a".to_string(), 1));
+        assert_eq!(h.records[1], ("b".to_string(), 2));
+    }
+
+    #[test]
+    fn register_typed_arg_type_mismatch_surfaces_at_call_site() {
+        let mut i: Interpreter<Ctx> = Interpreter::new();
+        install_primitives(&mut i);
+        i.register_typed1("needs-int", |_h: &mut Ctx, n: i64| -> Result<i64> {
+            Ok(n + 1)
+        });
+        let forms = read_spanned(r#"(needs-int "not-a-number")"#).unwrap();
+        let mut h = Ctx { records: vec![] };
+        let err = i.eval_program(&forms, &mut h).unwrap_err();
+        assert!(matches!(
+            err,
+            EvalError::TypeMismatch {
+                expected: "integer",
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn register_typed3_three_args() {
+        let mut i: Interpreter<Ctx> = Interpreter::new();
+        install_primitives(&mut i);
+        i.register_typed3(
+            "triple-sum",
+            |_h: &mut Ctx, a: i64, b: i64, c: i64| -> Result<i64> { Ok(a + b + c) },
+        );
+        let forms = read_spanned("(triple-sum 10 20 30)").unwrap();
+        let mut h = Ctx { records: vec![] };
+        let v = i.eval_program(&forms, &mut h).unwrap();
+        assert!(matches!(v, Value::Int(60)));
     }
 }

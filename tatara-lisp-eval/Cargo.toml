@@ -1,0 +1,16 @@
+[package]
+name = "tatara-lisp-eval"
+description = "Runtime evaluator for tatara-lisp — embeddable Scheme-ish eval scoped to orchestration (job queues, rules, REPL). See docs/eval-design.md."
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+tatara-lisp = { path = "../tatara-lisp" }
+thiserror = "2"

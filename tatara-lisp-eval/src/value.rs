@@ -1,0 +1,228 @@
+//! Runtime values.
+//!
+//! `Value` is distinct from `Sexp`: evaluation produces `Value`, while the
+//! source AST is `Sexp` / `Spanned`. Values include runtime-only variants
+//! (closures, native functions, opaque host-owned Foreign values) that
+//! have no surface syntax.
+
+use std::any::Any;
+use std::fmt;
+use std::sync::Arc;
+
+use tatara_lisp::{Sexp, Span};
+
+use crate::env::Env;
+use crate::ffi::Arity;
+
+/// An evaluated runtime value.
+#[derive(Clone)]
+pub enum Value {
+    Nil,
+    Bool(bool),
+    Int(i64),
+    Float(f64),
+    Str(Arc<str>),
+    Symbol(Arc<str>),
+    Keyword(Arc<str>),
+    List(Arc<Vec<Value>>),
+    Closure(Arc<Closure>),
+    NativeFn(Arc<NativeFn>),
+    /// Escape hatch: unevaluated source form carried as a value, e.g. after
+    /// `(quote x)`. Preserves span info.
+    Sexp(Sexp, Span),
+    /// Opaque host-owned value. The embedder supplies these via FFI; native
+    /// functions read them back via downcast. Used to expose typed Rust
+    /// handles (job refs, client handles) to Lisp code.
+    Foreign(Arc<dyn Any + Send + Sync>),
+}
+
+/// A user-defined closure produced by `(lambda …)` or `(define (f …) …)`.
+pub struct Closure {
+    pub params: Vec<Arc<str>>,
+    /// Optional rest parameter — `(lambda (a b . rest) …)`.
+    pub rest: Option<Arc<str>>,
+    pub body: Vec<Sexp>,
+    pub captured_env: Env,
+    pub source: Span,
+}
+
+/// A host-registered Rust function exposed to Lisp code.
+pub struct NativeFn {
+    pub name: Arc<str>,
+    pub arity: Arity,
+    /// Erased callable. The concrete fn is held by whatever `Interpreter<H>`
+    /// registered it; this type is parameterless so it can live in `Value`.
+    /// Actual dispatch happens through `ffi::FnRegistry` keyed by `name`.
+    pub(crate) _phantom: (),
+}
+
+// ── Convenience constructors ────────────────────────────────────────────
+
+impl Value {
+    pub fn symbol(s: impl Into<Arc<str>>) -> Self {
+        Self::Symbol(s.into())
+    }
+
+    pub fn keyword(s: impl Into<Arc<str>>) -> Self {
+        Self::Keyword(s.into())
+    }
+
+    pub fn string(s: impl Into<Arc<str>>) -> Self {
+        Self::Str(s.into())
+    }
+
+    pub fn list<I: IntoIterator<Item = Value>>(xs: I) -> Self {
+        Self::List(Arc::new(xs.into_iter().collect()))
+    }
+
+    pub fn is_truthy(&self) -> bool {
+        !matches!(self, Self::Nil | Self::Bool(false))
+    }
+
+    /// Short type name for error messages.
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Self::Nil => "nil",
+            Self::Bool(_) => "bool",
+            Self::Int(_) => "int",
+            Self::Float(_) => "float",
+            Self::Str(_) => "string",
+            Self::Symbol(_) => "symbol",
+            Self::Keyword(_) => "keyword",
+            Self::List(_) => "list",
+            Self::Closure(_) => "closure",
+            Self::NativeFn(_) => "native-fn",
+            Self::Sexp(..) => "sexp",
+            Self::Foreign(_) => "foreign",
+        }
+    }
+}
+
+// ── Debug / Display ─────────────────────────────────────────────────────
+
+impl fmt::Debug for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Nil => f.write_str("Nil"),
+            Self::Bool(b) => write!(f, "Bool({b})"),
+            Self::Int(n) => write!(f, "Int({n})"),
+            Self::Float(n) => write!(f, "Float({n})"),
+            Self::Str(s) => write!(f, "Str({s:?})"),
+            Self::Symbol(s) => write!(f, "Symbol({s})"),
+            Self::Keyword(s) => write!(f, "Keyword(:{s})"),
+            Self::List(xs) => f.debug_list().entries(xs.iter()).finish(),
+            Self::Closure(_) => f.write_str("Closure(…)"),
+            Self::NativeFn(n) => write!(f, "NativeFn({})", n.name),
+            Self::Sexp(s, sp) => write!(f, "Sexp({s} @ {sp})"),
+            Self::Foreign(_) => f.write_str("Foreign(…)"),
+        }
+    }
+}
+
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Nil => f.write_str("()"),
+            Self::Bool(true) => f.write_str("#t"),
+            Self::Bool(false) => f.write_str("#f"),
+            Self::Int(n) => write!(f, "{n}"),
+            Self::Float(n) => write!(f, "{n}"),
+            Self::Str(s) => write!(f, "{s:?}"),
+            Self::Symbol(s) => f.write_str(s),
+            Self::Keyword(s) => write!(f, ":{s}"),
+            Self::List(xs) => {
+                f.write_str("(")?;
+                for (i, v) in xs.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(" ")?;
+                    }
+                    write!(f, "{v}")?;
+                }
+                f.write_str(")")
+            }
+            Self::Closure(c) => {
+                write!(f, "#<closure")?;
+                if !c.params.is_empty() {
+                    write!(f, " ({}", c.params.join(" "))?;
+                    if let Some(rest) = &c.rest {
+                        write!(f, " . {rest}")?;
+                    }
+                    write!(f, ")")?;
+                }
+                write!(f, ">")
+            }
+            Self::NativeFn(n) => write!(f, "#<native {}>", n.name),
+            Self::Sexp(s, _) => write!(f, "'{s}"),
+            Self::Foreign(_) => f.write_str("#<foreign>"),
+        }
+    }
+}
+
+// ── Rust <-> Value conversions (partial; filled in Phase 2.4) ──────────
+
+impl From<bool> for Value {
+    fn from(b: bool) -> Self {
+        Self::Bool(b)
+    }
+}
+
+impl From<i64> for Value {
+    fn from(n: i64) -> Self {
+        Self::Int(n)
+    }
+}
+
+impl From<f64> for Value {
+    fn from(n: f64) -> Self {
+        Self::Float(n)
+    }
+}
+
+impl From<String> for Value {
+    fn from(s: String) -> Self {
+        Self::Str(Arc::from(s))
+    }
+}
+
+impl From<&str> for Value {
+    fn from(s: &str) -> Self {
+        Self::Str(Arc::from(s))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truthiness() {
+        assert!(Value::Bool(true).is_truthy());
+        assert!(!Value::Bool(false).is_truthy());
+        assert!(!Value::Nil.is_truthy());
+        assert!(Value::Int(0).is_truthy(), "zero is truthy (Scheme-ish)");
+        assert!(Value::list(std::iter::empty::<Value>()).is_truthy());
+    }
+
+    #[test]
+    fn display_primitives() {
+        assert_eq!(Value::Int(42).to_string(), "42");
+        assert_eq!(Value::Bool(true).to_string(), "#t");
+        assert_eq!(Value::Bool(false).to_string(), "#f");
+        assert_eq!(Value::symbol("foo").to_string(), "foo");
+        assert_eq!(Value::keyword("k").to_string(), ":k");
+        assert_eq!(Value::Nil.to_string(), "()");
+    }
+
+    #[test]
+    fn display_list() {
+        let v = Value::list([Value::Int(1), Value::Int(2), Value::Int(3)]);
+        assert_eq!(v.to_string(), "(1 2 3)");
+    }
+
+    #[test]
+    fn type_names() {
+        assert_eq!(Value::Int(0).type_name(), "int");
+        assert_eq!(Value::Str(Arc::from("x")).type_name(), "string");
+        assert_eq!(Value::Nil.type_name(), "nil");
+    }
+}

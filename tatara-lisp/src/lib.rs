@@ -32,6 +32,9 @@ pub mod env;
 pub mod error;
 pub mod macro_expand;
 pub mod reader;
+pub mod span;
+pub mod spanned;
+pub mod spanned_expand;
 
 #[cfg(feature = "iac-forge")]
 pub mod interop;
@@ -49,4 +52,7 @@ pub use compile::{compile_named, compile_named_from_forms, compile_typed, NamedD
 pub use env::Env;
 pub use error::{LispError, Result};
 pub use macro_expand::{Expander, MacroDef, Param};
-pub use reader::read;
+pub use reader::{read, read_spanned};
+pub use span::Span;
+pub use spanned::{Spanned, SpannedForm};
+pub use spanned_expand::SpannedExpander;

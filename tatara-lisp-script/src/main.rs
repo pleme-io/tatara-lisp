@@ -94,7 +94,7 @@ fn run_script(script_path: &str, rest: Vec<String>) -> ExitCode {
         }
     };
 
-    match eval_forms_with_require(&mut interp, &forms, &mut ctx, &path) {
+    match eval_forms_with_require(&mut interp, &src, &forms, &mut ctx, &path) {
         Ok(_) => ExitCode::SUCCESS,
         Err(msg) => {
             eprintln!("tatara-script: {msg}");
@@ -128,7 +128,7 @@ fn run_test_mode(script_path: &str, rest: Vec<String>) -> ExitCode {
 
     // Evaluate all top-level forms; (deftest …) is treated as a macro
     // that registers into ctx.tests instead of executing immediately.
-    if let Err(msg) = eval_forms_with_require(&mut interp, &forms, &mut ctx, &path) {
+    if let Err(msg) = eval_forms_with_require(&mut interp, &src, &forms, &mut ctx, &path) {
         eprintln!("tatara-script --test: top-level error: {msg}");
         return ExitCode::from(1);
     }
@@ -151,7 +151,12 @@ fn run_test_mode(script_path: &str, rest: Vec<String>) -> ExitCode {
                 passed += 1;
             }
             Err(e) => {
-                eprintln!("  ✘ {} — {e:?}", test.name);
+                // Render the test error against the main src — every test
+                // body's spans point back into this file.
+                eprintln!("  ✘ {}", test.name);
+                for line in e.render(&src).lines() {
+                    eprintln!("      {line}");
+                }
             }
         }
     }
@@ -208,7 +213,7 @@ fn run_repl(_rest: Vec<String>) -> ExitCode {
                 for form in &forms {
                     match interp.eval_spanned(form, &mut ctx) {
                         Ok(v) => println!("{}", render_value(&v)),
-                        Err(e) => eprintln!("error: {e:?}"),
+                        Err(e) => eprintln!("{}", e.render(&buffer)),
                     }
                 }
             }
@@ -218,9 +223,12 @@ fn run_repl(_rest: Vec<String>) -> ExitCode {
 }
 
 /// Evaluate a program with top-level (require) + (deftest) handling.
-/// Every other form flows to `interp.eval_spanned` as usual.
+/// Every other form flows to `interp.eval_spanned` as usual. `src` is the
+/// source text backing `forms` (so evaluator errors can be rendered with
+/// line/column + source snippet against the caller's own file).
 fn eval_forms_with_require(
     interp: &mut Interpreter<ScriptCtx>,
+    src: &str,
     forms: &[Spanned],
     ctx: &mut ScriptCtx,
     current: &std::path::Path,
@@ -228,7 +236,7 @@ fn eval_forms_with_require(
     let prior_file = ctx.current_file.replace(current.to_path_buf());
     let mut last = Value::Nil;
     for form in forms {
-        last = dispatch_top_form(interp, form, ctx)?;
+        last = dispatch_top_form(interp, src, form, ctx)?;
     }
     ctx.current_file = prior_file;
     Ok(last)
@@ -236,6 +244,7 @@ fn eval_forms_with_require(
 
 fn dispatch_top_form(
     interp: &mut Interpreter<ScriptCtx>,
+    src: &str,
     form: &Spanned,
     ctx: &mut ScriptCtx,
 ) -> Result<Value, String> {
@@ -251,7 +260,7 @@ fn dispatch_top_form(
     }
     interp
         .eval_spanned(form, ctx)
-        .map_err(|e| format!("{e:?}"))
+        .map_err(|e| e.render(src))
 }
 
 fn dispatch_require(
@@ -269,8 +278,14 @@ fn dispatch_require(
     let Some(path) = tatara_lisp_script::stdlib::module::plan_require(ctx, &target)? else {
         return Ok(Value::Nil); // already required
     };
-    let forms = tatara_lisp_script::stdlib::module::read_forms(&path)?;
-    eval_forms_with_require(interp, &forms, ctx, &path)
+    // Read the required file's source once and feed it through the same
+    // pipeline as the root script — its own spans resolve into its own
+    // src, which is what `e.render(src)` wants.
+    let src = std::fs::read_to_string(&path)
+        .map_err(|e| format!("read {}: {e}", path.display()))?;
+    let forms = tatara_lisp::read_spanned(&src)
+        .map_err(|e| format!("parse {}: {e:?}", path.display()))?;
+    eval_forms_with_require(interp, &src, &forms, ctx, &path)
 }
 
 fn dispatch_deftest(items: &[Spanned], ctx: &mut ScriptCtx) -> Result<Value, String> {

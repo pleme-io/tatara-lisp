@@ -82,6 +82,12 @@
 
       homeManagerModules.default = import ./module;
       homeManagerModules.tatara-script = import ./module;
+
+      nixosModules.default = import ./nixos-module;
+      nixosModules.tatara-script = import ./nixos-module;
+
+      darwinModules.default = import ./darwin-module;
+      darwinModules.tatara-script = import ./darwin-module;
     };
   in
     nixpkgs.lib.recursiveUpdate

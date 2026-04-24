@@ -18,6 +18,7 @@ pub mod io;
 pub mod json;
 pub mod list_ext;
 pub mod log;
+pub mod module;
 pub mod os;
 pub mod process;
 pub mod regex;
@@ -42,6 +43,7 @@ pub fn install_stdlib(interp: &mut Interpreter<ScriptCtx>) {
     json::install(interp);
     list_ext::install(interp);
     log::install(interp);
+    module::install(interp);
     os::install(interp);
     process::install(interp);
     regex::install(interp);

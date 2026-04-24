@@ -54,11 +54,37 @@
         type = "app";
         program = "${tatara-lisp-script}/bin/tatara-script";
       };
-
-      overlays.tatara-script = _final: _prev: {
-        inherit tatara-lisp-script;
-      };
     });
+
+    # System-agnostic outputs: overlays (consumer supplies final pkgs) and
+    # home-manager modules (pure Nix, no pkgs dependency at the module
+    # top level). Both are kept outside `eachDefaultSystem` so consumers
+    # reach them as `flake.overlays.tatara-script` / `flake.homeManagerModules.default`
+    # rather than the per-system wrapped forms.
+    crossSystemAugment = {
+      overlays.tatara-script = final: _prev: let
+        cargoNix = import ./Cargo.nix { pkgs = final; };
+        pkg = cargoNix.workspaceMembers."tatara-lisp-script".build;
+      in {
+        tatara-lisp-script = pkg;
+        tatara-script = pkg;
+      };
+
+      # `overlays.default` is the well-known entry point for consumers that
+      # want the overlay without caring about its name.
+      overlays.default = final: _prev: let
+        cargoNix = import ./Cargo.nix { pkgs = final; };
+        pkg = cargoNix.workspaceMembers."tatara-lisp-script".build;
+      in {
+        tatara-lisp-script = pkg;
+        tatara-script = pkg;
+      };
+
+      homeManagerModules.default = import ./module;
+      homeManagerModules.tatara-script = import ./module;
+    };
   in
-    nixpkgs.lib.recursiveUpdate baseline scriptAugment;
+    nixpkgs.lib.recursiveUpdate
+      (nixpkgs.lib.recursiveUpdate baseline scriptAugment)
+      crossSystemAugment;
 }

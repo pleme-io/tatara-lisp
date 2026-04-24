@@ -1,8 +1,14 @@
 //! The tatara-script stdlib. Each module registers a family of FFI
 //! primitives on `Interpreter<ScriptCtx>`; `install_stdlib` is the
 //! single entry point — call after `Interpreter::new()`.
+//!
+//! `install_stdlib` also calls `tatara_lisp_eval::install_primitives`
+//! up front so arithmetic, comparison, and list primitives (`+`, `-`,
+//! `=`, `car`, `cdr`, `cons`, `list`, …) are available to any script.
+//! Without this, `Interpreter::new()` is intentionally bare — the
+//! evaluator leaves primitive registration to the embedder.
 
-use tatara_lisp_eval::Interpreter;
+use tatara_lisp_eval::{install_primitives, Interpreter};
 
 use crate::script_ctx::ScriptCtx;
 
@@ -30,8 +36,11 @@ pub mod toml;
 pub mod yaml;
 
 /// Install every stdlib family. Order doesn't matter — each family owns
-/// its own namespace.
+/// its own namespace. First installs the eval crate's core primitives
+/// (`+`, `=`, `car`, `cons`, …) so scripts see a full environment
+/// without calling `install_primitives` themselves.
 pub fn install_stdlib(interp: &mut Interpreter<ScriptCtx>) {
+    install_primitives(interp);
     cli::install(interp);
     crypto_extra::install(interp);
     encoding::install(interp);

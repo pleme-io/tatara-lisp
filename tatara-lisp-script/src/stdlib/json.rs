@@ -71,13 +71,13 @@ pub fn json_to_value(j: &JsonValue) -> Value {
             }
         }
         JsonValue::String(s) => Value::Str(Arc::from(s.as_str())),
-        JsonValue::Array(xs) => Value::list(xs.iter().map(json_to_value).collect()),
+        JsonValue::Array(xs) => Value::list(xs.iter().map(json_to_value).collect::<Vec<_>>()),
         JsonValue::Object(m) => Value::list(
             m.iter()
                 .map(|(k, v)| {
                     Value::list(vec![Value::Str(Arc::from(k.as_str())), json_to_value(v)])
                 })
-                .collect(),
+                .collect::<Vec<_>>(),
         ),
     }
 }

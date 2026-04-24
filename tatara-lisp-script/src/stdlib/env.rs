@@ -49,7 +49,7 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
                 ctx.argv
                     .iter()
                     .map(|s| Value::Str(Arc::from(s.as_str())))
-                    .collect(),
+                    .collect::<Vec<_>>(),
             ))
         },
     );

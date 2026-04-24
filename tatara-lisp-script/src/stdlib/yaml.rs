@@ -51,7 +51,7 @@ fn yaml_to_value(y: &serde_yaml::Value) -> Value {
         }
         serde_yaml::Value::String(s) => Value::Str(Arc::from(s.as_str())),
         serde_yaml::Value::Sequence(xs) => {
-            Value::list(xs.iter().map(yaml_to_value).collect())
+            Value::list(xs.iter().map(yaml_to_value).collect::<Vec<_>>())
         }
         serde_yaml::Value::Mapping(m) => Value::list(
             m.iter()
@@ -62,7 +62,7 @@ fn yaml_to_value(y: &serde_yaml::Value) -> Value {
                     };
                     Value::list(vec![Value::Str(Arc::from(key_str)), yaml_to_value(v)])
                 })
-                .collect(),
+                .collect::<Vec<_>>(),
         ),
         serde_yaml::Value::Tagged(t) => yaml_to_value(&t.value),
     }

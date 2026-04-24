@@ -45,10 +45,7 @@ fn main() -> ExitCode {
     let mut interp: Interpreter<ScriptCtx> = Interpreter::new();
     install_stdlib(&mut interp);
 
-    let mut ctx = ScriptCtx {
-        argv: args.iter().skip(1).cloned().collect(),
-        ..ScriptCtx::default()
-    };
+    let mut ctx = ScriptCtx::with_argv(args.iter().skip(1).cloned());
 
     match interp.eval_program(&forms, &mut ctx) {
         Ok(_) => ExitCode::SUCCESS,

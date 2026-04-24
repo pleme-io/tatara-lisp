@@ -35,7 +35,7 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
             Ok(Value::list(
                 s.split(&*sep)
                     .map(|p| Value::Str(Arc::from(p)))
-                    .collect(),
+                    .collect::<Vec<_>>(),
             ))
         },
     );

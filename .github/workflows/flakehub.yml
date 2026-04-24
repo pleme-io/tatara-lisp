@@ -1,0 +1,16 @@
+name: publish-flakehub
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  flakehub:
+    uses: pleme-io/substrate/.github/workflows/reusable-flakehub.yml@main
+    with:
+      visibility: public
+      rolling: true
+    permissions:
+      id-token: write
+      contents: read

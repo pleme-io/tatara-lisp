@@ -79,6 +79,22 @@ pub enum Op {
     MakeList(usize),
 
     // ── Termination ──────────────────────────────────────────────
+    // ── Tree-walker fallback ──────────────────────────────────────
+    /// Evaluate the const-pool entry at `idx` (which must be a
+    /// `Value::Sexp`) through the host `Interpreter`'s tree-walker.
+    /// Push the result. Used by the compiler for any form it doesn't
+    /// natively support (quasi-quote, require, provide, delay, eval,
+    /// macroexpand, etc.) so the VM is drop-in compatible with every
+    /// program the tree-walker accepts.
+    ///
+    /// Limitation: the dispatched form runs against the Interpreter's
+    /// globals env, NOT the VM's frame-local variables. Forms with
+    /// free references to VM locals (e.g. quasi-quote inside a let)
+    /// will see those references as unbound. For forms that don't
+    /// reference locals (top-level quasi-quotes, require, provide,
+    /// eval/macroexpand at top level) this is a clean drop-in.
+    EvalSexp(usize),
+
     // ── Exceptions / try-catch ────────────────────────────────────
     /// Push an error handler onto the current frame's handler stack.
     /// `catch_ip` is the absolute IP to jump to on error. `error_local`
@@ -114,6 +130,7 @@ impl Op {
             Self::Return => -1,
             Self::MakeClosure(_) => 1,
             Self::MakeList(n) => 1 - *n as i32,
+            Self::EvalSexp(_) => 1,
             Self::PushHandler { .. } | Self::PopHandler => 0,
             Self::Halt => 0,
         })

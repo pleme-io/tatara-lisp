@@ -343,6 +343,27 @@ impl Vm {
                     self.stack.push(Value::list(items));
                 }
 
+                Op::EvalSexp(idx) => {
+                    // Tree-walker fallback. The const pool entry is
+                    // a `Value::Sexp(Sexp, Span)` (set up by the
+                    // compiler's emit_eval_sexp). Lift back to a
+                    // Spanned and call into the host interpreter.
+                    let v = chunk.consts.get(idx).clone();
+                    let (sexp, sp) = match v {
+                        Value::Sexp(s, sp) => (s, sp),
+                        _ => {
+                            return Err(VmError::Eval(crate::error::EvalError::native_fn(
+                                Arc::<str>::from("vm:eval-sexp"),
+                                "expected a Sexp constant in EvalSexp",
+                                span,
+                            )));
+                        }
+                    };
+                    let spanned = tatara_lisp::Spanned::from_sexp_at(&sexp, sp);
+                    let result = interp.eval_spanned(&spanned, host)?;
+                    self.stack.push(result);
+                }
+
                 Op::PushHandler {
                     catch_ip,
                     error_local,
@@ -909,6 +930,48 @@ mod tests {
                (catch (e) :outer-caught))",
         );
         assert!(matches!(v, Value::Keyword(s) if &*s == "inner-caught"));
+    }
+
+    // ── VM Phase 5: tree-walker fallback ───────────────────────────
+
+    #[test]
+    fn vm_falls_back_to_tree_walker_for_quasi_quote() {
+        // Quasi-quote isn't a VM opcode; the compiler emits EvalSexp,
+        // which dispatches the form through Interpreter::eval_spanned
+        // at runtime. The dispatch only sees globals (not VM locals)
+        // — that's an acknowledged limitation of EvalSexp fallback.
+        // Use a (define) so x is a global the tree-walker can see.
+        let v = run_vm("(define x 99) `(a ,x c)");
+        match v {
+            Value::List(xs) => {
+                assert_eq!(xs.len(), 3);
+                assert!(matches!(&xs[1], Value::Int(99)));
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn vm_falls_back_for_eval() {
+        // (eval '(+ 1 2 3)) — runtime metaprogramming, falls back.
+        let v = run_vm("(eval '(+ 1 2 3))");
+        assert!(matches!(v, Value::Int(6)));
+    }
+
+    #[test]
+    fn vm_falls_back_for_macroexpand() {
+        // The macroexpand introspection special form is in the
+        // fallback list; the VM defers to the tree-walker.
+        let v = run_vm(
+            "(defmacro twice (x) `(* ,x 2))
+             (macroexpand-1 '(twice 7))",
+        );
+        // (twice 7) → (* 7 2) — list-shape with three symbol/int
+        // elements.
+        match v {
+            Value::List(xs) => assert_eq!(xs.len(), 3),
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]

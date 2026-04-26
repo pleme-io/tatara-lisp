@@ -61,6 +61,24 @@ pub fn compile_program(forms: &[Spanned]) -> Result<Chunk, CompileError> {
     Ok(chunk)
 }
 
+/// Special-form names the VM compiler doesn't natively handle —
+/// they're routed to the tree-walker via `Op::EvalSexp` so the VM
+/// stays drop-in compatible with every program the tree-walker
+/// accepts. Add an entry here when you want a form to fall back
+/// (typical for forms that mutate the interpreter state in ways
+/// the VM frame model doesn't track yet).
+const VM_FALLBACK_FORMS: &[&str] = &[
+    // Module-system forms — need &mut Interpreter access for loader,
+    // module registry, current-module state.
+    "require",
+    "provide",
+    // Lazy / runtime metaprogramming.
+    "delay",
+    "eval",
+    "macroexpand",
+    "macroexpand-1",
+];
+
 /// One lexical scope (a `let` body or a function's param list).
 #[derive(Debug, Default, Clone)]
 struct Scope {
@@ -198,14 +216,25 @@ impl<'a> Compiler<'a> {
             SpannedForm::Quasiquote(_)
             | SpannedForm::Unquote(_)
             | SpannedForm::UnquoteSplice(_) => {
-                return Err(CompileError::bad(
-                    form.span,
-                    "quasiquote / unquote not yet supported in VM — use the tree-walker path \
-                     (Interpreter::eval_program) for code that uses them",
-                ));
+                // Quasi-quote machinery isn't a VM opcode. Emit a
+                // tree-walker fallback — the runtime calls
+                // Interpreter::eval_spanned for the form and pushes
+                // the result.
+                self.emit_eval_sexp(form);
             }
         }
         Ok(())
+    }
+
+    /// Stash `form` in the const pool as a `Value::Sexp` carrying the
+    /// span so the runtime can dispatch it through the tree-walker.
+    fn emit_eval_sexp(&mut self, form: &Spanned) {
+        let sexp = form.to_sexp();
+        let idx = self
+            .chunk
+            .consts
+            .push(Value::Sexp(sexp, form.span));
+        self.emit_op(Op::EvalSexp(idx), form.span);
     }
 
     fn compile_atom(&mut self, a: &Atom, span: Span) -> Result<(), CompileError> {
@@ -369,6 +398,14 @@ impl<'a> Compiler<'a> {
             Some("or") => self.compile_or(&items[1..], span, tail),
             Some("not") => self.compile_not(items, span),
             Some("try") => self.compile_try(items, span, tail),
+            // Forms the VM doesn't natively compile — fall back to
+            // the tree-walker via EvalSexp. Keeps the VM drop-in
+            // compatible with every program the tree-walker accepts.
+            Some(name) if VM_FALLBACK_FORMS.contains(&name) => {
+                let form = Spanned::new(span, SpannedForm::List(items.to_vec()));
+                self.emit_eval_sexp(&form);
+                Ok(())
+            }
             _ => self.compile_call(items, span, tail),
         }
     }

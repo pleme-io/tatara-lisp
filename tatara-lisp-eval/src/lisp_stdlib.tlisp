@@ -1089,3 +1089,18 @@
   (with-gensyms (m-val)
     `(let ((,m-val ,expr))
        ,(compile-match-clauses m-val clauses))))
+
+;; ====================================================================
+;; LOOPS — while
+;; --------------------------------------------------------------------
+;; (while cond body...) — evaluate body while cond is truthy.
+;; Returns nil. Tail-call optimized via the recursive impl.
+;; ====================================================================
+
+(defmacro while (cond &rest body)
+  (with-gensyms (loop)
+    `(letrec ((,loop (lambda ()
+                       (if ,cond
+                           (begin ,@body (,loop))
+                           ()))))
+       (,loop))))

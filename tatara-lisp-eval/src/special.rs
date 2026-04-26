@@ -42,6 +42,10 @@ pub enum SpecialForm {
     /// `(force p)` triggers evaluation; subsequent forces return the
     /// cached value. Returns a `Value::Promise`.
     Delay,
+    /// `(eval form)` — evaluate `form` (a runtime Value representing
+    /// code, typically a quoted list) at top-level, returning the
+    /// result. Unlocks runtime metaprogramming.
+    Eval,
 }
 
 impl SpecialForm {
@@ -69,6 +73,7 @@ impl SpecialForm {
             "macroexpand-1" => Self::MacroexpandOne,
             "macroexpand" => Self::MacroexpandAll,
             "delay" => Self::Delay,
+            "eval" => Self::Eval,
             _ => return None,
         })
     }

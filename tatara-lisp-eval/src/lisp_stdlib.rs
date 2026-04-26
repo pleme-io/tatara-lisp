@@ -1113,4 +1113,80 @@ mod tests {
         );
         assert_eq!(format!("{v}"), "(:round 25 42 :unknown)");
     }
+
+    // ── eval / read-string / metaprogramming ──────────────────────
+
+    #[test]
+    fn eval_runs_a_quoted_form() {
+        let v = run("(eval (quote (+ 1 2 3)))");
+        assert!(matches!(v, Value::Int(6)));
+    }
+
+    #[test]
+    fn read_string_then_eval() {
+        let v = run("(eval (read-string \"(* 6 7)\"))");
+        assert!(matches!(v, Value::Int(42)));
+    }
+
+    #[test]
+    fn read_all_returns_list_of_forms() {
+        let v = run("(length (read-all \"(define x 1) (define y 2) (+ x y)\"))");
+        assert!(matches!(v, Value::Int(3)));
+    }
+
+    #[test]
+    fn eval_with_constructed_form() {
+        // Build a form at runtime, then eval it.
+        let v = run(
+            "(define op (quote +))
+             (define args (list 10 20 30))
+             (eval (cons op args))",
+        );
+        assert!(matches!(v, Value::Int(60)));
+    }
+
+    // ── compare / bit ops ──────────────────────────────────────────
+
+    #[test]
+    fn compare_three_way() {
+        assert!(matches!(run("(compare 1 2)"), Value::Int(-1)));
+        assert!(matches!(run("(compare 2 2)"), Value::Int(0)));
+        assert!(matches!(run("(compare 3 2)"), Value::Int(1)));
+        assert!(matches!(run("(compare \"a\" \"b\")"), Value::Int(-1)));
+    }
+
+    #[test]
+    fn bit_and_or_xor_not() {
+        assert!(matches!(run("(bit-and 12 10)"), Value::Int(8)));
+        assert!(matches!(run("(bit-or 12 10)"), Value::Int(14)));
+        assert!(matches!(run("(bit-xor 12 10)"), Value::Int(6)));
+        assert!(matches!(run("(bit-not 0)"), Value::Int(-1)));
+    }
+
+    #[test]
+    fn bit_shifts() {
+        assert!(matches!(run("(bit-shift-left 1 4)"), Value::Int(16)));
+        assert!(matches!(run("(bit-shift-right 16 2)"), Value::Int(4)));
+    }
+
+    // ── while loop ────────────────────────────────────────────────
+
+    #[test]
+    fn while_loops_until_false() {
+        let v = run(
+            "(define n 0)
+             (while (< n 5) (set! n (+ n 1)))
+             n",
+        );
+        assert!(matches!(v, Value::Int(5)));
+    }
+
+    // ── println / pr-str ──────────────────────────────────────────
+
+    #[test]
+    fn pr_str_quotes_strings() {
+        let v = run("(pr-str \"hello\")");
+        // Strings in pr-str retain the surrounding quotes for round-trip.
+        assert_eq!(format!("{v}"), "\"\\\"hello\\\"\"");
+    }
 }

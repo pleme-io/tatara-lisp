@@ -89,6 +89,19 @@ pub const PRIMITIVE_NAMES: &[&str] = &[
     "display",
     "newline",
     "print",
+    "println",
+    "pr-str",
+    // Reader / eval helpers
+    "read-string",
+    "read-all",
+    // Comparison / bit ops
+    "compare",
+    "bit-and",
+    "bit-or",
+    "bit-xor",
+    "bit-not",
+    "bit-shift-left",
+    "bit-shift-right",
     // Hygiene helpers
     "gensym",
     // Structured errors
@@ -556,6 +569,157 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
         },
     );
 
+    // (println v) — print + newline. Convenient for scripts.
+    interp.register_fn(
+        "println",
+        Arity::Any,
+        |args: &[Value], _h: &mut H, _sp| {
+            for (i, a) in args.iter().enumerate() {
+                if i > 0 {
+                    print!(" ");
+                }
+                print!("{a}");
+            }
+            println!();
+            Ok(Value::Nil)
+        },
+    );
+
+    // (pr-str v) — like (string v) but strings retain their quotes
+    // (useful for debugging — you can paste the result back).
+    interp.register_fn("pr-str", Arity::Exact(1), |args: &[Value], _h: &mut H, _sp| {
+        Ok(Value::Str(Arc::from(format!("{}", args[0]))))
+    });
+
+    // (read-string source) — parse Lisp source from a string into a
+    // Value (the first form). Errors if source is empty or has parse
+    // problems. Pair with (eval ...) for runtime metaprogramming.
+    interp.register_fn(
+        "read-string",
+        Arity::Exact(1),
+        |args: &[Value], _h: &mut H, sp| match &args[0] {
+            Value::Str(s) => {
+                let forms = tatara_lisp::read_spanned(s)?;
+                if forms.is_empty() {
+                    return Err(EvalError::native_fn(
+                        Arc::<str>::from("read-string"),
+                        "empty source",
+                        sp,
+                    ));
+                }
+                Ok(crate::code::spanned_to_value(&forms[0]))
+            }
+            other => Err(EvalError::type_mismatch("string", other.type_name(), sp)),
+        },
+    );
+
+    // (read-all source) — parse ALL top-level forms; returns a list.
+    interp.register_fn(
+        "read-all",
+        Arity::Exact(1),
+        |args: &[Value], _h: &mut H, sp| match &args[0] {
+            Value::Str(s) => {
+                let forms = tatara_lisp::read_spanned(s)?;
+                let values: Vec<Value> = forms
+                    .iter()
+                    .map(crate::code::spanned_to_value)
+                    .collect();
+                Ok(Value::list(values))
+            }
+            other => Err(EvalError::type_mismatch("string", other.type_name(), sp)),
+        },
+    );
+
+    // (compare a b) — three-way comparison: -1 / 0 / 1. Defined for
+    // numbers and strings; symbols and keywords compare lexically by
+    // their name.
+    interp.register_fn("compare", Arity::Exact(2), |args: &[Value], _h: &mut H, sp| {
+        match (&args[0], &args[1]) {
+            (Value::Int(a), Value::Int(b)) => Ok(Value::Int(cmp_to_int(a.cmp(b)))),
+            (Value::Float(a), Value::Float(b)) => {
+                Ok(Value::Int(cmp_to_int(a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))))
+            }
+            (Value::Int(a), Value::Float(b)) => Ok(Value::Int(cmp_to_int(
+                (*a as f64).partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal),
+            ))),
+            (Value::Float(a), Value::Int(b)) => Ok(Value::Int(cmp_to_int(
+                a.partial_cmp(&(*b as f64)).unwrap_or(std::cmp::Ordering::Equal),
+            ))),
+            (Value::Str(a), Value::Str(b)) => {
+                Ok(Value::Int(cmp_to_int(a.as_ref().cmp(b.as_ref()))))
+            }
+            (Value::Symbol(a), Value::Symbol(b)) => {
+                Ok(Value::Int(cmp_to_int(a.as_ref().cmp(b.as_ref()))))
+            }
+            (Value::Keyword(a), Value::Keyword(b)) => {
+                Ok(Value::Int(cmp_to_int(a.as_ref().cmp(b.as_ref()))))
+            }
+            (a, b) => Err(EvalError::type_mismatch(
+                "comparable values of the same kind",
+                std::boxed::Box::leak(format!("{} vs {}", a.type_name(), b.type_name()).into_boxed_str()),
+                sp,
+            )),
+        }
+    });
+
+    // ── Bit ops ───────────────────────────────────────────────────
+    interp.register_fn(
+        "bit-and",
+        Arity::AtLeast(0),
+        |args: &[Value], _h: &mut H, sp| {
+            let mut acc: i64 = -1;  // all-ones for AND identity
+            for a in args {
+                acc &= expect_int(a, sp)?;
+            }
+            Ok(Value::Int(acc))
+        },
+    );
+    interp.register_fn(
+        "bit-or",
+        Arity::AtLeast(0),
+        |args: &[Value], _h: &mut H, sp| {
+            let mut acc: i64 = 0;
+            for a in args {
+                acc |= expect_int(a, sp)?;
+            }
+            Ok(Value::Int(acc))
+        },
+    );
+    interp.register_fn(
+        "bit-xor",
+        Arity::AtLeast(0),
+        |args: &[Value], _h: &mut H, sp| {
+            let mut acc: i64 = 0;
+            for a in args {
+                acc ^= expect_int(a, sp)?;
+            }
+            Ok(Value::Int(acc))
+        },
+    );
+    interp.register_fn(
+        "bit-not",
+        Arity::Exact(1),
+        |args: &[Value], _h: &mut H, sp| Ok(Value::Int(!expect_int(&args[0], sp)?)),
+    );
+    interp.register_fn(
+        "bit-shift-left",
+        Arity::Exact(2),
+        |args: &[Value], _h: &mut H, sp| {
+            let n = expect_int(&args[0], sp)?;
+            let shift = expect_int(&args[1], sp)? as u32;
+            Ok(Value::Int(n.wrapping_shl(shift)))
+        },
+    );
+    interp.register_fn(
+        "bit-shift-right",
+        Arity::Exact(2),
+        |args: &[Value], _h: &mut H, sp| {
+            let n = expect_int(&args[0], sp)?;
+            let shift = expect_int(&args[1], sp)? as u32;
+            Ok(Value::Int(n.wrapping_shr(shift)))
+        },
+    );
+
     // ── gensym ────────────────────────────────────────────────────
     // Process-global counter — guaranteed unique across all
     // Interpreters in the same process. `(gensym)` returns "g42";
@@ -700,6 +864,14 @@ fn gcd(a: i64, b: i64) -> i64 {
         a
     } else {
         gcd(b, a % b)
+    }
+}
+
+fn cmp_to_int(o: std::cmp::Ordering) -> i64 {
+    match o {
+        std::cmp::Ordering::Less => -1,
+        std::cmp::Ordering::Equal => 0,
+        std::cmp::Ordering::Greater => 1,
     }
 }
 

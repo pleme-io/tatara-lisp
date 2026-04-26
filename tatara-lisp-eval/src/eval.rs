@@ -760,6 +760,9 @@ fn eval_special_tail<H: 'static>(
             sf_macroexpand(items, call_span, env, registry, expander, host, true).map(TailResult::Done)
         }
         SpecialForm::Delay => sf_delay(items, call_span, env).map(TailResult::Done),
+        SpecialForm::Eval => {
+            sf_eval(items, call_span, env, registry, expander, host).map(TailResult::Done)
+        }
         // Non-tail forms: just evaluate normally.
         _ => eval_special(sf, items, call_span, env, registry, expander, host).map(TailResult::Done),
     }
@@ -1009,6 +1012,7 @@ fn eval_special<H: 'static>(
         SpecialForm::MacroexpandOne => sf_macroexpand(items, call_span, env, registry, expander, host, false),
         SpecialForm::MacroexpandAll => sf_macroexpand(items, call_span, env, registry, expander, host, true),
         SpecialForm::Delay => sf_delay(items, call_span, env),
+        SpecialForm::Eval => sf_eval(items, call_span, env, registry, expander, host),
     }
 }
 
@@ -1259,9 +1263,19 @@ fn sf_lambda(items: &[Spanned], span: Span, env: &Env) -> Result<Value> {
             span,
         ));
     }
-    let param_list = items[1]
-        .as_list()
-        .ok_or_else(|| EvalError::bad_form("lambda", "params must be a list", items[1].span))?;
+    // Empty `()` source parses as Nil, not List([]); accept both as
+    // "no parameters". Anything else must be a List.
+    let param_list: &[Spanned] = match &items[1].form {
+        SpannedForm::Nil => &[],
+        SpannedForm::List(xs) => xs.as_slice(),
+        _ => {
+            return Err(EvalError::bad_form(
+                "lambda",
+                "params must be a list",
+                items[1].span,
+            ))
+        }
+    };
     let (params, rest) = parse_lambda_params(param_list, items[1].span)?;
     let body = items[2..].to_vec();
     Ok(Value::Closure(Arc::new(Closure {
@@ -1577,6 +1591,37 @@ fn run_catch_handler<H: 'static>(
     }
     env.pop();
     Ok(last)
+}
+
+/// `(eval form)` — evaluate the runtime Value `form` as code. The
+/// argument is itself evaluated first to obtain the form (typically
+/// a quoted list). The form is then lifted to Spanned, fully expanded
+/// (in case it contains macro calls), and evaluated in the current
+/// env. Returns the result.
+///
+/// Unlocks runtime metaprogramming: `(eval (read-string source))` is
+/// the canonical "compile + run from string" pattern.
+fn sf_eval<H: 'static>(
+    items: &[Spanned],
+    call_span: Span,
+    env: &mut Env,
+    registry: &FnRegistry<H>,
+    expander: &SpannedExpander,
+    host: &mut H,
+) -> Result<Value> {
+    if items.len() != 2 {
+        return Err(EvalError::bad_form(
+            "eval",
+            "expected (eval form)",
+            call_span,
+        ));
+    }
+    let form_value = eval_in(env, registry, expander, &items[1], host)?;
+    let form_spanned = crate::code::value_to_spanned(&form_value, call_span).map_err(|reason| {
+        EvalError::native_fn(Arc::<str>::from("eval"), reason, call_span)
+    })?;
+    let expanded = fully_expand_with(&form_spanned, registry, expander, env, host)?;
+    eval_in(env, registry, expander, &expanded, host)
 }
 
 /// `(delay expr)` — wrap `expr` in a `Value::Promise` whose first

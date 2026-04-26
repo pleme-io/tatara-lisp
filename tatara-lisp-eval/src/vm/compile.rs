@@ -368,6 +368,7 @@ impl<'a> Compiler<'a> {
             Some("and") => self.compile_and(&items[1..], span, tail),
             Some("or") => self.compile_or(&items[1..], span, tail),
             Some("not") => self.compile_not(items, span),
+            Some("try") => self.compile_try(items, span, tail),
             _ => self.compile_call(items, span, tail),
         }
     }
@@ -679,6 +680,142 @@ impl<'a> Compiler<'a> {
             self.patch_jmp(j, end);
         }
         Ok(())
+    }
+
+    /// Compile `(try body... (catch (e) handler...))` to:
+    ///
+    /// ```text
+    ///   PushHandler catch_ip, e_local
+    ///   ... body in order, last value left on stack ...
+    ///   PopHandler
+    ///   Jmp end
+    /// catch_ip:
+    ///   ... handler body, with `e` bound to the error value
+    ///   stored in e_local before this label runs ...
+    /// end:
+    /// ```
+    ///
+    /// If body succeeds: value on stack, handler popped, jump over
+    /// the catch. If body raises: VM unwinds to this frame, binds
+    /// the error to e_local, jumps to catch_ip; handler body runs
+    /// with `e` resolvable as a local.
+    fn compile_try(
+        &mut self,
+        items: &[Spanned],
+        span: Span,
+        tail: bool,
+    ) -> Result<(), CompileError> {
+        if items.len() < 3 {
+            return Err(CompileError::bad(
+                span,
+                "(try body... (catch (e) handler...)): need body + catch",
+            ));
+        }
+        // Last form must be a (catch ...) clause.
+        let catch_form = items.last().unwrap();
+        let catch_list = catch_form.as_list().ok_or_else(|| {
+            CompileError::bad(catch_form.span, "try: last form must be a (catch ...) clause")
+        })?;
+        if catch_list.is_empty() || catch_list[0].as_symbol() != Some("catch") {
+            return Err(CompileError::bad(
+                catch_form.span,
+                "try: last form must be (catch (binding) handler...)",
+            ));
+        }
+        if catch_list.len() < 3 {
+            return Err(CompileError::bad(
+                catch_form.span,
+                "(catch (binding) handler...): need binding + at least one handler form",
+            ));
+        }
+        let binding_list = catch_list[1].as_list().ok_or_else(|| {
+            CompileError::bad(
+                catch_list[1].span,
+                "catch: binding must be a 1-element list (e)",
+            )
+        })?;
+        if binding_list.len() != 1 {
+            return Err(CompileError::bad(
+                catch_list[1].span,
+                "catch: binding must bind exactly one symbol",
+            ));
+        }
+        let error_name = binding_list[0].as_symbol().ok_or_else(|| {
+            CompileError::bad(binding_list[0].span, "catch: binding must be a symbol")
+        })?;
+
+        // Allocate a local slot for the error binding. Reserve it
+        // BEFORE pushing handler so the slot exists when the runtime
+        // writes into it.
+        let error_local = self.alloc_local();
+
+        let push_handler_ip = self.emit_placeholder(
+            Op::PushHandler {
+                catch_ip: 0,
+                error_local,
+            },
+            span,
+        );
+
+        // Body: every form except the trailing catch.
+        let body = &items[1..items.len() - 1];
+        if body.is_empty() {
+            // No body forms — push nil so the success branch has a
+            // value on the stack.
+            self.emit_op(Op::Nil, span);
+        } else {
+            let last = body.len() - 1;
+            for (i, form) in body.iter().enumerate() {
+                self.compile_form(form, /*tail=*/ false)?;
+                if i != last {
+                    self.emit_op(Op::Pop, form.span);
+                }
+            }
+        }
+
+        // Body succeeded — pop the handler and skip over the catch.
+        self.emit_op(Op::PopHandler, span);
+        let jmp_to_end = self.emit_placeholder(Op::Jmp(0), span);
+
+        // Catch target. The runtime jumped here on error and has
+        // already stored the error Value in `error_local`. We need
+        // to bring `error_name` into a lexical scope for the handler
+        // body. Push a fresh scope so the binding doesn't leak.
+        let catch_target_ip = self.current().ops.len();
+        self.push_scope();
+        self.scope_define(Arc::<str>::from(error_name), error_local);
+
+        let handler_body = &catch_list[2..];
+        let last = handler_body.len() - 1;
+        for (i, form) in handler_body.iter().enumerate() {
+            self.compile_form(form, tail && i == last)?;
+            if i != last {
+                self.emit_op(Op::Pop, form.span);
+            }
+        }
+        self.pop_scope();
+
+        let end_ip = self.current().ops.len();
+
+        // Patch the jumps with their final targets.
+        self.patch_push_handler(push_handler_ip, catch_target_ip);
+        self.patch_jmp(jmp_to_end, end_ip);
+        Ok(())
+    }
+
+    fn patch_push_handler(&mut self, ip: usize, target: usize) {
+        let f = self.current_mut();
+        let op = match &f.ops[ip] {
+            Op::PushHandler {
+                error_local,
+                ..
+            } => Op::PushHandler {
+                catch_ip: target,
+                error_local: *error_local,
+            },
+            other => panic!("patch_push_handler on non-PushHandler: {other:?}"),
+        };
+        f.ops[ip] = op;
     }
 
     fn compile_not(&mut self, items: &[Spanned], span: Span) -> Result<(), CompileError> {

@@ -37,6 +37,21 @@ pub enum VmError {
     BadLocal(usize),
 }
 
+/// One installed exception handler. Pushed by `PushHandler`, popped
+/// by `PopHandler` or activated when an error unwinds through this
+/// frame.
+#[derive(Debug, Clone, Copy)]
+struct HandlerRecord {
+    /// IP to jump to on error.
+    catch_ip: usize,
+    /// Local slot to store the error Value into before resuming.
+    error_local: usize,
+    /// Stack length AT push time — on error, the runtime truncates
+    /// any stale temporaries left over from a partially-evaluated
+    /// body so handler logic starts on a clean slate.
+    stack_at_push: usize,
+}
+
 /// One activation record. The VM is a stack of these.
 struct Frame {
     /// The function being executed.
@@ -60,6 +75,8 @@ struct Frame {
     /// slot. After promotion, `set!`/`StoreLocal` writes through the
     /// cell so every closure capturing the slot sees the change.
     local_cells: std::collections::HashMap<usize, Arc<Mutex<Value>>>,
+    /// Active error handlers on this frame, innermost last.
+    handlers: Vec<HandlerRecord>,
 }
 
 /// The VM. Owns the stack + frame stack while a program runs.
@@ -77,7 +94,8 @@ impl Vm {
     }
 
     /// Execute a chunk against the host interpreter. Returns the
-    /// final value (the program's result).
+    /// final value (the program's result). Errors that escape an
+    /// active `(try ...)` handler propagate to the caller.
     pub fn run<H: 'static>(
         &mut self,
         chunk: &Chunk,
@@ -97,6 +115,7 @@ impl Vm {
             stack_base: top_locals,
             captures: Vec::new(),
             local_cells: std::collections::HashMap::new(),
+            handlers: Vec::new(),
         };
         // Reserve slots for locals.
         for _ in 0..top_locals {
@@ -104,7 +123,19 @@ impl Vm {
         }
         self.frames.push(top_frame);
 
-        // Main interpret loop.
+        // Drive the run loop with handler-aware error routing.
+        self.run_with_handlers(chunk, interp, host)
+    }
+
+    /// Inner main interpret loop — runs until Halt, Return at top,
+    /// or an error. Errors are caught by `run_with_handlers` which
+    /// routes them through any installed `(try ...)` handlers.
+    fn run_inner<H: 'static>(
+        &mut self,
+        chunk: &Chunk,
+        interp: &mut Interpreter<H>,
+        host: &mut H,
+    ) -> Result<Value, VmError> {
         loop {
             // Snapshot the current frame fields to avoid simultaneous
             // borrows. We index by `frames.last()` cheaply.
@@ -311,8 +342,101 @@ impl Vm {
                     let items: Vec<Value> = self.stack.drain(len - n..).collect();
                     self.stack.push(Value::list(items));
                 }
+
+                Op::PushHandler {
+                    catch_ip,
+                    error_local,
+                } => {
+                    let stack_at_push = self.stack.len();
+                    self.frames[frame_idx].handlers.push(HandlerRecord {
+                        catch_ip,
+                        error_local,
+                        stack_at_push,
+                    });
+                }
+                Op::PopHandler => {
+                    self.frames[frame_idx].handlers.pop();
+                }
             }
         }
+    }
+
+    /// Wrap the raw run loop so any propagating error gets routed
+    /// through the nearest installed handler. Frames above the
+    /// handler are unwound; the handler's frame jumps to its
+    /// `catch_ip` with the error value stored at `error_local`.
+    fn run_with_handlers<H: 'static>(
+        &mut self,
+        chunk: &Chunk,
+        interp: &mut Interpreter<H>,
+        host: &mut H,
+    ) -> Result<Value, VmError> {
+        loop {
+            match self.run_inner(chunk, interp, host) {
+                Ok(v) => return Ok(v),
+                Err(VmError::Eval(eval_err)) => {
+                    let err_value = vm_err_to_value(&eval_err);
+                    if !self.unwind_to_handler(err_value) {
+                        return Err(VmError::Eval(eval_err));
+                    }
+                }
+                Err(other) => {
+                    let err_value = vm_runtime_err_to_value(&other);
+                    if !self.unwind_to_handler(err_value) {
+                        return Err(other);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Find the nearest frame with at least one installed handler
+    /// and jump to it. Pops every frame above; truncates the value
+    /// stack to the handler's snapshot; stores `err_value` into the
+    /// handler's `error_local`; sets the handler-frame's IP to
+    /// `catch_ip`. Returns `false` if no handler is installed
+    /// anywhere — caller propagates the error to the embedder.
+    fn unwind_to_handler(&mut self, err_value: Value) -> bool {
+        // Walk frames innermost → outermost looking for a handler.
+        for frame_idx in (0..self.frames.len()).rev() {
+            if !self.frames[frame_idx].handlers.is_empty() {
+                // Pop every frame above this one.
+                while self.frames.len() > frame_idx + 1 {
+                    let f = self.frames.pop().unwrap();
+                    self.stack.truncate(f.locals_base);
+                }
+                // Pop the most recent handler from THIS frame.
+                let handler = self.frames[frame_idx]
+                    .handlers
+                    .pop()
+                    .expect("handler present");
+                // Truncate the value stack to whatever it was at
+                // PushHandler time so handler logic starts clean.
+                self.stack.truncate(handler.stack_at_push);
+                // Store the error value into the handler's local slot.
+                let abs = self.frames[frame_idx].locals_base + handler.error_local;
+                // The slot may have been promoted to a cell.
+                if let Some(cell) = self.frames[frame_idx]
+                    .local_cells
+                    .get(&handler.error_local)
+                    .cloned()
+                {
+                    *cell.lock().unwrap() = err_value;
+                } else if abs < self.stack.len() {
+                    self.stack[abs] = err_value;
+                } else {
+                    // Grow the stack with nils until we can write.
+                    while self.stack.len() <= abs {
+                        self.stack.push(Value::Nil);
+                    }
+                    self.stack[abs] = err_value;
+                }
+                // Resume at the handler.
+                self.frames[frame_idx].ip = handler.catch_ip;
+                return true;
+            }
+        }
+        false
     }
 
     fn pop_or_nil(&mut self) -> Value {
@@ -437,6 +561,7 @@ impl Vm {
             f.ip = 0;
             f.captures = cc.captures.clone();
             f.local_cells.clear();
+            f.handlers.clear();
             // stack_base relative to locals_base stays the same.
             f.stack_base = f.locals_base + body.locals;
         } else {
@@ -453,6 +578,7 @@ impl Vm {
                 stack_base,
                 captures: cc.captures.clone(),
                 local_cells: std::collections::HashMap::new(),
+                handlers: Vec::new(),
             });
         }
         Ok(())
@@ -463,6 +589,58 @@ impl Default for Vm {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Convert an `EvalError` into a `Value::Error` so a try/catch
+/// handler can observe Rust-side errors uniformly with user-thrown
+/// ones. User-thrown errors (carried in `EvalError::User`) preserve
+/// their original `Value` for transparency.
+fn vm_err_to_value(err: &crate::error::EvalError) -> Value {
+    use crate::error::EvalError::*;
+    if let User { value, .. } = err {
+        return value.clone();
+    }
+    let tag: Arc<str> = match err {
+        UnboundSymbol { .. } => Arc::from("unbound-symbol"),
+        ArityMismatch { .. } => Arc::from("arity-mismatch"),
+        TypeMismatch { .. } => Arc::from("type-mismatch"),
+        DivisionByZero { .. } => Arc::from("division-by-zero"),
+        NotCallable { .. } => Arc::from("not-callable"),
+        BadSpecialForm { .. } => Arc::from("bad-special-form"),
+        NativeFn { .. } => Arc::from("native-fn"),
+        Reader(_) => Arc::from("reader"),
+        Halted => Arc::from("halted"),
+        NotImplemented(_) => Arc::from("not-implemented"),
+        User { .. } => unreachable!(),
+    };
+    Value::Error(Arc::new(crate::value::ErrorObj {
+        tag,
+        message: Arc::from(err.short_message()),
+        data: Vec::new(),
+    }))
+}
+
+/// Convert a non-EvalError VM error (Underflow, BadLocal, Unbound,
+/// NotCallable, Arity) into a `Value::Error` for handler routing.
+fn vm_runtime_err_to_value(err: &VmError) -> Value {
+    let (tag, message): (&str, String) = match err {
+        VmError::Underflow { ip } => ("vm-underflow", format!("stack underflow at op {ip}")),
+        VmError::Unbound { name, .. } => ("unbound-symbol", format!("unbound symbol `{name}`")),
+        VmError::NotCallable { kind, .. } => {
+            ("not-callable", format!("value of type {kind} is not callable"))
+        }
+        VmError::Arity { expected, got, .. } => (
+            "arity-mismatch",
+            format!("expected {expected} args, got {got}"),
+        ),
+        VmError::BadLocal(idx) => ("bad-local", format!("local index out of bounds: {idx}")),
+        VmError::Eval(inner) => return vm_err_to_value(inner),
+    };
+    Value::Error(Arc::new(crate::value::ErrorObj {
+        tag: Arc::from(tag),
+        message: Arc::from(message),
+        data: Vec::new(),
+    }))
 }
 
 /// Foreign-tagged compiled closure — the VM's native callable shape.
@@ -662,6 +840,90 @@ mod tests {
                  ((f 3) 4)))",
         );
         assert!(matches!(v, Value::Int(12)));
+    }
+
+    // ── VM Phase 4: try / catch ────────────────────────────────────
+
+    #[test]
+    fn try_returns_body_value_when_no_throw() {
+        let v = run_vm(
+            "(try
+               (+ 1 2 3)
+               (catch (e) :unreachable))",
+        );
+        assert!(matches!(v, Value::Int(6)));
+    }
+
+    #[test]
+    fn try_catches_user_throw() {
+        let v = run_vm(
+            "(try
+               (throw (ex-info \"boom\" (list)))
+               (catch (e) (error-message e)))",
+        );
+        match v {
+            Value::Str(s) => assert_eq!(&*s, "boom"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn try_catches_runtime_error() {
+        // Type mismatch from a primitive — Rust-side error, not user
+        // throw. The VM converts it to a Value::Error and routes
+        // through the handler.
+        let v = run_vm(
+            "(try
+               (+ 1 \"oops\")
+               (catch (e) (error-tag e)))",
+        );
+        // type-mismatch is the canonical tag for type errors.
+        match v {
+            Value::Keyword(s) => assert_eq!(&*s, "type-mismatch"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn try_inside_a_function_body() {
+        // The try frame is the lambda's frame, not the top-level.
+        // Verifies handler unwinding when the inner frame is the
+        // one with the handler installed.
+        let v = run_vm(
+            "(define (safe-div a b)
+               (try
+                 (/ a b)
+                 (catch (e) :div-failed)))
+             (safe-div 10 0)",
+        );
+        assert!(matches!(v, Value::Keyword(s) if &*s == "div-failed"));
+    }
+
+    #[test]
+    fn nested_try_inner_catches_first() {
+        let v = run_vm(
+            "(try
+               (try
+                 (throw (ex-info \"inner\" (list)))
+                 (catch (e) :inner-caught))
+               (catch (e) :outer-caught))",
+        );
+        assert!(matches!(v, Value::Keyword(s) if &*s == "inner-caught"));
+    }
+
+    #[test]
+    fn try_handler_can_rethrow_to_outer() {
+        let v = run_vm(
+            "(try
+               (try
+                 (throw (ex-info \"first\" (list)))
+                 (catch (e) (throw (ex-info \"rethrown\" (list)))))
+               (catch (e) (error-message e)))",
+        );
+        match v {
+            Value::Str(s) => assert_eq!(&*s, "rethrown"),
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]

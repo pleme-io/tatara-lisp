@@ -79,6 +79,18 @@ pub enum Op {
     MakeList(usize),
 
     // ── Termination ──────────────────────────────────────────────
+    // ── Exceptions / try-catch ────────────────────────────────────
+    /// Push an error handler onto the current frame's handler stack.
+    /// `catch_ip` is the absolute IP to jump to on error. `error_local`
+    /// is the local slot the runtime stores the error Value into
+    /// before resuming at `catch_ip`. Stack effect: 0.
+    PushHandler {
+        catch_ip: usize,
+        error_local: usize,
+    },
+    /// Pop the most recent handler. Stack effect: 0.
+    PopHandler,
+
     /// `→` — stop the program. The top-of-stack value becomes the
     /// program's result.
     Halt,
@@ -102,6 +114,7 @@ impl Op {
             Self::Return => -1,
             Self::MakeClosure(_) => 1,
             Self::MakeList(n) => 1 - *n as i32,
+            Self::PushHandler { .. } | Self::PopHandler => 0,
             Self::Halt => 0,
         })
     }

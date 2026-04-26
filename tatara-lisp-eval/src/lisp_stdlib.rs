@@ -994,4 +994,123 @@ mod tests {
         assert!(matches!(run("(unwrap-or 5 99)"), Value::Int(5)));
         assert!(matches!(run("(unwrap-or () 99)"), Value::Int(99)));
     }
+
+    // ── Pattern matching ──────────────────────────────────────────
+
+    #[test]
+    fn match_wildcard_catches_all() {
+        let v = run("(match 42 (_ \"anything\"))");
+        assert_eq!(format!("{v}"), "\"anything\"");
+    }
+
+    #[test]
+    fn match_literal_int() {
+        let v = run(
+            "(match 2
+               (1 \"one\")
+               (2 \"two\")
+               (else \"other\"))",
+        );
+        assert_eq!(format!("{v}"), "\"two\"");
+    }
+
+    #[test]
+    fn match_literal_keyword() {
+        let v = run(
+            "(match :red
+               (:green \"go\")
+               (:red   \"stop\")
+               (else   \"unknown\"))",
+        );
+        assert_eq!(format!("{v}"), "\"stop\"");
+    }
+
+    #[test]
+    fn match_symbol_binds() {
+        let v = run("(match 99 (n (* n 2)))");
+        assert!(matches!(v, Value::Int(198)));
+    }
+
+    #[test]
+    fn match_falls_through_to_else() {
+        let v = run(
+            "(match 999
+               (1 \"one\")
+               (2 \"two\")
+               (else \"other\"))",
+        );
+        assert_eq!(format!("{v}"), "\"other\"");
+    }
+
+    #[test]
+    fn match_quoted_symbol_matches_specific() {
+        let v = run(
+            "(define s (quote hello))
+             (match s
+               ((quote hello) \"hi\")
+               ((quote bye)   \"goodbye\")
+               (else          \"?\"))",
+        );
+        assert_eq!(format!("{v}"), "\"hi\"");
+    }
+
+    #[test]
+    fn match_list_pattern_destructures() {
+        let v = run(
+            "(match (list 1 2 3)
+               ((a b c) (+ a b c))
+               (else 0))",
+        );
+        assert!(matches!(v, Value::Int(6)));
+    }
+
+    #[test]
+    fn match_list_pattern_length_mismatch_skips() {
+        let v = run(
+            "(match (list 1 2 3 4)
+               ((a b c)   :three)
+               ((a b c d) :four)
+               (else      :other))",
+        );
+        assert!(matches!(v, Value::Keyword(s) if &*s == "four"));
+    }
+
+    #[test]
+    fn match_predicate_with_bind() {
+        let v = run(
+            "(match 7
+               ((? even? n) (string-append \"even \" (string n)))
+               ((? odd?  n) (string-append \"odd \"  (string n)))
+               (else \"?\"))",
+        );
+        // 7 is odd
+        assert_eq!(format!("{v}"), "\"odd 7\"");
+    }
+
+    #[test]
+    fn match_nested_list_pattern() {
+        let v = run(
+            "(match (list :pair (list 3 4))
+               ((:pair (x y)) (+ x y))
+               (else 0))",
+        );
+        assert!(matches!(v, Value::Int(7)));
+    }
+
+    #[test]
+    fn match_in_a_function() {
+        let v = run(
+            "(define (classify shape)
+               (match shape
+                 ((quote circle)        :round)
+                 ((:square side)        (* side side))
+                 ((? number? n)         n)
+                 (else                  :unknown)))
+             (list (classify (quote circle))
+                   (classify (list :square 5))
+                   (classify 42)
+                   (classify (list :triangle 1 2 3)))",
+        );
+        assert_eq!(format!("{v}"), "(:round 25 42 :unknown)");
+    }
 }

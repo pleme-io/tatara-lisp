@@ -972,3 +972,120 @@
 ;; (unwrap-or value default) — return value if non-nil, else default.
 (define (unwrap-or v default)
   (if (null? v) default v))
+
+;; ====================================================================
+;; PATTERN MATCHING — (match expr clauses...)
+;; --------------------------------------------------------------------
+;; Supported pattern shapes:
+;;
+;;   _                      wildcard — matches anything, no binding
+;;   var                    symbol — matches anything, binds var
+;;   42 / "x" / :k / #t     literal — matches by equal?
+;;   (quote sym)            exact symbol match
+;;   (sub-pattern ...)      list pattern — matches list of same length;
+;;                          each element matched against sub-pattern
+;;   (? pred? name)         predicate-with-bind: matches if (pred? val)
+;;                          is truthy; binds name to val
+;;   (? pred?)              predicate without bind
+;;   else                   final catch-all clause
+;;
+;; Patterns compile to nested if/let at expansion time — no runtime
+;; pattern-matching engine. Each clause's body runs in a scope where
+;; the bound names are visible.
+;;
+;; Examples:
+;;
+;;   (match shape
+;;     ((quote circle)              "round")
+;;     ((:square side)              (string-append "sq " (string side)))
+;;     ((? number? n)               (string-append "num " (string n)))
+;;     ((head rest-of-list)         "two-elem list")
+;;     (_                            "unknown"))
+;; ====================================================================
+
+;; Compile a single pattern against a value-symbol. Returns a list:
+;;   (test-expr binding-list)
+;; where test-expr is a Spanned form that evaluates to truthy iff the
+;; value matches the pattern, and binding-list is a list of (name expr)
+;; forms suitable for splicing into a `let`.
+(define (compile-match-pattern val-sym pattern)
+  (cond
+    ;; Wildcard
+    ((equal? pattern (quote _))
+     (list #t (list)))
+    ;; Symbol → bind
+    ((symbol? pattern)
+     (list #t (list (list pattern val-sym))))
+    ;; Literal scalars
+    ((or (number? pattern) (string? pattern) (boolean? pattern))
+     (list `(equal? ,val-sym ,pattern) (list)))
+    ;; Keyword literal (treated as exact match — keywords are values).
+    ((keyword? pattern)
+     (list `(equal? ,val-sym ,pattern) (list)))
+    ;; (quote sym) — match a specific symbol
+    ((and (list? pattern)
+          (= (length pattern) 2)
+          (equal? (car pattern) (quote quote)))
+     (list `(equal? ,val-sym (quote ,(second pattern))) (list)))
+    ;; (? pred ?name) — predicate with optional bind
+    ((and (list? pattern)
+          (>= (length pattern) 2)
+          (equal? (car pattern) (quote ?)))
+     (let ((pred-expr (second pattern))
+           (bind-name (if (= (length pattern) 3) (third pattern) ())))
+       (list (if (null? bind-name)
+                 `(,pred-expr ,val-sym)
+                 `(,pred-expr ,val-sym))
+             (if (null? bind-name)
+                 (list)
+                 (list (list bind-name val-sym))))))
+    ;; List pattern: recursive match on each element.
+    ((list? pattern)
+     (compile-list-pattern val-sym pattern))
+    (else
+     (error :match "unsupported pattern shape"))))
+
+;; List pattern: emit a test that checks list-ness, length, and each
+;; element. Bindings concatenate.
+(define (compile-list-pattern val-sym pattern)
+  (let* ((n (length pattern))
+         ;; Pair each element-pattern with a fresh symbol referring to
+         ;; the corresponding element.
+         (idx-patterns (zip (range n) pattern))
+         (sub-results
+           (map (lambda (i+p)
+                  (let ((i (car i+p))
+                        (p (second i+p)))
+                    (compile-match-pattern `(nth ,i ,val-sym) p)))
+                idx-patterns))
+         (sub-tests (map car sub-results))
+         (sub-binds (map second sub-results))
+         (length-test
+           `(and (list? ,val-sym) (= (length ,val-sym) ,n)))
+         (combined-test
+           `(and ,length-test ,@sub-tests))
+         (combined-binds
+           (apply append sub-binds)))
+    (list combined-test combined-binds)))
+
+;; Emit the cond chain for a list of clauses.
+(define (compile-match-clauses val-sym clauses)
+  (if (null? clauses)
+      ()
+      (let* ((clause (car clauses))
+             (pattern (car clause))
+             (body (cdr clause)))
+        (if (equal? pattern (quote else))
+            `(begin ,@body)
+            (let* ((compiled (compile-match-pattern val-sym pattern))
+                   (test (car compiled))
+                   (binds (second compiled)))
+              `(if ,test
+                   (let ,binds ,@body)
+                   ,(compile-match-clauses val-sym (cdr clauses))))))))
+
+;; The macro itself.
+(defmacro match (expr &rest clauses)
+  (with-gensyms (m-val)
+    `(let ((,m-val ,expr))
+       ,(compile-match-clauses m-val clauses))))

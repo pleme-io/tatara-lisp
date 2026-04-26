@@ -79,6 +79,7 @@ pub const PRIMITIVE_NAMES: &[&str] = &[
     // strings
     "string-length",
     "string-append",
+    "string",
     // string <-> symbol/keyword
     "symbol->string",
     "keyword->string",
@@ -291,6 +292,17 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
             Ok(Value::Str(Arc::from(out)))
         },
     );
+
+    // (string x) — universal Value → string conversion via Display.
+    // Clojure idiom — works on any Value.
+    interp.register_fn("string", Arity::Exact(1), |args: &[Value], _h: &mut H, _sp| {
+        let s = match &args[0] {
+            // Strings pass through unchanged (no quoting).
+            Value::Str(s) => s.to_string(),
+            other => format!("{other}"),
+        };
+        Ok(Value::Str(Arc::from(s)))
+    });
 
     // ── More numeric ──────────────────────────────────────────────
     interp.register_fn(

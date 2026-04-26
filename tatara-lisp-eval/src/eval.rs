@@ -437,10 +437,11 @@ fn eval_atom(a: &Atom, span: Span, env: &Env) -> Result<Value> {
     }
 }
 
-/// `(quote x)` yields the source form `x` unevaluated, carrying its span
-/// so consumers can pattern-match on structure.
+/// `'x` (Quote node from the reader) — yields the runtime value of x
+/// without evaluation. Symbol → Value::Symbol; list → Value::List of
+/// lowered children. Same semantics as the explicit `(quote x)`.
 fn quoted_value(inner: &Spanned) -> Value {
-    Value::Sexp(inner.to_sexp(), inner.span)
+    crate::code::spanned_to_value(inner)
 }
 
 /// Evaluate a quasiquoted form — unlike `quote`, `,expr` inside the form
@@ -1019,7 +1020,12 @@ fn sf_quote(items: &[Spanned], span: Span) -> Result<Value> {
             span,
         ));
     }
-    Ok(Value::Sexp(items[1].to_sexp(), items[1].span))
+    // Scheme / Clojure semantics: (quote x) returns the runtime
+    // structural value of x. A bare symbol becomes Value::Symbol; a
+    // list becomes Value::List of recursively-lowered items; etc.
+    // This is what makes (car '(a b c)) return the symbol `a` —
+    // exactly what users expect from a Lisp.
+    Ok(crate::code::spanned_to_value(&items[1]))
 }
 
 fn sf_if<H: 'static>(
@@ -1865,10 +1871,17 @@ mod tests {
     }
 
     #[test]
-    fn quote_returns_source_form() {
+    fn quote_returns_runtime_list_of_symbols() {
+        // Scheme/Clojure semantics: '(a b c) yields a runtime list of
+        // three symbols, not a wrapped source-form Sexp.
         let v = eval_ok("'(a b c)");
         match v {
-            Value::Sexp(Sexp::List(xs), _) => assert_eq!(xs.len(), 3),
+            Value::List(xs) => {
+                assert_eq!(xs.len(), 3);
+                assert!(matches!(&xs[0], Value::Symbol(s) if s.as_ref() == "a"));
+                assert!(matches!(&xs[1], Value::Symbol(s) if s.as_ref() == "b"));
+                assert!(matches!(&xs[2], Value::Symbol(s) if s.as_ref() == "c"));
+            }
             other => panic!("{other:?}"),
         }
     }

@@ -72,6 +72,12 @@ impl Default for CompiledFn {
 /// Constant pool for non-immediate Values that the program references.
 /// Strings, lists, etc. — anything that doesn't fit a tagged-integer
 /// or boolean opcode gets stashed here and indexed by `Op::Const(idx)`.
+///
+/// Deduplicates cheaply-comparable scalars (Symbol / Keyword / Str /
+/// Float) at insertion time — repeat literals collapse to one entry.
+/// More expensive comparisons (List, Map, Sexp) are left un-deduped:
+/// detecting structural equality would be O(n) per push, and these
+/// rarely repeat byte-identically anyway.
 #[derive(Debug, Default, Clone)]
 pub struct ConstPool {
     pub values: Vec<Value>,
@@ -82,13 +88,41 @@ impl ConstPool {
         Self::default()
     }
 
-    /// Insert a constant + return its index. Doesn't dedupe — the
-    /// compiler can hand-dedupe via small caches if it cares; for now
-    /// simplicity wins.
+    /// Insert a constant + return its index. Dedupes scalar
+    /// constants by Arc-pointer / value equality; otherwise appends.
     pub fn push(&mut self, v: Value) -> usize {
+        if let Some(idx) = self.lookup_existing(&v) {
+            return idx;
+        }
         let idx = self.values.len();
         self.values.push(v);
         idx
+    }
+
+    /// Look up an existing equivalent constant. Restricted to scalar
+    /// kinds where comparison is O(1) or O(name-length): Symbol /
+    /// Keyword / Str compare by Arc-pointer first (covers the common
+    /// case where the interner has already shared the Arc), falling
+    /// back to byte equality. Float compares by bit-pattern (NaN
+    /// dedupes consistently). Bool / Int / Nil are emitted via
+    /// dedicated opcodes — they don't reach the const pool.
+    fn lookup_existing(&self, v: &Value) -> Option<usize> {
+        for (i, existing) in self.values.iter().enumerate() {
+            if Self::scalar_equal(existing, v) {
+                return Some(i);
+            }
+        }
+        None
+    }
+
+    fn scalar_equal(a: &Value, b: &Value) -> bool {
+        match (a, b) {
+            (Value::Symbol(x), Value::Symbol(y))
+            | (Value::Keyword(x), Value::Keyword(y))
+            | (Value::Str(x), Value::Str(y)) => std::sync::Arc::ptr_eq(x, y) || **x == **y,
+            (Value::Float(x), Value::Float(y)) => x.to_bits() == y.to_bits(),
+            _ => false,
+        }
     }
 
     pub fn get(&self, idx: usize) -> &Value {
@@ -142,4 +176,61 @@ pub struct Chunk {
     pub consts: ConstPool,
     /// Name pool — global symbol names + local-scope param names.
     pub names: NamePool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn const_pool_dedupes_repeat_strings() {
+        let mut pool = ConstPool::new();
+        let a = pool.push(Value::Str(Arc::from("hello")));
+        let b = pool.push(Value::Str(Arc::from("hello")));
+        let c = pool.push(Value::Str(Arc::from("world")));
+        assert_eq!(a, b, "repeat string must dedupe");
+        assert_ne!(a, c);
+        assert_eq!(pool.values.len(), 2);
+    }
+
+    #[test]
+    fn const_pool_dedupes_interned_symbols() {
+        let mut pool = ConstPool::new();
+        let s1 = crate::interner::intern("foo");
+        let s2 = crate::interner::intern("foo");
+        let a = pool.push(Value::Symbol(s1));
+        let b = pool.push(Value::Symbol(s2));
+        assert_eq!(a, b);
+        assert_eq!(pool.values.len(), 1);
+    }
+
+    #[test]
+    fn const_pool_dedupes_floats_by_bits() {
+        let mut pool = ConstPool::new();
+        let a = pool.push(Value::Float(3.14));
+        let b = pool.push(Value::Float(3.14));
+        let c = pool.push(Value::Float(2.71));
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+        assert_eq!(pool.values.len(), 2);
+    }
+
+    #[test]
+    fn const_pool_does_not_dedupe_lists() {
+        // Structural equality on lists would be O(n) per push;
+        // we explicitly skip it. This documents the trade-off.
+        let mut pool = ConstPool::new();
+        let _ = pool.push(Value::list(vec![Value::Int(1), Value::Int(2)]));
+        let _ = pool.push(Value::list(vec![Value::Int(1), Value::Int(2)]));
+        assert_eq!(pool.values.len(), 2, "lists deliberately not deduped");
+    }
+
+    #[test]
+    fn name_pool_intern_returns_same_index() {
+        let mut p = NamePool::new();
+        let a = p.intern("foo");
+        let b = p.intern("foo");
+        assert_eq!(a, b);
+        assert_eq!(p.names.len(), 1);
+    }
 }

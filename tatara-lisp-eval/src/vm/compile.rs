@@ -278,8 +278,8 @@ impl<'a> Compiler<'a> {
                 // their runtime shape. Mirror `quasiquote_eval` in
                 // eval.rs so behavior is identical.
                 let v = match a {
-                    Atom::Symbol(s) => Value::Symbol(Arc::from(s.as_str())),
-                    Atom::Keyword(s) => Value::Keyword(Arc::from(s.as_str())),
+                    Atom::Symbol(s) => Value::Symbol(crate::interner::intern(s.as_str())),
+                    Atom::Keyword(s) => Value::Keyword(crate::interner::intern(s.as_str())),
                     Atom::Str(s) => Value::Str(Arc::from(s.as_str())),
                     Atom::Int(n) => Value::Int(*n),
                     Atom::Float(n) => Value::Float(*n),
@@ -394,7 +394,7 @@ impl<'a> Compiler<'a> {
                 let idx = self
                     .chunk
                     .consts
-                    .push(Value::Keyword(Arc::from(s.as_str())));
+                    .push(Value::Keyword(crate::interner::intern(s.as_str())));
                 self.emit_op(Op::Const(idx), span);
             }
             Atom::Symbol(name) => {

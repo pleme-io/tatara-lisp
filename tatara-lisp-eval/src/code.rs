@@ -62,8 +62,14 @@ pub fn spanned_to_value(s: &Spanned) -> Value {
 
 fn atom_to_value(a: &Atom) -> Value {
     match a {
-        Atom::Symbol(s) => Value::Symbol(Arc::from(s.as_str())),
-        Atom::Keyword(s) => Value::Keyword(Arc::from(s.as_str())),
+        // Symbols + keywords go through the thread-local interner —
+        // repeat occurrences of `+`, `if`, `:foo` reuse the same
+        // Arc<str> across the whole program.
+        Atom::Symbol(s) => Value::Symbol(crate::interner::intern(s.as_str())),
+        Atom::Keyword(s) => Value::Keyword(crate::interner::intern(s.as_str())),
+        // Strings stay un-interned — they're typically content
+        // payloads (log lines, hostnames), not name-like, so
+        // interning would only inflate the table.
         Atom::Str(s) => Value::Str(Arc::from(s.as_str())),
         Atom::Int(n) => Value::Int(*n),
         Atom::Float(n) => Value::Float(*n),
@@ -72,7 +78,7 @@ fn atom_to_value(a: &Atom) -> Value {
 }
 
 fn wrap_with_head_symbol(head: &'static str, inner: Value) -> Value {
-    Value::list(vec![Value::Symbol(Arc::from(head)), inner])
+    Value::list(vec![Value::Symbol(crate::interner::intern(head)), inner])
 }
 
 /// Lift a Value back into a Spanned tree, stamping every node with

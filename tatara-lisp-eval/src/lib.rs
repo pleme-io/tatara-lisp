@@ -24,6 +24,7 @@ pub mod eval;
 pub mod ffi;
 pub mod fiber;
 pub mod hof;
+pub mod interner;
 pub mod lisp_stdlib;
 pub mod map;
 pub mod module;

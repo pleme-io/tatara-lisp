@@ -788,7 +788,7 @@ fn eval_atom(a: &Atom, span: Span, env: &Env) -> Result<Value> {
         Atom::Symbol(name) => env
             .lookup(name)
             .ok_or_else(|| EvalError::unbound(name.as_str(), span)),
-        Atom::Keyword(s) => Ok(Value::Keyword(Arc::from(s.as_str()))),
+        Atom::Keyword(s) => Ok(Value::Keyword(crate::interner::intern(s.as_str()))),
         Atom::Str(s) => Ok(Value::Str(Arc::from(s.as_str()))),
         Atom::Int(n) => Ok(Value::Int(*n)),
         Atom::Float(n) => Ok(Value::Float(*n)),
@@ -850,8 +850,8 @@ fn quasiquote_eval<H: 'static>(
         }
         SpannedForm::Nil => Ok(Value::Nil),
         SpannedForm::Atom(a) => Ok(match a {
-            Atom::Symbol(s) => Value::Symbol(Arc::from(s.as_str())),
-            Atom::Keyword(s) => Value::Keyword(Arc::from(s.as_str())),
+            Atom::Symbol(s) => Value::Symbol(crate::interner::intern(s.as_str())),
+            Atom::Keyword(s) => Value::Keyword(crate::interner::intern(s.as_str())),
             Atom::Str(s) => Value::Str(Arc::from(s.as_str())),
             Atom::Int(n) => Value::Int(*n),
             Atom::Float(n) => Value::Float(*n),

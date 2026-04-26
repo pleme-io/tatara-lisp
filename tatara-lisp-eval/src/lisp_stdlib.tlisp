@@ -839,3 +839,136 @@
 ;; (repeat-lazy x) → (x x x ...) — infinite.
 (define (repeat-lazy x)
   (lazy-cons x (repeat-lazy x)))
+
+;; ====================================================================
+;; HYGIENIC MACRO HELPERS — with-gensyms
+;; --------------------------------------------------------------------
+;; CL-style hygiene: bind a list of names to fresh gensyms and run a
+;; body that uses them. Cleanest pattern for introducing fresh symbols
+;; in macro expansions without name-capture risk.
+;;
+;; Usage inside a macro body:
+;;
+;;   (defmacro swap! (a b)
+;;     (with-gensyms (tmp)
+;;       `(let ((,tmp ,a))
+;;          (set! ,a ,b)
+;;          (set! ,b ,tmp))))
+;; ====================================================================
+
+(defmacro with-gensyms (names &rest body)
+  `(let (,@(map (lambda (n) (list n `(gensym ,(symbol->string n))))
+                names))
+     ,@body))
+
+;; ====================================================================
+;; CLOJURE-FLAVOR SEQUENCE / MAP HELPERS
+;; --------------------------------------------------------------------
+;; Bridges between hash-maps and lists, plus path-based update.
+;; ====================================================================
+
+;; (assoc m k v) — alias for hash-map-set; returns m with k→v.
+(define (assoc m k v) (hash-map-set m k v))
+
+;; (dissoc m k) — alias for hash-map-remove.
+(define (dissoc m k) (hash-map-remove m k))
+
+;; (get m k) — alias for hash-map-get; returns nil if missing.
+(define (get m k) (hash-map-get m k))
+
+;; (get-in m path) — walk a chain of nested hash-maps via the path.
+;; (get-in {:a {:b {:c 42}}} '(:a :b :c)) → 42.
+(define (get-in m path)
+  (cond
+    ((null? path) m)
+    ((null? m) ())
+    (else (get-in (hash-map-get m (car path)) (cdr path)))))
+
+;; (assoc-in m path v) — set a deeply-nested value, building intermediate
+;; hash-maps as needed. Returns a new outer map.
+(define (assoc-in m path v)
+  (cond
+    ((null? path) v)
+    ((null? (cdr path))
+     (hash-map-set (or m (hash-map)) (car path) v))
+    (else
+     (let ((sub (or (hash-map-get m (car path)) (hash-map))))
+       (hash-map-set (or m (hash-map))
+                     (car path)
+                     (assoc-in sub (cdr path) v))))))
+
+;; (update-in m path fn) — apply fn to the value at path; like assoc-in
+;; but value computed from current.
+(define (update-in m path f)
+  (assoc-in m path (f (get-in m path))))
+
+;; (frequencies xs) → hash-map of value→count. Counts equal? items.
+;; Limitation: keys must be hashable (no list/map keys; throws if so).
+(define (frequencies xs)
+  (foldl (lambda (acc x)
+           (hash-map-update acc x (lambda (n) (if (null? n) 1 (+ n 1)))))
+         (hash-map) xs))
+
+;; (group-by-into-map f xs) → hash-map of key→list, where each item x
+;; in xs is grouped by (f x). Preserves first-seen order WITHIN each
+;; group (Clojure semantics).
+(define (group-by-into-map f xs)
+  (foldl (lambda (acc x)
+           (let* ((k (f x))
+                  (current (or (hash-map-get acc k) (list))))
+             (hash-map-set acc k (append current (list x)))))
+         (hash-map) xs))
+
+;; (into-hash-map plist-or-pairs) — convert an alternating-key-value
+;; list (or list of (k v) pairs) into a hash-map.
+(define (into-hash-map xs)
+  (cond
+    ((null? xs) (hash-map))
+    ;; Detect list-of-pairs: first element is a 2-element list.
+    ((and (list? (car xs))
+          (= (length (car xs)) 2))
+     (foldl (lambda (acc pair)
+              (hash-map-set acc (car pair) (second pair)))
+            (hash-map) xs))
+    ;; Else treat as alternating k v.
+    (else
+     (apply hash-map xs))))
+
+;; (select-keys m keys) → sub-map containing only the requested keys.
+(define (select-keys m keys)
+  (foldl (lambda (acc k)
+           (if (hash-map-has? m k)
+               (hash-map-set acc k (hash-map-get m k))
+               acc))
+         (hash-map) keys))
+
+;; (zipmap keys values) → hash-map pairing keys with values.
+(define (zipmap keys vals)
+  (foldl (lambda (acc pair)
+           (hash-map-set acc (car pair) (second pair)))
+         (hash-map) (zip keys vals)))
+
+;; (count xs) — universal length: handles list, map, string.
+(define (count xs)
+  (cond
+    ((null? xs) 0)
+    ((list? xs) (length xs))
+    ((hash-map? xs) (hash-map-count xs))
+    ((string? xs) (string-length xs))
+    (else (error :count "not countable"))))
+
+;; ====================================================================
+;; MISC UTILITIES
+;; ====================================================================
+
+;; (assert pred? message) — throws if pred? is false.
+(defmacro assert (pred message)
+  `(when (not ,pred)
+     (throw (ex-info ,message ()))))
+
+;; (comment ...) — silently elided. Useful for top-level disabled code.
+(defmacro comment (&rest _) ())
+
+;; (unwrap-or value default) — return value if non-nil, else default.
+(define (unwrap-or v default)
+  (if (null? v) default v))

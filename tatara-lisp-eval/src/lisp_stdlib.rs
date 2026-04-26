@@ -835,4 +835,163 @@ mod tests {
         );
         assert_eq!(format!("{v}"), "(5 6 7)");
     }
+
+    // ── with-gensyms / hygiene ────────────────────────────────────
+
+    #[test]
+    fn with_gensyms_provides_unique_symbols() {
+        // Each symbol should be a fresh, unique gensym at expansion time.
+        let v = run(
+            "(define result
+               (with-gensyms (a b)
+                 ;; Inside a regular (not macro) call, with-gensyms binds
+                 ;; runtime symbols. Verify by checking they're distinct.
+                 (list a b)))
+             (not= (first result) (second result))",
+        );
+        assert!(matches!(v, Value::Bool(true)));
+    }
+
+    #[test]
+    fn with_gensyms_inside_a_macro() {
+        // Real use case: macro that introduces a hygienic temp.
+        let v = run(
+            "(defmacro double-twice (x)
+               (with-gensyms (tmp)
+                 `(let ((,tmp ,x))
+                    (+ ,tmp ,tmp))))
+             (double-twice 21)",
+        );
+        assert!(matches!(v, Value::Int(42)));
+    }
+
+    // ── Clojure-flavor seq + map helpers ───────────────────────────
+
+    #[test]
+    fn assoc_dissoc_get_aliases() {
+        let v = run(
+            "(let* ((m  (assoc (hash-map :a 1) :b 2))
+                    (m2 (dissoc m :a)))
+               (list (get m :a) (get m :b) (get m2 :a)))",
+        );
+        // m: {:a 1, :b 2} → get :a = 1, :b = 2; m2: {:b 2} → get :a = nil
+        assert_eq!(format!("{v}"), "(1 2 ())");
+    }
+
+    #[test]
+    fn get_in_walks_nested_maps() {
+        let v = run(
+            "(define nested (hash-map :a (hash-map :b (hash-map :c 42))))
+             (get-in nested (list :a :b :c))",
+        );
+        assert!(matches!(v, Value::Int(42)));
+    }
+
+    #[test]
+    fn assoc_in_creates_intermediate_maps() {
+        let v = run(
+            "(define m (assoc-in (hash-map) (list :a :b :c) 99))
+             (get-in m (list :a :b :c))",
+        );
+        assert!(matches!(v, Value::Int(99)));
+    }
+
+    #[test]
+    fn update_in_applies_fn_at_path() {
+        let v = run(
+            "(define m (hash-map :counts (hash-map :hits 5)))
+             (define m2 (update-in m (list :counts :hits) inc))
+             (get-in m2 (list :counts :hits))",
+        );
+        assert!(matches!(v, Value::Int(6)));
+    }
+
+    #[test]
+    fn frequencies_counts_items() {
+        let v = run(
+            "(define f (frequencies (list :a :b :a :c :a :b)))
+             (list (get f :a) (get f :b) (get f :c))",
+        );
+        assert_eq!(format!("{v}"), "(3 2 1)");
+    }
+
+    #[test]
+    fn group_by_into_map_returns_hashmap() {
+        let v = run(
+            "(define groups (group-by-into-map even? (list 1 2 3 4 5 6)))
+             (list (get groups #t) (get groups #f))",
+        );
+        // Even group: 2, 4, 6; odd group: 1, 3, 5.
+        assert_eq!(format!("{v}"), "((2 4 6) (1 3 5))");
+    }
+
+    #[test]
+    fn into_hash_map_from_pairs() {
+        let v = run(
+            "(get (into-hash-map (list (list :a 1) (list :b 2))) :b)",
+        );
+        assert!(matches!(v, Value::Int(2)));
+    }
+
+    #[test]
+    fn into_hash_map_from_plist() {
+        let v = run("(get (into-hash-map (list :a 1 :b 2)) :a)");
+        assert!(matches!(v, Value::Int(1)));
+    }
+
+    #[test]
+    fn select_keys_picks_subset() {
+        let v = run(
+            "(hash-map-count
+               (select-keys (hash-map :a 1 :b 2 :c 3) (list :a :c :missing)))",
+        );
+        assert!(matches!(v, Value::Int(2)));
+    }
+
+    #[test]
+    fn zipmap_pairs_keys_with_values() {
+        let v = run(
+            "(get (zipmap (list :a :b :c) (list 1 2 3)) :b)",
+        );
+        assert!(matches!(v, Value::Int(2)));
+    }
+
+    #[test]
+    fn count_works_on_lists_maps_strings() {
+        assert!(matches!(run("(count (list 1 2 3))"), Value::Int(3)));
+        assert!(matches!(run("(count (hash-map :a 1 :b 2))"), Value::Int(2)));
+        assert!(matches!(run("(count \"hello\")"), Value::Int(5)));
+    }
+
+    // ── assert / comment / unwrap-or ──────────────────────────────
+
+    #[test]
+    fn assert_passes_when_true() {
+        // Returns nil on success; the followup ensures we kept running.
+        let v = run("(begin (assert #t \"ok\") :passed)");
+        assert!(matches!(v, Value::Keyword(s) if &*s == "passed"));
+    }
+
+    #[test]
+    fn assert_throws_when_false() {
+        let v = run(
+            "(try
+               (assert #f \"nope\")
+               (catch (e) (error-message e)))",
+        );
+        assert_eq!(format!("{v}"), "\"nope\"");
+    }
+
+    #[test]
+    fn comment_is_silently_elided() {
+        // Verifies the macro returns nil and doesn't try to evaluate.
+        let v = run("(begin (comment this is invalid: (+ 1 \"two\")) :ok)");
+        assert!(matches!(v, Value::Keyword(s) if &*s == "ok"));
+    }
+
+    #[test]
+    fn unwrap_or_returns_value_or_default() {
+        assert!(matches!(run("(unwrap-or 5 99)"), Value::Int(5)));
+        assert!(matches!(run("(unwrap-or () 99)"), Value::Int(99)));
+    }
 }

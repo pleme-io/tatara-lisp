@@ -96,9 +96,26 @@ impl Vm {
     /// Execute a chunk against the host interpreter. Returns the
     /// final value (the program's result). Errors that escape an
     /// active `(try ...)` handler propagate to the caller.
+    ///
+    /// Convenience wrapper for callers holding a `&Chunk` — clones into
+    /// an `Arc<Chunk>`. Prefer `run_arc` when the chunk is already
+    /// `Arc`-shared (e.g. from the host interpreter's compile cache).
     pub fn run<H: 'static>(
         &mut self,
         chunk: &Chunk,
+        interp: &mut Interpreter<H>,
+        host: &mut H,
+    ) -> Result<Value, VmError> {
+        let chunk_arc = Arc::new(chunk.clone());
+        self.run_arc(chunk_arc, interp, host)
+    }
+
+    /// Like `run`, but takes ownership of an `Arc<Chunk>` so closures
+    /// produced via `MakeClosure` can carry a cheap clone of the chunk
+    /// for self-contained re-invocation through `Caller::apply_value`.
+    pub fn run_arc<H: 'static>(
+        &mut self,
+        chunk: Arc<Chunk>,
         interp: &mut Interpreter<H>,
         host: &mut H,
     ) -> Result<Value, VmError> {
@@ -124,15 +141,17 @@ impl Vm {
         self.frames.push(top_frame);
 
         // Drive the run loop with handler-aware error routing.
-        self.run_with_handlers(chunk, interp, host)
+        self.run_with_handlers(&chunk, interp, host)
     }
 
     /// Inner main interpret loop — runs until Halt, Return at top,
     /// or an error. Errors are caught by `run_with_handlers` which
     /// routes them through any installed `(try ...)` handlers.
+    /// `chunk` is `&Arc<Chunk>` (not `&Chunk`) so `Op::MakeClosure` can
+    /// stash a cheap `Arc::clone` into the produced `CompiledClosure`.
     fn run_inner<H: 'static>(
         &mut self,
-        chunk: &Chunk,
+        chunk: &Arc<Chunk>,
         interp: &mut Interpreter<H>,
         host: &mut H,
     ) -> Result<Value, VmError> {
@@ -310,6 +329,8 @@ impl Vm {
                     let compiled = CompiledClosure {
                         body: Arc::new(body),
                         captures: closure_captures,
+                        chunk: Arc::clone(chunk),
+                        globals: interp.globals_snapshot().clone(),
                     };
                     self.stack.push(Value::Foreign(Arc::new(compiled)));
                 }
@@ -388,7 +409,7 @@ impl Vm {
     /// `catch_ip` with the error value stored at `error_local`.
     fn run_with_handlers<H: 'static>(
         &mut self,
-        chunk: &Chunk,
+        chunk: &Arc<Chunk>,
         interp: &mut Interpreter<H>,
         host: &mut H,
     ) -> Result<Value, VmError> {
@@ -667,14 +688,72 @@ fn vm_runtime_err_to_value(err: &VmError) -> Value {
 /// Foreign-tagged compiled closure — the VM's native callable shape.
 /// Wrapping in `Foreign` lets us pass it through `Value` (which is
 /// shared with the tree-walker) without growing the `Value` enum.
-/// Each closure carries a `captures` array — one cell per free
-/// variable identified at compile time. The cells are
-/// `Arc<Mutex<Value>>` so multiple closures sharing the same outer
-/// binding (`set!` semantics) see each other's writes.
+///
+/// A `CompiledClosure` is **self-contained**: it carries everything
+/// needed to re-invoke the body in isolation:
+///   - the compiled body (`body`);
+///   - one upvalue cell per free variable (`captures`);
+///   - the enclosing chunk (`chunk`) so opcode operands referencing
+///     `consts` / `names` / `fn_table` resolve correctly;
+///   - a snapshot of the host's globals env at MakeClosure time
+///     (`globals`). `Env` is cheap to clone — frames are shared via
+///     `Arc<Mutex<...>>`, so subsequent global definitions on the
+///     host interpreter are still visible through this snapshot.
+///
+/// The self-contained shape is what lets a `Value::Foreign(CompiledClosure)`
+/// flow into a native higher-order primitive (`map`, `filter`, ...) and
+/// be invoked through `Caller::apply_value` — the apply path can spin
+/// up a fresh `Vm` against just the closure + a `&mut H` host without
+/// needing a re-entrant `&mut Interpreter` borrow.
 #[derive(Clone)]
 pub struct CompiledClosure {
     pub body: Arc<CompiledFn>,
     pub captures: Vec<Arc<Mutex<Value>>>,
+    pub chunk: Arc<super::chunk::Chunk>,
+    pub globals: crate::env::Env,
+}
+
+impl CompiledClosure {
+    /// Lift this VM-compiled closure to a tree-walker-shaped
+    /// `crate::value::Closure`. Used when a native higher-order
+    /// primitive (`map`, `filter`, `foldl`, ...) holds a
+    /// `Value::Foreign(CompiledClosure)` and needs to invoke it
+    /// through the standard `Caller::apply_value` path — that path
+    /// goes through `eval::apply()` which knows how to dispatch
+    /// `Value::Closure`.
+    ///
+    /// The lifted closure carries:
+    ///   - the original Spanned body (preserved by the compiler in
+    ///     `body.source_body`);
+    ///   - a `captured_env` synthesized from the closure's positional
+    ///     captures + the host globals snapshot.
+    ///
+    /// Trade-off: the lifted invocation runs through the tree-walker,
+    /// not the VM. Faster paths (direct VM dispatch) are possible but
+    /// would require threading mutable Interpreter state through
+    /// `Caller`. Correctness-wise the tree-walker is authoritative —
+    /// the VM is parity-validated against it.
+    ///
+    /// Mutation note: `set!` performed inside the lifted closure
+    /// writes to the lifted `captured_env`, NOT to the original
+    /// upvalue cells. For HoF callbacks this is the common case
+    /// (read-only captures); closures that need shared `set!`
+    /// semantics should be invoked through the VM directly.
+    pub fn lift_to_closure(&self) -> Arc<crate::value::Closure> {
+        let mut captured_env = self.globals.clone();
+        captured_env.push();
+        for ((name, _), cell) in self.body.captures.iter().zip(self.captures.iter()) {
+            let v = cell.lock().unwrap().clone();
+            captured_env.define(name.clone(), v);
+        }
+        Arc::new(crate::value::Closure {
+            params: self.body.params.clone(),
+            rest: self.body.rest.clone(),
+            body: self.body.source_body.clone(),
+            captured_env,
+            source: self.body.source_span,
+        })
+    }
 }
 
 impl std::fmt::Debug for CompiledClosure {

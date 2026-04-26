@@ -194,6 +194,7 @@ impl<'a> Compiler<'a> {
             ops: top.ops,
             spans: top.spans,
             source_span: Span::synthetic(),
+            source_body: Vec::new(),
         };
         Ok(())
     }
@@ -643,6 +644,10 @@ impl<'a> Compiler<'a> {
             ops: sub.ops,
             spans: sub.spans,
             source_span: span,
+            // Preserve the lambda's source body so apply() can lift
+            // a Foreign(CompiledClosure) back to a tree-walker
+            // Closure when it flows into a native HoF.
+            source_body: body_forms.to_vec(),
         };
         let fn_idx = self.chunk.fn_table.len();
         self.chunk.fn_table.push(compiled);

@@ -16,27 +16,28 @@
 //! more readable surface and the test bodies share a single
 //! comparison harness.
 //!
-//! ## Known limitation: VM-closures-into-native-HoFs
+//! ## VM-closures-into-native-HoFs (Phase 6 — resolved)
 //!
-//! The VM compiles `(lambda …)` to a `Value::Foreign(CompiledClosure)`.
-//! Native higher-order primitives (`map`, `filter`, `foldl`, `reduce`,
-//! `for-each`, `every?`, `some?`, `apply`, …) dispatch their callable
-//! argument through `Caller::apply_value`, which goes through the
-//! tree-walker's `apply()` path. That path doesn't currently know how
-//! to invoke a `CompiledClosure` — it would need a re-entrant mutable
-//! Interpreter borrow that the FFI surface (`Caller<'a, H>` holds
-//! immutable refs) doesn't support cheaply.
+//! VM-compiled closures (`Value::Foreign(CompiledClosure)`) flow into
+//! native higher-order primitives (`map`, `filter`, `foldl`, …)
+//! through `Caller::apply_value`, which routes through the
+//! tree-walker's `apply()`. `apply()` recognizes the Foreign-tagged
+//! variant and lifts it back to a tree-walker `Closure` for
+//! dispatch — see `CompiledClosure::lift_to_closure` for details.
 //!
-//! Practical effect: parity cases that wrap a lambda inside a native
-//! HoF call (e.g. `(map (lambda (x) (* x x)) lst)`) won't go through
-//! the VM cleanly today. Such cases are commented out below and a
-//! tree-walker-only equivalent (e.g. using stdlib `(map sqr lst)`
-//! where `sqr` is a top-level fn) is left in place where possible.
+//! Trade-off: the lifted invocation runs through the tree-walker, not
+//! the VM. Correctness is the same (the VM is parity-validated), and
+//! the alternative (re-entering the VM from inside a native HoF
+//! callback) would require threading mutable Interpreter state
+//! through `Caller` — a deeper refactor we may revisit if profiling
+//! shows the lift cost matters for embedder workloads.
 //!
-//! Lifting this limitation is the next VM phase: extend `apply()` /
-//! `Caller` so a Foreign(CompiledClosure) can be invoked through the
-//! same surface as `Closure` / `NativeFn`, sharing the host
-//! Interpreter's globals + registry + expander.
+//! Mutation note: `set!` inside a closure invoked through the lift
+//! path writes to the lifted captured env, NOT to the original VM
+//! upvalue cells. Closures that need shared `set!` semantics with
+//! their VM-side siblings should be invoked from VM contexts
+//! directly (which is the common case — HoF callbacks rarely
+//! mutate captures).
 
 #[cfg(test)]
 mod tests {
@@ -196,26 +197,50 @@ mod tests {
             src: "(define (loop n) (if (= n 0) :done (loop (- n 1))))
                   (loop 10000)",
         },
-        // ── Higher-order primitives (native-fn callable only) ────
-        // NOTE: cases that pass a user-authored `(lambda …)` or a
-        // `(define (f …) …)`-form fn to a native HoF (`map`, `filter`,
-        // …) are deferred until the next VM phase wires
-        // Foreign(CompiledClosure) into Caller::apply_value. Every
-        // user-defined fn through the VM compiles to a CompiledClosure,
-        // and `Caller::apply_value` doesn't yet route that variant.
-        // We exercise the HoFs here using **purely native fns**
-        // (`+`, `*`) which round-trip through both paths cleanly.
+        // ── Higher-order primitives ───────────────────────────────
+        // VM-compiled closures (Foreign(CompiledClosure)) flow into
+        // native HoFs through `apply()`'s lift-to-Closure path —
+        // see `CompiledClosure::lift_to_closure`. Both lambda
+        // literals and top-level user-defined fns work.
         ParityCase {
-            name: "foldl-sum",
+            name: "map-square-lambda",
+            src: "(map (lambda (x) (* x x)) (list 1 2 3 4))",
+        },
+        ParityCase {
+            name: "filter-evens-lambda",
+            src: "(filter (lambda (x) (= 0 (modulo x 2))) (list 1 2 3 4 5))",
+        },
+        ParityCase {
+            name: "map-with-toplevel-fn",
+            src: "(define (sqr x) (* x x))
+                  (map sqr (list 1 2 3 4))",
+        },
+        ParityCase {
+            name: "filter-with-toplevel-fn",
+            src: "(define (even? x) (= 0 (modulo x 2)))
+                  (filter even? (list 1 2 3 4 5))",
+        },
+        ParityCase {
+            name: "foldl-sum-native",
             src: "(foldl + 0 (list 1 2 3 4 5))",
         },
         ParityCase {
-            name: "foldr-sum",
+            name: "foldr-sum-native",
             src: "(foldr + 0 (list 1 2 3 4 5))",
         },
         ParityCase {
-            name: "reduce-product",
+            name: "reduce-product-native",
             src: "(reduce * 1 (list 1 2 3 4 5))",
+        },
+        ParityCase {
+            name: "foldl-with-lambda",
+            src: "(foldl (lambda (acc x) (+ acc (* x x))) 0 (list 1 2 3 4))",
+        },
+        ParityCase {
+            name: "map-then-filter-pipeline",
+            src: "(filter (lambda (x) (> x 4))
+                          (map (lambda (x) (* x x))
+                               (list 1 2 3 4)))",
         },
         // ── try/catch ─────────────────────────────────────────────
         ParityCase {

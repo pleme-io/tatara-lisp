@@ -46,6 +46,12 @@ pub struct CompiledFn {
     pub spans: Vec<Span>,
     /// The function's source span (for `<closure>` debug output).
     pub source_span: Span,
+    /// Original Spanned body forms (preserved by `compile_lambda` so
+    /// a `Foreign(CompiledClosure)` can be lifted back to a
+    /// tree-walker `Closure` when invoked through `Caller::apply_value`
+    /// — the path native higher-order primitives take). Empty for the
+    /// top-level CompiledFn (the program itself).
+    pub source_body: Vec<tatara_lisp::Spanned>,
 }
 
 impl Default for CompiledFn {
@@ -58,6 +64,7 @@ impl Default for CompiledFn {
             ops: Vec::new(),
             spans: Vec::new(),
             source_span: Span::synthetic(),
+            source_body: Vec::new(),
         }
     }
 }

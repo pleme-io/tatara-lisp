@@ -79,7 +79,7 @@ impl<H: 'static> Interpreter<H> {
         self.registry.insert(FnEntry {
             name: name.clone(),
             arity,
-            callable: FnImpl::Native(Box::new(callable)),
+            callable: FnImpl::Native(Arc::new(callable)),
         });
         self.globals.define(
             name.clone(),
@@ -103,7 +103,7 @@ impl<H: 'static> Interpreter<H> {
         self.registry.insert(FnEntry {
             name: name.clone(),
             arity,
-            callable: FnImpl::Higher(Box::new(callable)),
+            callable: FnImpl::Higher(Arc::new(callable)),
         });
         self.globals.define(
             name.clone(),
@@ -918,6 +918,24 @@ fn apply<H: 'static>(
             }
         }
         Value::Closure(c) => call_closure(c.clone(), args, call_span, registry, expander, host),
+        // VM-compiled closure flowing into a tree-walker apply path
+        // (typically because a native HoF captured the closure as an
+        // arg). Lift to a tree-walker-shaped Closure and dispatch.
+        // See `CompiledClosure::lift_to_closure` for trade-offs.
+        Value::Foreign(any) => {
+            if let Some(cc) = any
+                .clone()
+                .downcast::<crate::vm::run::CompiledClosure>()
+                .ok()
+            {
+                let lifted = cc.lift_to_closure();
+                return call_closure(lifted, args, call_span, registry, expander, host);
+            }
+            Err(EvalError::NotCallable {
+                value_kind: callee.type_name(),
+                at: call_span,
+            })
+        }
         other => Err(EvalError::NotCallable {
             value_kind: other.type_name(),
             at: call_span,

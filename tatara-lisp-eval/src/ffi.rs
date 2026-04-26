@@ -146,9 +146,22 @@ impl<'a, H: 'static> Caller<'a, H> {
 }
 
 /// One registered callable. Internal storage; primitives don't see this.
+/// `Arc` (not `Box`) so the apply path can clone the callable out of the
+/// registry borrow before invoking it — letting `apply()` hold `&mut
+/// Interpreter` while a higher-order primitive runs (which lets that
+/// primitive re-enter the dispatch path with the same Interpreter).
 pub(crate) enum FnImpl<H> {
-    Native(Box<dyn NativeCallable<H>>),
-    Higher(Box<dyn HigherOrderCallable<H>>),
+    Native(Arc<dyn NativeCallable<H>>),
+    Higher(Arc<dyn HigherOrderCallable<H>>),
+}
+
+impl<H> Clone for FnImpl<H> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Native(f) => Self::Native(Arc::clone(f)),
+            Self::Higher(f) => Self::Higher(Arc::clone(f)),
+        }
+    }
 }
 
 /// Registry of registered native functions for an `Interpreter<H>`.

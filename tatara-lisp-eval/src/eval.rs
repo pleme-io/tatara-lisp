@@ -737,6 +737,14 @@ fn eval_special_tail<H: 'static>(
             }
             eval_in_tail(env, registry, exprs.last().unwrap(), host)
         }
+        SpecialForm::Try => {
+            // try/catch is delicate to TCO — preserving the catch
+            // handler context across a tail call would require unwinding
+            // through Resume. Punt: always run try in non-tail position.
+            // Tail position inside the catch handler is fine; the body
+            // simply doesn't trampoline a tail call past the try frame.
+            sf_try(items, call_span, env, registry, host).map(TailResult::Done)
+        }
         // Non-tail forms: just evaluate normally.
         _ => eval_special(sf, items, call_span, env, registry, host).map(TailResult::Done),
     }
@@ -978,6 +986,7 @@ fn eval_special<H: 'static>(
         SpecialForm::And => sf_and(&items[1..], env, registry, host),
         SpecialForm::Or => sf_or(&items[1..], env, registry, host),
         SpecialForm::Not => sf_not(items, call_span, env, registry, host),
+        SpecialForm::Try => sf_try(items, call_span, env, registry, host),
     }
 }
 
@@ -1393,6 +1402,164 @@ fn sf_not<H: 'static>(
     }
     let v = eval_in(env, registry, &items[1], host)?;
     Ok(Value::Bool(!v.is_truthy()))
+}
+
+/// `(try body... (catch (binding) handler...))` — evaluate body
+/// sequentially. If any form raises an `EvalError::User` (Lisp
+/// `(throw ...)`), bind the thrown Value to `binding` and run handler.
+/// Other Rust-side errors (type mismatch, arity, etc.) are converted
+/// to a `Value::Error` with tag `:runtime` so handlers can also
+/// recover from them.
+///
+/// Form layout:
+/// ```text
+///   (try
+///     body-expr
+///     ...
+///     (catch (e) handler-body...))
+/// ```
+/// The catch clause MUST be the last form. There can only be one
+/// catch clause. Body forms before it are evaluated in order; the
+/// last body form's value (or the handler's value, if caught) is
+/// returned.
+fn sf_try<H: 'static>(
+    items: &[Spanned],
+    span: Span,
+    env: &mut Env,
+    registry: &FnRegistry<H>,
+    host: &mut H,
+) -> Result<Value> {
+    if items.len() < 3 {
+        return Err(EvalError::bad_form(
+            "try",
+            "expected (try body... (catch (e) handler...))",
+            span,
+        ));
+    }
+    // The last form must be a catch clause.
+    let catch_form = items.last().unwrap();
+    let catch_list = catch_form.as_list().ok_or_else(|| {
+        EvalError::bad_form(
+            "try",
+            "last form must be (catch (binding) handler...)",
+            catch_form.span,
+        )
+    })?;
+    if catch_list.is_empty() || catch_list[0].as_symbol() != Some("catch") {
+        return Err(EvalError::bad_form(
+            "try",
+            "last form must be a (catch ...) clause",
+            catch_form.span,
+        ));
+    }
+    if catch_list.len() < 3 {
+        return Err(EvalError::bad_form(
+            "catch",
+            "expected (catch (binding) handler...)",
+            catch_form.span,
+        ));
+    }
+    let binding_list = catch_list[1].as_list().ok_or_else(|| {
+        EvalError::bad_form(
+            "catch",
+            "binding must be a 1-element list (e)",
+            catch_list[1].span,
+        )
+    })?;
+    if binding_list.len() != 1 {
+        return Err(EvalError::bad_form(
+            "catch",
+            "binding must bind exactly one symbol",
+            catch_list[1].span,
+        ));
+    }
+    let binding_name = binding_list[0].as_symbol().ok_or_else(|| {
+        EvalError::bad_form("catch", "binding must be a symbol", binding_list[0].span)
+    })?;
+
+    let body = &items[1..items.len() - 1];
+    let mut last = Value::Nil;
+    for form in body {
+        match eval_in(env, registry, form, host) {
+            Ok(v) => {
+                last = v;
+            }
+            Err(EvalError::User { value, .. }) => {
+                return run_catch_handler(
+                    binding_name,
+                    value,
+                    &catch_list[2..],
+                    env,
+                    registry,
+                    host,
+                );
+            }
+            Err(other) => {
+                // Convert any other runtime error into a Value::Error
+                // so catch can still observe it. Tag :runtime
+                // distinguishes from user-thrown errors.
+                let value = rust_err_to_value_error(&other);
+                return run_catch_handler(
+                    binding_name,
+                    value,
+                    &catch_list[2..],
+                    env,
+                    registry,
+                    host,
+                );
+            }
+        }
+    }
+    Ok(last)
+}
+
+fn run_catch_handler<H: 'static>(
+    binding_name: &str,
+    error_value: Value,
+    handler_body: &[Spanned],
+    env: &mut Env,
+    registry: &FnRegistry<H>,
+    host: &mut H,
+) -> Result<Value> {
+    env.push();
+    env.define(Arc::<str>::from(binding_name), error_value);
+    let mut last = Value::Nil;
+    for form in handler_body {
+        match eval_in(env, registry, form, host) {
+            Ok(v) => last = v,
+            Err(e) => {
+                env.pop();
+                return Err(e);
+            }
+        }
+    }
+    env.pop();
+    Ok(last)
+}
+
+/// Convert a Rust-side `EvalError` into a `Value::Error` so a `(catch)`
+/// handler can observe runtime errors uniformly with user-thrown ones.
+fn rust_err_to_value_error(err: &EvalError) -> Value {
+    use crate::value::ErrorObj;
+    let tag: Arc<str> = match err {
+        EvalError::UnboundSymbol { .. } => Arc::from("unbound-symbol"),
+        EvalError::ArityMismatch { .. } => Arc::from("arity-mismatch"),
+        EvalError::TypeMismatch { .. } => Arc::from("type-mismatch"),
+        EvalError::DivisionByZero { .. } => Arc::from("division-by-zero"),
+        EvalError::NotCallable { .. } => Arc::from("not-callable"),
+        EvalError::BadSpecialForm { .. } => Arc::from("bad-special-form"),
+        EvalError::NativeFn { .. } => Arc::from("native-fn"),
+        EvalError::Reader(_) => Arc::from("reader"),
+        EvalError::Halted => Arc::from("halted"),
+        EvalError::NotImplemented(_) => Arc::from("not-implemented"),
+        EvalError::User { .. } => Arc::from("user"),
+    };
+    let message: Arc<str> = Arc::from(err.short_message());
+    Value::Error(Arc::new(ErrorObj {
+        tag,
+        message,
+        data: Vec::new(),
+    }))
 }
 
 #[cfg(test)]
@@ -2302,5 +2469,151 @@ mod tests {
         );
         // 12! = 479_001_600
         assert!(matches!(v, Value::Int(479_001_600)));
+    }
+
+    // ── Structured errors / try / catch ────────────────────────────
+
+    #[test]
+    fn error_constructor_returns_error_value() {
+        let v = run_full("(error :validation \"bad input\")");
+        match v {
+            Value::Error(e) => {
+                assert_eq!(&*e.tag, "validation");
+                assert_eq!(&*e.message, "bad input");
+                assert!(e.data.is_empty());
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn ex_info_uses_default_tag() {
+        let v = run_full(
+            "(ex-info \"validation failed\" (list :field \"email\" :code 42))",
+        );
+        match v {
+            Value::Error(e) => {
+                assert_eq!(&*e.tag, "ex-info");
+                assert_eq!(&*e.message, "validation failed");
+                assert_eq!(e.data.len(), 2);
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn error_predicate() {
+        let v = run_full("(error? (error :x \"y\"))");
+        assert!(matches!(v, Value::Bool(true)));
+        let v = run_full("(error? 42)");
+        assert!(matches!(v, Value::Bool(false)));
+    }
+
+    #[test]
+    fn error_accessors() {
+        let v = run_full(
+            "(let ((e (ex-info \"oops\" (list :user-id 42))))
+               (list (error-tag e) (error-message e) (error-data-get e :user-id)))",
+        );
+        assert_eq!(format!("{v}"), "(:ex-info \"oops\" 42)");
+    }
+
+    #[test]
+    fn try_catches_thrown_error() {
+        let v = run_full(
+            "(try
+               (throw (ex-info \"boom\" (list :code 500)))
+               (catch (e)
+                 (error-message e)))",
+        );
+        assert_eq!(format!("{v}"), "\"boom\"");
+    }
+
+    #[test]
+    fn try_returns_body_value_when_no_throw() {
+        let v = run_full(
+            "(try
+               (+ 1 2 3)
+               (catch (e) :unreachable))",
+        );
+        assert!(matches!(v, Value::Int(6)));
+    }
+
+    #[test]
+    fn try_catches_runtime_errors_too() {
+        // Division by zero is a Rust-side EvalError, not a user throw.
+        // The catch handler should still observe it (wrapped to
+        // Value::Error with tag :division-by-zero).
+        let v = run_full(
+            "(try
+               (/ 1 0)
+               (catch (e) (error-tag e)))",
+        );
+        assert!(matches!(v, Value::Keyword(s) if &*s == "division-by-zero"));
+    }
+
+    #[test]
+    fn try_catches_unbound_symbol_error() {
+        let v = run_full(
+            "(try
+               undefined-var
+               (catch (e) (error-tag e)))",
+        );
+        assert!(matches!(v, Value::Keyword(s) if &*s == "unbound-symbol"));
+    }
+
+    #[test]
+    fn try_catches_arity_mismatch() {
+        let v = run_full(
+            "(try
+               ((lambda (x y) (+ x y)) 1)
+               (catch (e) (error-tag e)))",
+        );
+        assert!(matches!(v, Value::Keyword(s) if &*s == "arity-mismatch"));
+    }
+
+    #[test]
+    fn nested_try_inner_handler_takes_precedence() {
+        let v = run_full(
+            "(try
+               (try
+                 (throw (ex-info \"inner\" ()))
+                 (catch (e) :inner-caught))
+               (catch (e) :outer-caught))",
+        );
+        assert!(matches!(v, Value::Keyword(s) if &*s == "inner-caught"));
+    }
+
+    #[test]
+    fn outer_try_catches_when_handler_rethrows() {
+        let v = run_full(
+            "(try
+               (try
+                 (throw (ex-info \"first\" ()))
+                 (catch (e) (throw (ex-info \"rethrown\" ()))))
+               (catch (e) (error-message e)))",
+        );
+        assert_eq!(format!("{v}"), "\"rethrown\"");
+    }
+
+    #[test]
+    fn throw_propagates_when_no_try() {
+        // Without try, throw bubbles up as EvalError::User.
+        let mut i: Interpreter<NoHost> = Interpreter::new();
+        install_full_stdlib_with(&mut i, &mut NoHost);
+        let forms = read_spanned(
+            "(throw (ex-info \"unhandled\" (list :code 99)))",
+        )
+        .unwrap();
+        let err = i.eval_program(&forms, &mut NoHost).unwrap_err();
+        match err {
+            EvalError::User { value, .. } => match value {
+                Value::Error(e) => {
+                    assert_eq!(&*e.message, "unhandled");
+                }
+                other => panic!("{other:?}"),
+            },
+            other => panic!("{other:?}"),
+        }
     }
 }

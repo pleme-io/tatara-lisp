@@ -63,6 +63,13 @@ pub enum EvalError {
 
     #[error("not yet implemented: {0} (Phase 2.3+)")]
     NotImplemented(&'static str),
+
+    /// A Lisp-side error raised via `(throw ...)`. Caught by
+    /// `(try ... (catch (e) ...))`. The carried `Value` is whatever
+    /// the user threw — conventionally a `Value::Error` produced by
+    /// `(error ...)` / `(ex-info ...)`, but any Value is allowed.
+    #[error("user error: {value}")]
+    User { value: crate::value::Value, at: Span },
 }
 
 impl EvalError {
@@ -102,7 +109,8 @@ impl EvalError {
             | Self::DivisionByZero { at }
             | Self::NotCallable { at, .. }
             | Self::BadSpecialForm { at, .. }
-            | Self::NativeFn { at, .. } => Some(*at),
+            | Self::NativeFn { at, .. }
+            | Self::User { at, .. } => Some(*at),
             Self::Reader(_) | Self::Halted | Self::NotImplemented(_) => None,
         }
     }
@@ -165,6 +173,7 @@ impl EvalError {
             Self::Reader(e) => format!("reader: {e}"),
             Self::Halted => "halted".into(),
             Self::NotImplemented(what) => format!("not yet implemented: {what}"),
+            Self::User { value, .. } => format!("uncaught: {value}"),
         }
     }
 }

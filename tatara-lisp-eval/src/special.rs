@@ -23,6 +23,13 @@ pub enum SpecialForm {
     And,
     Or,
     Not,
+    /// `(try body... (catch (binding) handler...))` —
+    /// runs body sequentially; if any form raises an `EvalError::User`
+    /// (i.e., a Lisp-level `(throw ...)`), the carried Value is bound
+    /// to `binding` and `handler...` runs. Bare Rust-side errors
+    /// (TypeMismatch, ArityMismatch, etc.) are wrapped into a
+    /// `Value::Error` with tag `:runtime` so they can be caught too.
+    Try,
 }
 
 impl SpecialForm {
@@ -46,6 +53,7 @@ impl SpecialForm {
             "and" => Self::And,
             "or" => Self::Or,
             "not" => Self::Not,
+            "try" => Self::Try,
             _ => return None,
         })
     }

@@ -90,6 +90,15 @@ pub const PRIMITIVE_NAMES: &[&str] = &[
     "print",
     // Hygiene helpers
     "gensym",
+    // Structured errors
+    "error",
+    "ex-info",
+    "throw",
+    "error?",
+    "error-tag",
+    "error-message",
+    "error-data",
+    "error-data-get",
 ];
 
 /// Register the standard primitive set on `interp`.
@@ -551,6 +560,127 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
         };
         Ok(Value::Symbol(Arc::from(format!("{prefix}__{n}__auto"))))
     });
+
+    // ── Structured errors ─────────────────────────────────────────
+    // Clojure-style ex-info: tag + message + data plist.
+    use crate::value::ErrorObj;
+
+    // (error tag message [data]) — tag is keyword/string, message is
+    // string, data is an optional plist (alternating key value list).
+    interp.register_fn("error", Arity::Range(2, 3), |args: &[Value], _h: &mut H, sp| {
+        let tag: Arc<str> = match &args[0] {
+            Value::Keyword(s) | Value::Symbol(s) | Value::Str(s) => s.clone(),
+            other => return Err(EvalError::type_mismatch("keyword/symbol/string", other.type_name(), sp)),
+        };
+        let message: Arc<str> = match &args[1] {
+            Value::Str(s) => s.clone(),
+            other => return Err(EvalError::type_mismatch("string", other.type_name(), sp)),
+        };
+        let data = if args.len() == 3 {
+            plist_to_pairs(&args[2], sp)?
+        } else {
+            Vec::new()
+        };
+        Ok(Value::Error(Arc::new(ErrorObj { tag, message, data })))
+    });
+
+    // (ex-info message data) — convenience: tag = "ex-info".
+    interp.register_fn("ex-info", Arity::Range(1, 2), |args: &[Value], _h: &mut H, sp| {
+        let message: Arc<str> = match &args[0] {
+            Value::Str(s) => s.clone(),
+            other => return Err(EvalError::type_mismatch("string", other.type_name(), sp)),
+        };
+        let data = if args.len() == 2 {
+            plist_to_pairs(&args[1], sp)?
+        } else {
+            Vec::new()
+        };
+        Ok(Value::Error(Arc::new(ErrorObj {
+            tag: Arc::from("ex-info"),
+            message,
+            data,
+        })))
+    });
+
+    // (throw err) — raise as EvalError::User. If err isn't an Error
+    // value, wrap it with tag "user".
+    interp.register_fn("throw", Arity::Exact(1), |args: &[Value], _h: &mut H, sp| {
+        let value = args[0].clone();
+        Err(EvalError::User { value, at: sp })
+    });
+
+    // Predicate.
+    interp.register_fn("error?", Arity::Exact(1), |args: &[Value], _h: &mut H, _sp| {
+        Ok(Value::Bool(matches!(&args[0], Value::Error(_))))
+    });
+
+    // Accessors.
+    interp.register_fn("error-tag", Arity::Exact(1), |args: &[Value], _h: &mut H, sp| {
+        match &args[0] {
+            Value::Error(e) => Ok(Value::Keyword(e.tag.clone())),
+            other => Err(EvalError::type_mismatch("error", other.type_name(), sp)),
+        }
+    });
+
+    interp.register_fn("error-message", Arity::Exact(1), |args: &[Value], _h: &mut H, sp| {
+        match &args[0] {
+            Value::Error(e) => Ok(Value::Str(e.message.clone())),
+            other => Err(EvalError::type_mismatch("error", other.type_name(), sp)),
+        }
+    });
+
+    // (error-data err) → plist (k1 v1 k2 v2 ...).
+    interp.register_fn("error-data", Arity::Exact(1), |args: &[Value], _h: &mut H, sp| {
+        match &args[0] {
+            Value::Error(e) => {
+                let mut out = Vec::with_capacity(e.data.len() * 2);
+                for (k, v) in &e.data {
+                    out.push(k.clone());
+                    out.push(v.clone());
+                }
+                Ok(Value::list(out))
+            }
+            other => Err(EvalError::type_mismatch("error", other.type_name(), sp)),
+        }
+    });
+
+    // (error-data-get err key) → value or nil.
+    interp.register_fn("error-data-get", Arity::Exact(2), |args: &[Value], _h: &mut H, sp| {
+        match &args[0] {
+            Value::Error(e) => {
+                for (k, v) in &e.data {
+                    if value_eq_deep(k, &args[1]) {
+                        return Ok(v.clone());
+                    }
+                }
+                Ok(Value::Nil)
+            }
+            other => Err(EvalError::type_mismatch("error", other.type_name(), sp)),
+        }
+    });
+}
+
+/// Parse a plist Value (alternating k/v list) into a `Vec<(Value, Value)>`.
+fn plist_to_pairs(v: &Value, sp: Span) -> Result<Vec<(Value, Value)>> {
+    let xs = match v {
+        Value::Nil => return Ok(Vec::new()),
+        Value::List(xs) => xs,
+        other => return Err(EvalError::type_mismatch("plist (list)", other.type_name(), sp)),
+    };
+    if xs.len() % 2 != 0 {
+        return Err(EvalError::native_fn(
+            Arc::<str>::from("plist"),
+            "plist must have even number of elements (k v k v ...)",
+            sp,
+        ));
+    }
+    let mut out = Vec::with_capacity(xs.len() / 2);
+    let mut i = 0;
+    while i < xs.len() {
+        out.push((xs[i].clone(), xs[i + 1].clone()));
+        i += 2;
+    }
+    Ok(out)
 }
 
 fn gcd(a: i64, b: i64) -> i64 {

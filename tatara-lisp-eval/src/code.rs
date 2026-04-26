@@ -131,6 +131,11 @@ pub fn value_to_spanned(v: &Value, span: Span) -> Result<Spanned, String> {
             Ok(Spanned::new(span, SpannedForm::List(children?)))
         }
         Value::Sexp(sexp, sp) => Ok(Spanned::from_sexp_at(sexp, *sp)),
+        Value::Error(_) => Err(
+            "macro body returned an Error value — errors cannot be \
+             converted to source forms (use `throw` to raise instead)"
+                .to_string(),
+        ),
         Value::Closure(_) => Err(
             "macro body returned a closure — closures cannot be \
              converted to source forms (did you mean to call the closure?)"

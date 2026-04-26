@@ -27,6 +27,11 @@ pub enum Value {
     List(Arc<Vec<Value>>),
     Closure(Arc<Closure>),
     NativeFn(Arc<NativeFn>),
+    /// A first-class structured error — Clojure ex-info shape:
+    /// a tag (keyword/string), a message string, and a data plist.
+    /// Constructed by `(error tag msg data)` / `(ex-info msg data)`.
+    /// Raised by `(throw err)`. Caught by `(try ... (catch (e) ...))`.
+    Error(Arc<ErrorObj>),
     /// Escape hatch: unevaluated source form carried as a value, e.g. after
     /// `(quote x)`. Preserves span info.
     Sexp(Sexp, Span),
@@ -34,6 +39,17 @@ pub enum Value {
     /// functions read them back via downcast. Used to expose typed Rust
     /// handles (job refs, client handles) to Lisp code.
     Foreign(Arc<dyn Any + Send + Sync>),
+}
+
+/// Structured error payload — tag + message + attached data. The data
+/// is a list of (key, value) pairs preserving insertion order — a
+/// plist-style alist. Keys are typically `Value::Keyword`s but any
+/// equality-comparable Value works.
+#[derive(Debug, Clone)]
+pub struct ErrorObj {
+    pub tag: Arc<str>,
+    pub message: Arc<str>,
+    pub data: Vec<(Value, Value)>,
 }
 
 /// A user-defined closure produced by `(lambda …)` or `(define (f …) …)`.
@@ -95,6 +111,7 @@ impl Value {
             Self::List(_) => "list",
             Self::Closure(_) => "closure",
             Self::NativeFn(_) => "native-fn",
+            Self::Error(_) => "error",
             Self::Sexp(..) => "sexp",
             Self::Foreign(_) => "foreign",
         }
@@ -116,6 +133,7 @@ impl fmt::Debug for Value {
             Self::List(xs) => f.debug_list().entries(xs.iter()).finish(),
             Self::Closure(_) => f.write_str("Closure(…)"),
             Self::NativeFn(n) => write!(f, "NativeFn({})", n.name),
+            Self::Error(e) => write!(f, "Error({}: {})", e.tag, e.message),
             Self::Sexp(s, sp) => write!(f, "Sexp({s} @ {sp})"),
             Self::Foreign(_) => f.write_str("Foreign(…)"),
         }
@@ -155,6 +173,20 @@ impl fmt::Display for Value {
                 write!(f, ">")
             }
             Self::NativeFn(n) => write!(f, "#<native {}>", n.name),
+            Self::Error(e) => {
+                write!(f, "#<error :{} {:?}", e.tag, e.message.as_ref())?;
+                if !e.data.is_empty() {
+                    f.write_str(" {")?;
+                    for (i, (k, v)) in e.data.iter().enumerate() {
+                        if i > 0 {
+                            f.write_str(" ")?;
+                        }
+                        write!(f, "{k} {v}")?;
+                    }
+                    f.write_str("}")?;
+                }
+                f.write_str(">")
+            }
             Self::Sexp(s, _) => write!(f, "'{s}"),
             Self::Foreign(_) => f.write_str("#<foreign>"),
         }

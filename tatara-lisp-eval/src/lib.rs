@@ -35,7 +35,7 @@ pub use hof::install_hof;
 pub use lisp_stdlib::install_lisp_stdlib_with;
 pub use primitive::install_primitives;
 pub use repl::ReplSession;
-pub use value::Value;
+pub use value::{ErrorObj, Value};
 
 /// One-stop installer: registers the full battery — Rust primitives
 /// (arithmetic, comparison, list, string, IO), higher-order Rust

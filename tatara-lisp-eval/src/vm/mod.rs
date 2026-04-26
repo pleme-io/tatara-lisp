@@ -30,6 +30,8 @@
 pub mod chunk;
 pub mod compile;
 pub mod op;
+#[cfg(test)]
+mod parity;
 pub mod run;
 
 pub use chunk::{Chunk, ConstPool};

@@ -2305,7 +2305,7 @@ fn rust_err_to_value_error(err: &EvalError) -> Value {
 mod tests {
     use super::*;
     use crate::primitive::install_primitives;
-    use tatara_lisp::{read_spanned, Sexp};
+    use tatara_lisp::read_spanned;
 
     struct NoHost;
 

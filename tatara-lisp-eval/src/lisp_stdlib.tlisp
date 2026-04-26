@@ -1127,3 +1127,44 @@
 ;; ====================================================================
 
 (defmacro doseq (binding &rest body) `(dolist ,binding ,@body))
+
+;; ====================================================================
+;; TYPED FUNCTIONS — gradual runtime type assertions
+;; --------------------------------------------------------------------
+;; (defn-typed name [(arg ty) ...] -> ret-ty body...) → defines `name`
+;; as a function that asserts every arg's type on entry and the return
+;; type on exit, then runs body. Authoring sugar over (the type expr).
+;;
+;; Example:
+;;   (defn-typed greet [(name :string) (count :int)] -> :string
+;;     (string-append "hi " name))
+;;
+;; Untyped functions still use plain (define / lambda); typing is
+;; opt-in per definition.
+;; ====================================================================
+
+;; Helper: `pairs` is a list of (param-symbol type-spec) cells. Builds
+;; a list of param symbols and a list of `(the type param)` checks.
+(define
+  (defn-typed-args pairs)
+  (map (lambda (pair) (car pair)) pairs))
+
+(define
+  (defn-typed-checks pairs)
+  (map (lambda (pair) `(the ,(second pair) ,(car pair))) pairs))
+
+;; (defn-typed name [(arg type) ...] -> ret-type body...)
+;; The `->` is matched literally. The arg list uses `()` shape
+;; ((param type) (param type) ...).
+(defmacro
+  defn-typed
+  (name params arrow ret-ty &rest body)
+  (begin
+    ;; Validate that arrow is the literal `->` symbol.
+    (when (not (equal? arrow (quote ->)))
+      (throw (ex-info "defn-typed: missing -> before return type" (list))))
+    (let ((arg-syms (defn-typed-args params)) (checks (defn-typed-checks params)))
+      `(define
+         (,name ,@arg-syms)
+         ,@checks
+         (the ,ret-ty (begin ,@body))))))

@@ -27,6 +27,7 @@ pub mod module;
 pub mod primitive;
 pub mod repl;
 pub mod special;
+pub mod type_check;
 pub mod value;
 
 pub use env::Env;
@@ -55,6 +56,7 @@ pub fn install_full_stdlib_with<H: 'static>(interp: &mut Interpreter<H>, host: &
     install_primitives(interp);
     install_hof(interp);
     install_map(interp);
+    type_check::install_type_check(interp);
     install_lisp_stdlib_with(interp, host);
 }
 

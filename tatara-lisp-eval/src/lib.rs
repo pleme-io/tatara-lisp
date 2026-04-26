@@ -31,6 +31,7 @@ pub mod repl;
 pub mod special;
 pub mod type_check;
 pub mod value;
+pub mod vm;
 
 pub use env::Env;
 pub use error::{EvalError, Result};

@@ -598,6 +598,51 @@ impl<H: 'static> Interpreter<H> {
         self.globals.define(name, value);
     }
 
+    /// Borrow the globals env. Used by the VM to snapshot at closure
+    /// creation time.
+    pub fn globals_snapshot(&self) -> &Env {
+        &self.globals
+    }
+
+    /// External entry point: apply a callable `Value` (closure or
+    /// native fn) with `args`. Wraps the internal `apply_external` so
+    /// the VM can dispatch to the tree-walker for non-VM callables.
+    pub fn apply_external_value(
+        &mut self,
+        callee: &Value,
+        args: Vec<Value>,
+        host: &mut H,
+        call_span: Span,
+    ) -> Result<Value> {
+        apply_external(callee, args, call_span, &self.registry, &self.expander, host)
+    }
+
+    /// Compile + execute a parsed program through the bytecode VM.
+    /// Top-level `defmacro` forms register into the persistent
+    /// expander (same as `eval_program`); every other form is
+    /// macro-expanded in place, then a fresh `Chunk` is compiled and
+    /// run. This is the opt-in fast path; `eval_program` remains the
+    /// authoritative tree-walker. Returns the value of the last form.
+    pub fn eval_program_vm(&mut self, forms: &[Spanned], host: &mut H) -> Result<Value> {
+        let mut expanded: Vec<Spanned> = Vec::with_capacity(forms.len());
+        for form in forms {
+            if self.expander.try_register_macro(form)? {
+                continue;
+            }
+            expanded.push(self.fully_expand(form, host)?);
+        }
+        let chunk = crate::vm::compile_program(&expanded).map_err(|e| match e {
+            crate::vm::CompileError::Bad { at, message } => {
+                EvalError::bad_form(Arc::<str>::from("vm:compile"), message, at)
+            }
+        })?;
+        let mut vm = crate::vm::Vm::new();
+        vm.run(&chunk, self, host).map_err(|e| match e {
+            crate::vm::VmError::Eval(inner) => inner,
+            other => EvalError::native_fn(Arc::<str>::from("vm"), format!("{other}"), Span::synthetic()),
+        })
+    }
+
     // ── Typed registration helpers ──────────────────────────────────
 
     /// Register a 0-arity native fn with typed return value.

@@ -51,7 +51,9 @@ enum Cmd {
         check: bool,
     },
 
-    /// Lint via caixa-lint, optionally autofixing.
+    /// Lint via caixa-lint, optionally autofixing. With --types,
+    /// also runs the build-time gradual type checker over each file
+    /// and merges its diagnostics into the report.
     Lint {
         #[arg(value_name = "PATH")]
         paths: Vec<PathBuf>,
@@ -64,6 +66,9 @@ enum Cmd {
         /// Errors only.
         #[arg(long)]
         errors_only: bool,
+        /// Also run the build-time gradual type checker.
+        #[arg(long)]
+        types: bool,
     },
 
     /// Execute a tatara-lisp script.
@@ -131,7 +136,16 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
             fix,
             fix_unsafe,
             errors_only,
-        } => run_feira_lint(&paths, fix, fix_unsafe, errors_only),
+            types,
+        } => {
+            let lint = run_feira_lint(&paths, fix, fix_unsafe, errors_only)?;
+            if types {
+                let tc = typecheck_paths(&paths)?;
+                Ok(merge_exit(lint, tc))
+            } else {
+                Ok(lint)
+            }
+        }
         Cmd::Run { path_or_url, args } => run_script(&path_or_url, &args, false, false),
         Cmd::Test { path_or_url } => run_script(&path_or_url, &[], true, false),
         Cmd::Repl => run_script("", &[], false, true),
@@ -231,6 +245,82 @@ fn run_script(path: &str, args: &[String], test: bool, repl: bool) -> Result<Exi
 }
 
 // ── typecheck ────────────────────────────────────────────────────
+
+/// Run typecheck across many paths (default: every .tlisp under cwd
+/// recursively). Returns ExitCode::SUCCESS only if every file is
+/// clean.
+fn typecheck_paths(paths: &[PathBuf]) -> Result<ExitCode> {
+    let targets: Vec<PathBuf> = if paths.is_empty() {
+        find_tlisp_files(std::path::Path::new("."))
+    } else {
+        paths.to_vec()
+    };
+    let mut total_errors = 0usize;
+    for path in &targets {
+        let src = std::fs::read_to_string(path)
+            .with_context(|| format!("reading {}", path.display()))?;
+        let forms = match tatara_lisp::read_spanned(&src) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("{}: parse error: {e:?}", path.display());
+                total_errors += 1;
+                continue;
+            }
+        };
+        let diags = tatara_lisp_eval::build_check::check_program(&forms);
+        for d in &diags {
+            eprintln!("{}: {}", path.display(), d.render(&src));
+        }
+        total_errors += diags.len();
+    }
+    eprintln!(
+        "tatara typecheck: {} file(s) checked, {} type error(s)",
+        targets.len(),
+        total_errors
+    );
+    if total_errors > 0 {
+        Ok(ExitCode::from(1))
+    } else {
+        Ok(ExitCode::SUCCESS)
+    }
+}
+
+/// Walk a directory, returning every `.tlisp` / `.lisp` file. Used
+/// when `tatara lint --types` is run with no explicit paths.
+fn find_tlisp_files(root: &std::path::Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    walk_collect(root, &mut out);
+    out
+}
+
+fn walk_collect(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let p = entry.path();
+        // Skip hidden + target/.git.
+        let name = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
+        if name.starts_with('.') || name == "target" || name == "node_modules" {
+            continue;
+        }
+        if p.is_dir() {
+            walk_collect(&p, out);
+        } else if p.extension().is_some_and(|e| e == "tlisp" || e == "lisp") {
+            out.push(p);
+        }
+    }
+}
+
+/// Merge two exit codes — non-zero wins so the caller sees the
+/// failing pass even if the other succeeded.
+fn merge_exit(a: ExitCode, b: ExitCode) -> ExitCode {
+    if is_success(&a) && is_success(&b) {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    }
+}
 
 fn typecheck(path_or_url: &str) -> Result<ExitCode> {
     let resolved = tatara_lisp_source::resolve_once(path_or_url)

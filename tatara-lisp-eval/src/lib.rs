@@ -22,6 +22,7 @@ pub mod eval;
 pub mod ffi;
 pub mod hof;
 pub mod lisp_stdlib;
+pub mod map;
 pub mod primitive;
 pub mod repl;
 pub mod special;
@@ -33,9 +34,10 @@ pub use eval::Interpreter;
 pub use ffi::{Arity, Caller, FromValue, HigherOrderCallable, IntoValue, NativeCallable};
 pub use hof::install_hof;
 pub use lisp_stdlib::install_lisp_stdlib_with;
+pub use map::install_map;
 pub use primitive::install_primitives;
 pub use repl::ReplSession;
-pub use value::{ErrorObj, Value};
+pub use value::{ErrorObj, MapKey, Value};
 
 /// One-stop installer: registers the full battery — Rust primitives
 /// (arithmetic, comparison, list, string, IO), higher-order Rust
@@ -50,6 +52,7 @@ pub use value::{ErrorObj, Value};
 pub fn install_full_stdlib_with<H: 'static>(interp: &mut Interpreter<H>, host: &mut H) {
     install_primitives(interp);
     install_hof(interp);
+    install_map(interp);
     install_lisp_stdlib_with(interp, host);
 }
 

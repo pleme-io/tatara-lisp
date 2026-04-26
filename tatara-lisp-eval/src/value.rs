@@ -6,6 +6,7 @@
 //! have no surface syntax.
 
 use std::any::Any;
+use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
@@ -25,6 +26,10 @@ pub enum Value {
     Symbol(Arc<str>),
     Keyword(Arc<str>),
     List(Arc<Vec<Value>>),
+    /// Persistent hash map keyed by a hashable subset of `Value`
+    /// (`Bool`, `Int`, `Float`, `Str`, `Symbol`, `Keyword`, `Nil`).
+    /// Inserting / removing yields a new Map (copy-on-write via `Arc`).
+    Map(Arc<HashMap<MapKey, Value>>),
     Closure(Arc<Closure>),
     NativeFn(Arc<NativeFn>),
     /// A first-class structured error — Clojure ex-info shape:
@@ -50,6 +55,61 @@ pub struct ErrorObj {
     pub tag: Arc<str>,
     pub message: Arc<str>,
     pub data: Vec<(Value, Value)>,
+}
+
+/// Hashable subset of `Value` — every variant that has well-defined
+/// equality and hashing semantics. Used as the key type for `Value::Map`.
+///
+/// `Float` keys are stored as raw bit patterns so two `NaN`s hash to the
+/// same slot and equality is bit-exact. This trades IEEE-NaN-comparison
+/// semantics for usability — keys round-trip correctly.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum MapKey {
+    Nil,
+    Bool(bool),
+    Int(i64),
+    Float(u64),
+    Str(Arc<str>),
+    Symbol(Arc<str>),
+    Keyword(Arc<str>),
+}
+
+impl MapKey {
+    /// Try to convert a Value into a hashable map key. Returns None
+    /// for non-hashable variants (List, Map, Closure, NativeFn,
+    /// Error, Sexp, Foreign).
+    pub fn from_value(v: &Value) -> Option<Self> {
+        Some(match v {
+            Value::Nil => Self::Nil,
+            Value::Bool(b) => Self::Bool(*b),
+            Value::Int(n) => Self::Int(*n),
+            Value::Float(n) => Self::Float(n.to_bits()),
+            Value::Str(s) => Self::Str(s.clone()),
+            Value::Symbol(s) => Self::Symbol(s.clone()),
+            Value::Keyword(s) => Self::Keyword(s.clone()),
+            _ => return None,
+        })
+    }
+
+    /// Convert back to a Value. The reverse direction is total — every
+    /// MapKey variant has a corresponding Value variant.
+    pub fn to_value(&self) -> Value {
+        match self {
+            Self::Nil => Value::Nil,
+            Self::Bool(b) => Value::Bool(*b),
+            Self::Int(n) => Value::Int(*n),
+            Self::Float(b) => Value::Float(f64::from_bits(*b)),
+            Self::Str(s) => Value::Str(s.clone()),
+            Self::Symbol(s) => Value::Symbol(s.clone()),
+            Self::Keyword(s) => Value::Keyword(s.clone()),
+        }
+    }
+}
+
+impl fmt::Display for MapKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.to_value())
+    }
 }
 
 /// A user-defined closure produced by `(lambda …)` or `(define (f …) …)`.
@@ -109,6 +169,7 @@ impl Value {
             Self::Symbol(_) => "symbol",
             Self::Keyword(_) => "keyword",
             Self::List(_) => "list",
+            Self::Map(_) => "map",
             Self::Closure(_) => "closure",
             Self::NativeFn(_) => "native-fn",
             Self::Error(_) => "error",
@@ -131,6 +192,7 @@ impl fmt::Debug for Value {
             Self::Symbol(s) => write!(f, "Symbol({s})"),
             Self::Keyword(s) => write!(f, "Keyword(:{s})"),
             Self::List(xs) => f.debug_list().entries(xs.iter()).finish(),
+            Self::Map(m) => write!(f, "Map({} entries)", m.len()),
             Self::Closure(_) => f.write_str("Closure(…)"),
             Self::NativeFn(n) => write!(f, "NativeFn({})", n.name),
             Self::Error(e) => write!(f, "Error({}: {})", e.tag, e.message),
@@ -160,6 +222,19 @@ impl fmt::Display for Value {
                     write!(f, "{v}")?;
                 }
                 f.write_str(")")
+            }
+            Self::Map(m) => {
+                // Render as `{k v k v ...}` — Clojure-style. Order is
+                // not guaranteed (HashMap), so consumers that need
+                // determinism should sort keys themselves.
+                f.write_str("{")?;
+                for (i, (k, v)) in m.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(", ")?;
+                    }
+                    write!(f, "{k} {v}")?;
+                }
+                f.write_str("}")
             }
             Self::Closure(c) => {
                 write!(f, "#<closure")?;

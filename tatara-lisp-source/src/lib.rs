@@ -38,7 +38,7 @@ mod cache;
 mod fetch;
 mod parse;
 
-pub use cache::{Cache, MemoryCache};
+pub use cache::{Cache, FileCache, MemoryCache};
 pub use parse::Source;
 
 /// Result of resolving a [`Source`] — the raw bytes plus the BLAKE3 hash.

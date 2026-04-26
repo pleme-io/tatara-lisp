@@ -5,15 +5,18 @@
 //! returned value is captured in the fiber's state so subsequent
 //! `(go-result f)` calls return it.
 //!
-//! Phase 1 (this module): synchronous fibers — `go-run` runs to
-//! completion in one shot, no yield-on-block. Channel sends/recvs
-//! still use the non-blocking try-variants from `channel.rs`. This
-//! gives users the API surface + the spawn ergonomics today.
+//! Phase 2 (this module): deferred fibers — `(go thunk)` returns a
+//! :pending fiber holding an un-invoked thunk; the body runs only
+//! when `(go-run f)` is called. Repeated `go-run` is idempotent.
+//! Channel sends/recvs still use the non-blocking try-variants from
+//! `channel.rs`.
 //!
-//! Phase 2 (future): cooperative yield. The VM gains a `Yield` opcode;
-//! channel `>!` / `<!` emit it on full/empty; the scheduler picks the
-//! next ready fiber. Lands once we have a multi-fiber scheduler with
-//! ready / blocked queues.
+//! Phase 3 (future): true cooperative yield. The VM gains a `Yield`
+//! opcode; channel `>!` / `<!` emit it on full/empty; a scheduler
+//! drives a fiber set round-robin. Lands once we have a multi-fiber
+//! scheduler with ready / blocked queues. The deferred shape from
+//! Phase 2 is forward-compatible — `(go thunk)` already returns a
+//! pending fiber the scheduler can park.
 //!
 //! Surface (registered by `install_fibers`):
 //!
@@ -45,12 +48,23 @@ pub enum FiberState {
     Errored,
 }
 
-/// A fiber — owns its compiled chunk + a VM instance + the captured
-/// state of the computation. Wrapped in `Arc<Mutex>` and tagged via
-/// `Value::Foreign` so multiple references share the same underlying
-/// fiber (Lisp-side aliasing is referential, not by-value).
+/// A fiber — wraps a deferred 0-arg callable plus its result/error
+/// state. Wrapped in `Arc<Mutex>` and tagged via `Value::Foreign` so
+/// multiple references share the same underlying fiber (Lisp-side
+/// aliasing is referential, not by-value).
+///
+/// `thunk` is a 0-arg callable Value (Closure / NativeFn / VM
+/// CompiledClosure). It's invoked at most once — by the first
+/// `go-run` — and the result/error replaces it (set to `None` so we
+/// don't keep the closure alive longer than needed).
 pub struct Fiber {
+    /// Optional pre-compiled chunk — kept for forward compatibility
+    /// with the Phase 3 scheduler that owns its own VM instance per
+    /// fiber. Phase 2 paths typically leave it as `Chunk::default()`.
     pub chunk: Chunk,
+    /// Deferred thunk to invoke on first `go-run`. `None` once the
+    /// fiber has resolved (Done / Errored).
+    pub thunk: Option<Value>,
     pub state: FiberState,
     pub result: Option<Value>,
     pub error: Option<Value>,
@@ -61,6 +75,7 @@ impl std::fmt::Debug for Fiber {
         f.debug_struct("Fiber")
             .field("state", &self.state)
             .field("ops_len", &self.chunk.top.ops.len())
+            .field("has_thunk", &self.thunk.is_some())
             .field("has_result", &self.result.is_some())
             .finish()
     }
@@ -85,6 +100,7 @@ pub fn make_fiber<H: 'static>(
     })?;
     let fiber = Fiber {
         chunk,
+        thunk: None,
         state: FiberState::Pending,
         result: None,
         error: None,
@@ -188,41 +204,33 @@ pub const FIBER_NAMES: &[&str] = &[
 ];
 
 pub fn install_fibers<H: 'static>(interp: &mut Interpreter<H>) {
-    // (go body) — compile + wrap in a fiber. Macroexpansion of body
-    // happens at compile time inside make_fiber. The body here arrives
-    // as a Value::Sexp because we want the eval crate to give us the
-    // unevaluated form. We special-case via a higher-order primitive
-    // so the fiber primitive sees the SOURCE form, not the value of
-    // evaluating it. To keep the surface clean, `go` expects a thunk:
-    //   (go (lambda () expr))
-    // and we treat the closure body as the fiber body. This is
-    // simpler than introducing a new special form for one primitive.
-    interp.register_higher_order_fn(
+    // (go thunk) — defer thunk for later invocation. Returns a
+    // :pending fiber holding the un-invoked closure. The body runs
+    // only when (go-run f) is called.
+    //
+    // Surface uses a thunk (`(lambda () body)`) so we don't need a
+    // special form — any callable Value works. Embedders that want
+    // `(go body)` syntax should provide a macro that wraps `body`
+    // in `(lambda () body)` before passing.
+    interp.register_fn(
         "go",
         Arity::Exact(1),
-        |args: &[Value], host: &mut H, caller: &Caller<H>, sp: Span| {
-            // We need the BODY of the lambda; not its compiled
-            // closure. The simplest path: invoke the lambda once
-            // synchronously. For Phase 1 of fibers, that's the
-            // documented semantics — `go` evaluates eagerly. The
-            // returned value is wrapped in a `:done` fiber.
-            let result = caller.apply_value(&args[0], vec![], host, sp);
-            let mut fiber = Fiber {
+        |args: &[Value], _host: &mut H, sp| {
+            // Validate the arg is callable (closure / nativefn /
+            // compiled closure). We don't invoke yet — just stash.
+            match &args[0] {
+                Value::Closure(_) | Value::NativeFn(_) | Value::Foreign(_) => {}
+                other => {
+                    return Err(EvalError::type_mismatch("callable", other.type_name(), sp));
+                }
+            }
+            let fiber = Fiber {
                 chunk: Chunk::default(),
+                thunk: Some(args[0].clone()),
                 state: FiberState::Pending,
                 result: None,
                 error: None,
             };
-            match result {
-                Ok(v) => {
-                    fiber.state = FiberState::Done;
-                    fiber.result = Some(v);
-                }
-                Err(e) => {
-                    fiber.state = FiberState::Errored;
-                    fiber.error = Some(eval_err_to_value(&e));
-                }
-            }
             Ok(Value::Foreign(Arc::new(Mutex::new(fiber))))
         },
     );
@@ -275,20 +283,63 @@ pub fn install_fibers<H: 'static>(interp: &mut Interpreter<H>) {
         },
     );
 
-    interp.register_fn(
+    interp.register_higher_order_fn(
         "go-run",
         Arity::Exact(1),
-        |args: &[Value], _h: &mut H, sp| {
+        |args: &[Value], host: &mut H, caller: &Caller<H>, sp: Span| {
             let f = expect_fiber(&args[0], sp)?;
-            // Phase 1: go-run is a no-op for already-resolved fibers
-            // (the body ran eagerly inside (go ...)). It exists so the
-            // surface matches Phase 2 where deferred fibers wait until
-            // explicit go-run.
-            let g = f.lock().unwrap();
-            match g.state {
-                FiberState::Done => Ok(g.result.clone().unwrap_or(Value::Nil)),
-                FiberState::Errored => Ok(g.error.clone().unwrap_or(Value::Nil)),
-                _ => Ok(Value::Nil),
+            // Snapshot the thunk while holding the lock briefly,
+            // then drop the lock so the thunk can run without
+            // blocking re-entrant fiber observation.
+            let thunk = {
+                let mut g = f.lock().unwrap();
+                match g.state {
+                    FiberState::Done => return Ok(g.result.clone().unwrap_or(Value::Nil)),
+                    FiberState::Errored => return Ok(g.error.clone().unwrap_or(Value::Nil)),
+                    FiberState::Running => {
+                        return Err(EvalError::native_fn(
+                            Arc::<str>::from("go-run"),
+                            "fiber already running (re-entrant call detected)",
+                            sp,
+                        ));
+                    }
+                    FiberState::Pending => {}
+                }
+                g.state = FiberState::Running;
+                g.thunk.take()
+            };
+            let thunk = match thunk {
+                Some(t) => t,
+                None => {
+                    // Pending state with no thunk — defensive abort.
+                    let mut g = f.lock().unwrap();
+                    g.state = FiberState::Errored;
+                    let v = Value::Error(Arc::new(crate::value::ErrorObj {
+                        tag: Arc::from("fiber-corrupt"),
+                        message: Arc::from("pending fiber has no thunk"),
+                        data: Vec::new(),
+                    }));
+                    g.error = Some(v.clone());
+                    return Ok(v);
+                }
+            };
+            // Drive the thunk through the standard apply path. This
+            // works whether the thunk is a tree-walker Closure, a
+            // VM-compiled Foreign(CompiledClosure), or a NativeFn.
+            let result = caller.apply_value(&thunk, vec![], host, sp);
+            let mut g = f.lock().unwrap();
+            match result {
+                Ok(v) => {
+                    g.state = FiberState::Done;
+                    g.result = Some(v.clone());
+                    Ok(v)
+                }
+                Err(e) => {
+                    g.state = FiberState::Errored;
+                    let err_value = eval_err_to_value(&e);
+                    g.error = Some(err_value.clone());
+                    Ok(err_value)
+                }
             }
         },
     );
@@ -353,37 +404,65 @@ mod tests {
     }
 
     #[test]
-    fn go_status_done_after_eager_run() {
-        // Phase 1: (go ...) is eager; status is :done immediately.
+    fn go_status_pending_before_run() {
+        // Phase 2: (go ...) is deferred; status is :pending until
+        // an explicit go-run drives it.
         let v = run("(go-status (go (lambda () (+ 1 2))))");
+        assert!(matches!(v, Value::Keyword(s) if &*s == "pending"));
+    }
+
+    #[test]
+    fn go_run_drives_to_done() {
+        let v = run(
+            "(let ((f (go (lambda () (* 7 6)))))
+               (go-run f)
+               (go-status f))",
+        );
         assert!(matches!(v, Value::Keyword(s) if &*s == "done"));
     }
 
     #[test]
-    fn go_result_returns_body_value() {
-        let v = run("(go-result (go (lambda () (* 7 6))))");
+    fn go_result_after_explicit_run() {
+        let v = run(
+            "(let ((f (go (lambda () (* 7 6)))))
+               (go-run f)
+               (go-result f))",
+        );
         assert!(matches!(v, Value::Int(42)));
     }
 
     #[test]
+    fn go_result_nil_before_run() {
+        // Pending fiber has no result yet.
+        let v = run("(go-result (go (lambda () 999)))");
+        assert!(matches!(v, Value::Nil));
+    }
+
+    #[test]
     fn go_error_captures_thrown_value() {
-        let v = run("(go-status (go (lambda () (throw (ex-info \"boom\" (list))))))");
+        // Status :pending until run; :errored after run drives the throw.
+        let v = run(
+            "(let ((f (go (lambda () (throw (ex-info \"boom\" (list)))))))
+               (go-run f)
+               (go-status f))",
+        );
         assert!(matches!(v, Value::Keyword(s) if &*s == "errored"));
         let v = run(
             "(let ((f (go (lambda () (throw (ex-info \"boom\" (list)))))))
+               (go-run f)
                (error-message (go-error f)))",
         );
         assert!(matches!(v, Value::Str(s) if &*s == "boom"));
     }
 
     #[test]
-    fn go_run_on_done_returns_result() {
+    fn go_run_returns_body_value() {
         let v = run("(go-run (go (lambda () 99)))");
         assert!(matches!(v, Value::Int(99)));
     }
 
     #[test]
-    fn go_run_idempotent() {
+    fn go_run_idempotent_after_done() {
         let v = run(
             "(let ((f (go (lambda () 100))))
                (go-run f)
@@ -391,5 +470,34 @@ mod tests {
                (go-run f))",
         );
         assert!(matches!(v, Value::Int(100)));
+    }
+
+    #[test]
+    fn go_thunk_with_closure_captures() {
+        // Thunk closes over a let-local — verifies deferred invocation
+        // preserves the closure's captured environment.
+        let v = run(
+            "(let ((x 21))
+               (let ((f (go (lambda () (* x 2)))))
+                 (go-run f)))",
+        );
+        assert!(matches!(v, Value::Int(42)));
+    }
+
+    #[test]
+    fn go_rejects_non_callable() {
+        // Type guard in (go ...) — passing a non-callable should
+        // surface a type-mismatch error rather than building a
+        // fiber whose go-run will mysteriously fail later.
+        let mut i: Interpreter<NoHost> = Interpreter::new();
+        install_full_stdlib_with(&mut i, &mut NoHost);
+        install_fibers(&mut i);
+        let forms = read_spanned("(go 42)").unwrap();
+        let err = i.eval_program(&forms, &mut NoHost).unwrap_err();
+        // Should be a TypeMismatch — wrapped value is non-callable.
+        assert!(
+            matches!(err, EvalError::TypeMismatch { .. }),
+            "expected TypeMismatch, got {err:?}"
+        );
     }
 }

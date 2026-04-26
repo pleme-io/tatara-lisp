@@ -214,14 +214,25 @@ impl<'a> Compiler<'a> {
                 let v = crate::code::spanned_to_value(inner);
                 self.emit_const(v, form.span);
             }
-            SpannedForm::Quasiquote(_)
-            | SpannedForm::Unquote(_)
-            | SpannedForm::UnquoteSplice(_) => {
-                // Quasi-quote machinery isn't a VM opcode. Emit a
-                // tree-walker fallback — the runtime calls
-                // Interpreter::eval_spanned for the form and pushes
-                // the result.
-                self.emit_eval_sexp(form);
+            SpannedForm::Quasiquote(inner) => {
+                // Native quasi-quote: walk the body and emit code
+                // that constructs the partially-evaluated form. Free
+                // references inside `,expr` and `,@expr` resolve
+                // through the normal locals / captures / globals path,
+                // so `(let ((x 1)) `(a ,x))` works correctly — unlike
+                // the EvalSexp fallback which only saw globals.
+                self.compile_quasiquote(inner, form.span)?;
+            }
+            SpannedForm::Unquote(_) | SpannedForm::UnquoteSplice(_) => {
+                // Top-level `,expr` / `,@expr` outside any quasi-quote
+                // is a structural error — the reader / expander
+                // shouldn't have produced it, but if it did we
+                // surface a clear message rather than silently
+                // ignoring.
+                return Err(CompileError::bad(
+                    form.span,
+                    "unquote / unquote-splice only valid inside quasi-quote",
+                ));
             }
         }
         Ok(())
@@ -236,6 +247,134 @@ impl<'a> Compiler<'a> {
             .consts
             .push(Value::Sexp(sexp, form.span));
         self.emit_op(Op::EvalSexp(idx), form.span);
+    }
+
+    /// Compile a quasi-quote body — the form inside ``…`` syntax.
+    ///
+    /// Atoms / nil → constants. `,expr` → compile expr (so it
+    /// evaluates and pushes its value). `,@expr` outside a list is a
+    /// structural error (matches the tree-walker's behavior). Lists
+    /// without splice points become `MakeList(N)` over compiled
+    /// items. Lists with splice points are split on the splices and
+    /// glued together with native `append`. Nested quasi-quote is
+    /// passed through as an opaque `Value::Sexp` (matches the
+    /// tree-walker; nested QQ in tatara-lisp v1 is intentionally
+    /// limited).
+    fn compile_quasiquote(&mut self, form: &Spanned, qq_span: Span) -> Result<(), CompileError> {
+        match &form.form {
+            // Top-level unquote — evaluate the inner expression and
+            // push its value (single element).
+            SpannedForm::Unquote(inner) => self.compile_form(inner, /*tail=*/ false),
+            SpannedForm::UnquoteSplice(_) => Err(CompileError::bad(
+                form.span,
+                "`,@` only valid directly inside a quasi-quoted list",
+            )),
+            SpannedForm::Nil => {
+                self.emit_op(Op::Nil, form.span);
+                Ok(())
+            }
+            SpannedForm::Atom(a) => {
+                // Symbols become Value::Symbol; other atoms preserve
+                // their runtime shape. Mirror `quasiquote_eval` in
+                // eval.rs so behavior is identical.
+                let v = match a {
+                    Atom::Symbol(s) => Value::Symbol(Arc::from(s.as_str())),
+                    Atom::Keyword(s) => Value::Keyword(Arc::from(s.as_str())),
+                    Atom::Str(s) => Value::Str(Arc::from(s.as_str())),
+                    Atom::Int(n) => Value::Int(*n),
+                    Atom::Float(n) => Value::Float(*n),
+                    Atom::Bool(b) => Value::Bool(*b),
+                };
+                self.emit_const(v, form.span);
+                Ok(())
+            }
+            SpannedForm::List(items) if items.is_empty() => {
+                self.emit_op(Op::Nil, form.span);
+                Ok(())
+            }
+            SpannedForm::List(items) => self.compile_qq_list(items, form.span, qq_span),
+            // Inner (quote …) / (quasiquote …) — preserve as opaque
+            // Sexp literal (matches tree-walker semantics).
+            SpannedForm::Quote(_) | SpannedForm::Quasiquote(_) => {
+                let v = Value::Sexp(form.to_sexp(), form.span);
+                self.emit_const(v, form.span);
+                Ok(())
+            }
+        }
+    }
+
+    /// Compile a list inside a quasi-quote. Splits on `,@expr` splice
+    /// points: literal-segment lists are emitted via `MakeList(K)`,
+    /// splice expressions are compiled directly (must yield a list),
+    /// and the segments are concatenated with native `append`. When
+    /// there are no splice points, emits a single `MakeList(N)`.
+    fn compile_qq_list(
+        &mut self,
+        items: &[Spanned],
+        list_span: Span,
+        qq_span: Span,
+    ) -> Result<(), CompileError> {
+        // Fast path: no splices anywhere — single MakeList.
+        let has_splice = items
+            .iter()
+            .any(|it| matches!(&it.form, SpannedForm::UnquoteSplice(_)));
+        if !has_splice {
+            for item in items {
+                self.compile_quasiquote(item, qq_span)?;
+            }
+            self.emit_op(Op::MakeList(items.len()), list_span);
+            return Ok(());
+        }
+
+        // Splice path: build segments and append them. Walk the
+        // items; collect runs of non-splice items into segments
+        // (one MakeList each), interleave with splice expressions
+        // (each pushes a list). Then call (append seg1 seg2 ...).
+        // Emit the `append` callable first so when all segments are
+        // pushed, the stack ordering matches Op::Call's expectation.
+        let name_idx = self.chunk.names.intern("append");
+        self.emit_op(Op::LoadGlobal(name_idx), list_span);
+
+        let mut seg: Vec<&Spanned> = Vec::new();
+        let mut seg_count: usize = 0;
+
+        // Helper closure-style — emit the accumulated literal segment
+        // as a MakeList and reset the buffer.
+        let emit_segment = |this: &mut Self, seg: &mut Vec<&Spanned>| -> Result<(), CompileError> {
+            let n = seg.len();
+            if n == 0 {
+                return Ok(());
+            }
+            for s in seg.iter() {
+                this.compile_quasiquote(s, qq_span)?;
+            }
+            this.emit_op(Op::MakeList(n), list_span);
+            seg.clear();
+            Ok(())
+        };
+
+        for item in items {
+            if let SpannedForm::UnquoteSplice(inner) = &item.form {
+                // Flush pending literal segment.
+                if !seg.is_empty() {
+                    emit_segment(self, &mut seg)?;
+                    seg_count += 1;
+                }
+                // Compile the splice expression — must yield a list at runtime.
+                self.compile_form(inner, /*tail=*/ false)?;
+                seg_count += 1;
+            } else {
+                seg.push(item);
+            }
+        }
+        if !seg.is_empty() {
+            emit_segment(self, &mut seg)?;
+            seg_count += 1;
+        }
+
+        // Glue with append.
+        self.emit_op(Op::Call(seg_count), list_span);
+        Ok(())
     }
 
     fn compile_atom(&mut self, a: &Atom, span: Span) -> Result<(), CompileError> {

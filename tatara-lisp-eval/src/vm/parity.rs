@@ -257,14 +257,39 @@ mod tests {
             name: "try-catches-runtime",
             src: "(try (/ 1 0) (catch (e) (error-tag e)))",
         },
-        // ── Tree-walker fallback (eval, quasi-quote, macroexpand) ──
+        // ── Tree-walker fallback (eval, macroexpand) ──────────────
         ParityCase {
             name: "fallback-eval-quoted",
             src: "(eval (quote (+ 1 2 3)))",
         },
+        // ── Quasi-quote (native compilation, Phase 7) ─────────────
         ParityCase {
-            name: "fallback-quasi-quote-with-global",
+            name: "quasi-quote-with-global",
             src: "(define x 99) `(a ,x c)",
+        },
+        ParityCase {
+            name: "quasi-quote-with-let-local",
+            src: "(let ((x 42)) `(a ,x c))",
+        },
+        ParityCase {
+            name: "quasi-quote-arithmetic-unquote",
+            src: "(let ((y 10)) `(sum is ,(+ y 5)))",
+        },
+        ParityCase {
+            name: "quasi-quote-unquote-splice",
+            src: "(let ((xs (list 2 3 4))) `(1 ,@xs 5))",
+        },
+        ParityCase {
+            name: "quasi-quote-mixed-splice",
+            src: "(let ((a 1) (bs (list 2 3)) (c 4)) `(start ,a ,@bs ,c end))",
+        },
+        ParityCase {
+            name: "quasi-quote-empty-list-result",
+            src: "`()",
+        },
+        ParityCase {
+            name: "quasi-quote-keyword-and-string",
+            src: "`(:tag \"hello\" 42)",
         },
         // ── Channels ──────────────────────────────────────────────
         ParityCase {

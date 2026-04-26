@@ -992,6 +992,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tatara-cilium"
+version = "0.2.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tatara-lisp",
+ "tatara-lisp-derive",
+]
+
+[[package]]
 name = "tatara-domain-forge"
 version = "0.2.0"
 dependencies = [
@@ -1076,6 +1086,16 @@ dependencies = [
  "thiserror 1.0.69",
  "ureq 2.12.1",
  "url",
+]
+
+[[package]]
+name = "tatara-prometheus-operator"
+version = "0.2.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tatara-lisp",
+ "tatara-lisp-derive",
 ]
 
 [[package]]

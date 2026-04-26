@@ -53,6 +53,16 @@ rec {
       # File a bug if you depend on any for non-debug work!
       debug = internal.debugCrate { inherit packageId; };
     };
+    "tatara-cilium" = rec {
+      packageId = "tatara-cilium";
+      build = internal.buildRustCrateWithFeatures {
+        packageId = "tatara-cilium";
+      };
+
+      # Debug support which might change between releases.
+      # File a bug if you depend on any for non-debug work!
+      debug = internal.debugCrate { inherit packageId; };
+    };
     "tatara-domain-forge" = rec {
       packageId = "tatara-domain-forge";
       build = internal.buildRustCrateWithFeatures {
@@ -117,6 +127,16 @@ rec {
       packageId = "tatara-lisp-source";
       build = internal.buildRustCrateWithFeatures {
         packageId = "tatara-lisp-source";
+      };
+
+      # Debug support which might change between releases.
+      # File a bug if you depend on any for non-debug work!
+      debug = internal.debugCrate { inherit packageId; };
+    };
+    "tatara-prometheus-operator" = rec {
+      packageId = "tatara-prometheus-operator";
+      build = internal.buildRustCrateWithFeatures {
+        packageId = "tatara-prometheus-operator";
       };
 
       # Debug support which might change between releases.
@@ -3204,6 +3224,36 @@ rec {
         ];
 
       };
+      "tatara-cilium" = rec {
+        crateName = "tatara-cilium";
+        version = "0.2.0";
+        edition = "2021";
+        src = lib.cleanSourceWith { filter = sourceFilter;  src = ./tatara-cilium; };
+        libName = "tatara_cilium";
+        authors = [
+          "Pleme.io <engineering@pleme.io>"
+        ];
+        dependencies = [
+          {
+            name = "serde";
+            packageId = "serde";
+            features = [ "derive" ];
+          }
+          {
+            name = "serde_json";
+            packageId = "serde_json";
+          }
+          {
+            name = "tatara-lisp";
+            packageId = "tatara-lisp";
+          }
+          {
+            name = "tatara-lisp-derive";
+            packageId = "tatara-lisp-derive";
+          }
+        ];
+
+      };
       "tatara-domain-forge" = rec {
         crateName = "tatara-domain-forge";
         version = "0.2.0";
@@ -3502,6 +3552,36 @@ rec {
           {
             name = "tempfile";
             packageId = "tempfile";
+          }
+        ];
+
+      };
+      "tatara-prometheus-operator" = rec {
+        crateName = "tatara-prometheus-operator";
+        version = "0.2.0";
+        edition = "2021";
+        src = lib.cleanSourceWith { filter = sourceFilter;  src = ./tatara-prometheus-operator; };
+        libName = "tatara_prometheus_operator";
+        authors = [
+          "Pleme.io <engineering@pleme.io>"
+        ];
+        dependencies = [
+          {
+            name = "serde";
+            packageId = "serde";
+            features = [ "derive" ];
+          }
+          {
+            name = "serde_json";
+            packageId = "serde_json";
+          }
+          {
+            name = "tatara-lisp";
+            packageId = "tatara-lisp";
+          }
+          {
+            name = "tatara-lisp-derive";
+            packageId = "tatara-lisp-derive";
           }
         ];
 

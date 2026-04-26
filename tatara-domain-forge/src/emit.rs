@@ -264,10 +264,29 @@ fn render_type(
                 let mut body = String::new();
                 let _ = writeln!(body, "#[derive(Debug, Clone, Serialize, Deserialize)]");
                 let _ = writeln!(body, "pub enum {type_name} {{");
+                // Some upstream CRDs accept multiple casings for the
+                // same logical value (e.g. prometheus-operator's
+                // `RelabelAction` allows both `replace` and `Replace`).
+                // Both pascal-case to `Replace`, which is a Rust
+                // duplicate-variant error. Track emitted idents and
+                // suffix collisions with `_N` so each variant lands a
+                // unique name; serde's #[serde(rename = "<source>")]
+                // preserves the wire form correctly either way.
+                let mut local_seen: std::collections::HashMap<String, usize> =
+                    std::collections::HashMap::new();
                 for v in variants {
-                    let pascal = variant_pascal(v);
+                    let base = variant_pascal(v);
+                    let n = local_seen.entry(base.clone()).or_insert(0);
+                    // Suffix without underscore — keeps idents in
+                    // valid UpperCamelCase per Rust naming lints.
+                    let ident = if *n == 0 {
+                        base.clone()
+                    } else {
+                        format!("{base}V{n}")
+                    };
+                    *n += 1;
                     let _ = writeln!(body, "    #[serde(rename = \"{v}\")]");
-                    let _ = writeln!(body, "    {pascal},");
+                    let _ = writeln!(body, "    {ident},");
                 }
                 let _ = writeln!(body, "}}");
                 let _ = writeln!(body);

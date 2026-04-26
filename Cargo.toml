@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "tatara",
+    "tatara-cilium",
     "tatara-domain-forge",
     "tatara-gateway-api",
     "tatara-lisp",
@@ -8,6 +9,7 @@ members = [
     "tatara-lisp-eval",
     "tatara-lisp-script",
     "tatara-lisp-source",
+    "tatara-prometheus-operator",
 ]
 resolver = "2"
 

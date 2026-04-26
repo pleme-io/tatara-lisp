@@ -1,25 +1,25 @@
 //! Lexical environment holding `Value`s.
 //!
-//! Each frame is an `Arc<RefCell<HashMap>>`. Cloning an `Env` Arc-clones
+//! Each frame is an `Arc<Mutex<HashMap>>`. Cloning an `Env` Arc-clones
 //! the frames, so a closure that captures the env at creation shares
 //! state with subsequent definitions in those same frames — which is
 //! what makes top-level recursion and mutual recursion work: the closure
 //! looks up its own name in a frame that the enclosing `define` later
 //! populates.
 //!
-//! Not `Sync` (`RefCell`). Single-threaded eval is the expected mode;
-//! if cross-thread use ever needs to share a Value, migrate frames to
-//! `Arc<Mutex<...>>`.
+//! `Send + Sync` (`Mutex`). Single-threaded eval is the expected mode,
+//! but Send + Sync is required to make `Value` itself Send + Sync,
+//! which is in turn required so channels can carry closures across
+//! cooperative tasks.
 
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::value::Value;
 
 #[derive(Default)]
 pub struct Frame {
-    bindings: RefCell<HashMap<Arc<str>, Value>>,
+    bindings: Mutex<HashMap<Arc<str>, Value>>,
 }
 
 impl Frame {
@@ -31,7 +31,7 @@ impl Frame {
 impl std::fmt::Debug for Frame {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Frame")
-            .field("len", &self.bindings.borrow().len())
+            .field("len", &self.bindings.lock().unwrap().len())
             .finish()
     }
 }
@@ -73,14 +73,14 @@ impl Env {
     /// Visible to every other `Env` holding the same innermost frame.
     pub fn define(&self, name: impl Into<Arc<str>>, value: Value) {
         if let Some(top) = self.frames.last() {
-            top.bindings.borrow_mut().insert(name.into(), value);
+            top.bindings.lock().unwrap().insert(name.into(), value);
         }
     }
 
     /// Look up `name`, walking from innermost to outermost frame.
     pub fn lookup(&self, name: &str) -> Option<Value> {
         for frame in self.frames.iter().rev() {
-            if let Some(v) = frame.bindings.borrow().get(name) {
+            if let Some(v) = frame.bindings.lock().unwrap().get(name) {
                 return Some(v.clone());
             }
         }
@@ -91,7 +91,7 @@ impl Env {
     /// `false` if no such binding exists.
     pub fn set(&self, name: &str, value: Value) -> bool {
         for frame in self.frames.iter().rev() {
-            let mut bindings = frame.bindings.borrow_mut();
+            let mut bindings = frame.bindings.lock().unwrap();
             if let Some(slot) = bindings.get_mut(name) {
                 *slot = value;
                 return true;
@@ -111,7 +111,8 @@ impl Env {
     pub fn iter_top_level(&self) -> Vec<(Arc<str>, Value)> {
         if let Some(root) = self.frames.first() {
             root.bindings
-                .borrow()
+                .lock()
+                .unwrap()
                 .iter()
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect()

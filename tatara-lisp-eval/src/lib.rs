@@ -15,6 +15,7 @@
 //! interpreter that evaluates only literal atoms. Subsequent phases
 //! (2.3-2.7) fill in special forms, FFI, REPL, errors, tests.
 
+pub mod channel;
 pub mod code;
 pub mod env;
 pub mod error;
@@ -56,6 +57,7 @@ pub fn install_full_stdlib_with<H: 'static>(interp: &mut Interpreter<H>, host: &
     install_primitives(interp);
     install_hof(interp);
     install_map(interp);
+    channel::install_channels(interp);
     type_check::install_type_check(interp);
     install_lisp_stdlib_with(interp, host);
 }

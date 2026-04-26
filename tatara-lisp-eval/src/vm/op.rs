@@ -28,6 +28,14 @@ pub enum Op {
     LoadLocal(usize),
     /// `v →` — pop and store into locals[idx].
     StoreLocal(usize),
+    /// `→ v` — push captures[idx] of the closure that produced this
+    /// frame. The closure populated its captures array at MakeClosure
+    /// time from the enclosing frame's locals + captures.
+    LoadCaptured(usize),
+    /// `v →` — pop and write into captures[idx]. Mutates the
+    /// captured cell, so two closures sharing the same upvalue see
+    /// each other's writes (Scheme `set!` over a let binding).
+    StoreCaptured(usize),
     /// `→ v` — look up name in interpreter's global env.
     /// `idx` is into the chunk's `name_pool`.
     LoadGlobal(usize),
@@ -84,8 +92,8 @@ impl Op {
     pub fn stack_effect(&self) -> Option<i32> {
         Some(match self {
             Self::Const(_) | Self::Int(_) | Self::Nil | Self::True | Self::False => 1,
-            Self::LoadLocal(_) | Self::LoadGlobal(_) => 1,
-            Self::StoreLocal(_) | Self::StoreGlobal(_) => -1,
+            Self::LoadLocal(_) | Self::LoadGlobal(_) | Self::LoadCaptured(_) => 1,
+            Self::StoreLocal(_) | Self::StoreGlobal(_) | Self::StoreCaptured(_) => -1,
             Self::Pop => -1,
             Self::Dup => 1,
             Self::Jmp(_) => 0,

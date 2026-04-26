@@ -13,6 +13,17 @@ use tatara_lisp::Span;
 use super::op::Op;
 use crate::value::Value;
 
+/// Where a captured variable comes from in the enclosing scope —
+/// either a real local of the parent frame, or another captured slot
+/// (when nested closures chain captures upward).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptureSource {
+    /// Index into the parent function's locals.
+    Local(usize),
+    /// Index into the parent function's own captures array.
+    Captured(usize),
+}
+
 /// One compiled function — either a top-level chunk (the program) or
 /// a lambda body. Stored in the chunk's `fn_table` and referenced by
 /// `MakeClosure(idx)`.
@@ -24,6 +35,10 @@ pub struct CompiledFn {
     pub rest: Option<Arc<str>>,
     /// Number of locals reserved (params + lets).
     pub locals: usize,
+    /// Free-variable descriptors. Each entry says where to pull the
+    /// value from in the enclosing frame at MakeClosure time. Same
+    /// order as `LoadCaptured(idx)` references in the body.
+    pub captures: Vec<(Arc<str>, CaptureSource)>,
     /// Bytecode for this function.
     pub ops: Vec<Op>,
     /// Span of each instruction for error reporting. Same length as
@@ -39,6 +54,7 @@ impl Default for CompiledFn {
             params: Vec::new(),
             rest: None,
             locals: 0,
+            captures: Vec::new(),
             ops: Vec::new(),
             spans: Vec::new(),
             source_span: Span::synthetic(),

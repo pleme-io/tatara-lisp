@@ -7,15 +7,15 @@
 //! tree-walker. This means primitives written for the eval crate
 //! (arithmetic, list, hash-map, channel, ...) just work.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use tatara_lisp::Span;
 use thiserror::Error;
 
-use super::chunk::{Chunk, CompiledFn};
+use super::chunk::{CaptureSource, Chunk, CompiledFn};
 use super::op::Op;
 use crate::eval::Interpreter;
-use crate::value::{Closure, Value};
+use crate::value::Value;
 
 #[derive(Debug, Error)]
 pub enum VmError {
@@ -49,9 +49,17 @@ struct Frame {
     /// First slot ABOVE the locals — temporaries push here.
     /// (Equal to `locals_base + func.locals` at frame entry, never moves.)
     stack_base: usize,
-    /// The captured env of the closure that produced this frame, if
-    /// any. `None` for the top-level chunk.
-    captured_env: Option<crate::env::Env>,
+    /// Captured upvalues from this closure's enclosing scope. Indexed
+    /// by `LoadCaptured(idx)` / `StoreCaptured(idx)`. Each cell is
+    /// shared via `Mutex` so `set!` on a captured name is visible to
+    /// other closures that captured the same outer slot.
+    captures: Vec<Arc<Mutex<Value>>>,
+    /// Heap-promoted cells for THIS frame's locals that have been
+    /// captured by inner closures. Keyed by local slot index;
+    /// established lazily on first `MakeClosure` that references the
+    /// slot. After promotion, `set!`/`StoreLocal` writes through the
+    /// cell so every closure capturing the slot sees the change.
+    local_cells: std::collections::HashMap<usize, Arc<Mutex<Value>>>,
 }
 
 /// The VM. Owns the stack + frame stack while a program runs.
@@ -87,7 +95,8 @@ impl Vm {
             ip: 0,
             locals_base: 0,
             stack_base: top_locals,
-            captured_env: None,
+            captures: Vec::new(),
+            local_cells: std::collections::HashMap::new(),
         };
         // Reserve slots for locals.
         for _ in 0..top_locals {
@@ -140,22 +149,57 @@ impl Vm {
 
                 Op::LoadLocal(idx) => {
                     let f = &self.frames[frame_idx];
-                    let abs = f.locals_base + idx;
-                    let v = self
-                        .stack
-                        .get(abs)
-                        .cloned()
-                        .ok_or(VmError::BadLocal(idx))?;
-                    self.stack.push(v);
+                    // If the slot has been promoted to a cell (because
+                    // an inner closure captured it), read through the
+                    // cell so we see any set! made via StoreCaptured.
+                    if let Some(cell) = f.local_cells.get(&idx) {
+                        let v = cell.lock().unwrap().clone();
+                        self.stack.push(v);
+                    } else {
+                        let abs = f.locals_base + idx;
+                        let v = self
+                            .stack
+                            .get(abs)
+                            .cloned()
+                            .ok_or(VmError::BadLocal(idx))?;
+                        self.stack.push(v);
+                    }
                 }
                 Op::StoreLocal(idx) => {
                     let v = self.stack.pop().ok_or(VmError::Underflow { ip: 0 })?;
                     let f = &self.frames[frame_idx];
-                    let abs = f.locals_base + idx;
-                    if abs >= self.stack.len() {
-                        return Err(VmError::BadLocal(idx));
+                    // Same dual path: write through the cell when
+                    // the slot has been promoted.
+                    if let Some(cell) = f.local_cells.get(&idx).cloned() {
+                        *cell.lock().unwrap() = v;
+                    } else {
+                        let abs = f.locals_base + idx;
+                        if abs >= self.stack.len() {
+                            return Err(VmError::BadLocal(idx));
+                        }
+                        self.stack[abs] = v;
                     }
-                    self.stack[abs] = v;
+                }
+
+                Op::LoadCaptured(idx) => {
+                    let f = &self.frames[frame_idx];
+                    let cell = f
+                        .captures
+                        .get(idx)
+                        .cloned()
+                        .ok_or(VmError::BadLocal(idx))?;
+                    let v = cell.lock().unwrap().clone();
+                    self.stack.push(v);
+                }
+                Op::StoreCaptured(idx) => {
+                    let v = self.stack.pop().ok_or(VmError::Underflow { ip: 0 })?;
+                    let f = &self.frames[frame_idx];
+                    let cell = f
+                        .captures
+                        .get(idx)
+                        .cloned()
+                        .ok_or(VmError::BadLocal(idx))?;
+                    *cell.lock().unwrap() = v;
                 }
 
                 Op::LoadGlobal(name_idx) => {
@@ -192,33 +236,49 @@ impl Vm {
 
                 Op::MakeClosure(fn_idx) => {
                     let body = chunk.fn_table[fn_idx].clone();
-                    // Capture the CURRENT global env. For lambdas
-                    // nested inside lambdas the captured_env is the
-                    // current frame's, so closures see outer locals
-                    // through the env. We carry the interpreter's
-                    // globals snapshot — locals are NOT captured by
-                    // this Phase 1+2 implementation; that's the
-                    // documented limitation.
-                    let captured = interp
-                        .globals_snapshot()
-                        .clone();
-                    let closure = Closure {
-                        params: body.params.clone(),
-                        rest: body.rest.clone(),
-                        // We DO NOT use the tree-walker's `body: Vec<Spanned>`
-                        // field for VM-side closures. The compiled body
-                        // is stored in a side-channel via Foreign tag.
-                        body: Vec::new(),
-                        captured_env: captured,
-                        source: body.source_span,
-                    };
-                    // Tag the closure with the compiled body so the
-                    // VM can recognize and re-enter it on a Call. A
-                    // fresh `CompiledClosure` foreign value carries
-                    // the body.
+                    // Build the captures array for the new closure.
+                    // For each capture descriptor: pull the cell
+                    // from the appropriate slot in the CURRENT frame.
+                    // Promotion: when a Local source first appears,
+                    // promote the slot to a heap cell (insert into
+                    // local_cells, copy the current stack value into
+                    // the cell). Subsequent MakeClosures referencing
+                    // the same slot reuse that same cell — so set!
+                    // through any closure is observable to all
+                    // closures sharing the slot.
+                    let mut closure_captures: Vec<Arc<Mutex<Value>>> =
+                        Vec::with_capacity(body.captures.len());
+                    for (_, source) in &body.captures {
+                        let cell = match source {
+                            CaptureSource::Local(local_idx) => {
+                                let f = &mut self.frames[frame_idx];
+                                if let Some(existing) = f.local_cells.get(local_idx).cloned() {
+                                    existing
+                                } else {
+                                    let abs = f.locals_base + local_idx;
+                                    let v = self
+                                        .stack
+                                        .get(abs)
+                                        .cloned()
+                                        .ok_or(VmError::BadLocal(*local_idx))?;
+                                    let cell = Arc::new(Mutex::new(v));
+                                    self.frames[frame_idx]
+                                        .local_cells
+                                        .insert(*local_idx, cell.clone());
+                                    cell
+                                }
+                            }
+                            CaptureSource::Captured(cap_idx) => self.frames[frame_idx]
+                                .captures
+                                .get(*cap_idx)
+                                .cloned()
+                                .ok_or(VmError::BadLocal(*cap_idx))?,
+                        };
+                        closure_captures.push(cell);
+                    }
                     let compiled = CompiledClosure {
                         body: Arc::new(body),
-                        closure: Arc::new(closure),
+                        captures: closure_captures,
                     };
                     self.stack.push(Value::Foreign(Arc::new(compiled)));
                 }
@@ -375,7 +435,8 @@ impl Vm {
             }
             f.func = body.clone();
             f.ip = 0;
-            f.captured_env = Some(cc.closure.captured_env.clone());
+            f.captures = cc.captures.clone();
+            f.local_cells.clear();
             // stack_base relative to locals_base stays the same.
             f.stack_base = f.locals_base + body.locals;
         } else {
@@ -390,7 +451,8 @@ impl Vm {
                 ip: 0,
                 locals_base,
                 stack_base,
-                captured_env: Some(cc.closure.captured_env.clone()),
+                captures: cc.captures.clone(),
+                local_cells: std::collections::HashMap::new(),
             });
         }
         Ok(())
@@ -406,10 +468,14 @@ impl Default for Vm {
 /// Foreign-tagged compiled closure — the VM's native callable shape.
 /// Wrapping in `Foreign` lets us pass it through `Value` (which is
 /// shared with the tree-walker) without growing the `Value` enum.
+/// Each closure carries a `captures` array — one cell per free
+/// variable identified at compile time. The cells are
+/// `Arc<Mutex<Value>>` so multiple closures sharing the same outer
+/// binding (`set!` semantics) see each other's writes.
 #[derive(Clone)]
 pub struct CompiledClosure {
     pub body: Arc<CompiledFn>,
-    pub closure: Arc<Closure>,
+    pub captures: Vec<Arc<Mutex<Value>>>,
 }
 
 impl std::fmt::Debug for CompiledClosure {
@@ -417,6 +483,7 @@ impl std::fmt::Debug for CompiledClosure {
         f.debug_struct("CompiledClosure")
             .field("params", &self.body.params)
             .field("ops_len", &self.body.ops.len())
+            .field("captures", &self.captures.len())
             .finish()
     }
 }
@@ -555,5 +622,61 @@ mod tests {
              (loop 50000)",
         );
         assert!(matches!(v, Value::Keyword(s) if &*s == "done"));
+    }
+
+    // ── VM Phase 3: closure capture of outer locals ───────────────
+
+    #[test]
+    fn closure_captures_outer_let_local() {
+        // (let ((x 10)) ((lambda (y) (+ x y)) 5)) → 15
+        // Without capture-aware compilation this would fail with
+        // "unbound symbol x" in the lambda body.
+        let v = run_vm("(let ((x 10)) ((lambda (y) (+ x y)) 5))");
+        assert!(matches!(v, Value::Int(15)));
+    }
+
+    #[test]
+    fn closure_returned_from_let_still_sees_captured() {
+        // Classic make-adder pattern: closure outlives the
+        // enclosing scope. Captures must be by-cell (Arc<Mutex>),
+        // not by-frame-position, so the lambda still resolves x
+        // after the let frame is gone.
+        let v = run_vm(
+            "(define (make-adder n) (lambda (x) (+ x n)))
+             ((make-adder 10) 32)",
+        );
+        assert!(matches!(v, Value::Int(42)));
+    }
+
+    #[test]
+    fn nested_closures_chain_captures() {
+        // (let ((x 5))
+        //   (let ((f (lambda (a) (lambda (b) (+ x a b)))))
+        //     ((f 3) 4)))
+        // → 5 + 3 + 4 = 12. The inner lambda captures x via the
+        // outer lambda's captures (chained), and a directly from the
+        // outer lambda's locals.
+        let v = run_vm(
+            "(let ((x 5))
+               (let ((f (lambda (a) (lambda (b) (+ x a b)))))
+                 ((f 3) 4)))",
+        );
+        assert!(matches!(v, Value::Int(12)));
+    }
+
+    #[test]
+    fn closure_set_on_captured_propagates() {
+        // Two closures sharing the same outer binding. Setting x
+        // through one should be visible through the other (the
+        // captures are by-reference cells).
+        let v = run_vm(
+            "(define get (let ((x 0))
+                           (define setter (lambda (v) (set! x v)))
+                           (define getter (lambda () x))
+                           (setter 42)
+                           getter))
+             (get)",
+        );
+        assert!(matches!(v, Value::Int(42)));
     }
 }

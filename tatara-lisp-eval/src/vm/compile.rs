@@ -6,13 +6,32 @@
 //! symbol; lambdas register a `CompiledFn` in the chunk's `fn_table`
 //! and emit `MakeClosure(idx)`. Everything else lowers to `LoadGlobal
 //! + Call(arity)` (or `TailCall` in tail position).
+//!
+//! Closure capture (upvalues): the compiler maintains a STACK of
+//! per-function compilers. Name resolution walks the stack:
+//!
+//!   1. Innermost function's lexical scopes → `LoadLocal(idx)`.
+//!   2. An outer function's lexical scopes → record the binding as a
+//!      capture in every function between the discovery point and the
+//!      innermost; emit `LoadCaptured(idx)` in the innermost. The
+//!      VM populates the captures array at `MakeClosure` time by
+//!      reading the parent frame's locals (or its captures, when the
+//!      chain spans multiple functions).
+//!   3. Not found anywhere → `LoadGlobal(name_idx)`.
+//!
+//! This is the canonical Lua-style upvalue scheme adapted for our
+//! immutable-locals model: each captured slot is a snapshot taken
+//! when the inner closure is built. `set!` on a captured name
+//! writes through `StoreCaptured`, mutating the closure's own copy
+//! (no shared upvalue cells in Phase 3 — we add those if the use
+//! case demands it).
 
 use std::sync::Arc;
 
 use tatara_lisp::{Atom, Span, Spanned, SpannedForm};
 use thiserror::Error;
 
-use super::chunk::{Chunk, CompiledFn};
+use super::chunk::{CaptureSource, Chunk, CompiledFn};
 use super::op::Op;
 use crate::value::Value;
 
@@ -35,9 +54,6 @@ impl CompileError {
 }
 
 /// Compile a sequence of top-level forms (the program) into a `Chunk`.
-/// The chunk's `top` function evaluates each form in order and
-/// returns the value of the last one (or `Nil` if the program is
-/// empty).
 pub fn compile_program(forms: &[Spanned]) -> Result<Chunk, CompileError> {
     let mut chunk = Chunk::default();
     let mut compiler = Compiler::new(&mut chunk);
@@ -45,53 +61,95 @@ pub fn compile_program(forms: &[Spanned]) -> Result<Chunk, CompileError> {
     Ok(chunk)
 }
 
-/// Local scope — one frame's variables. The compiler pushes a fresh
-/// `Scope` per `let` / lambda body; `LoadLocal` indices are the
-/// position of the binding within the FLATTENED locals array of the
-/// enclosing function.
+/// One lexical scope (a `let` body or a function's param list).
 #[derive(Debug, Default, Clone)]
 struct Scope {
-    /// Locally-bound names with their indices (relative to the
-    /// containing function's locals_base).
     bindings: Vec<(Arc<str>, usize)>,
 }
 
-/// Per-function compiler state. Each lambda body gets a fresh one;
-/// the top-level program reuses one for all top-level forms.
-pub struct Compiler<'a> {
-    pub(super) chunk: &'a mut Chunk,
-    /// Op stream for the function currently being compiled.
+/// Per-function compiler state. The outer `Compiler` owns a stack of
+/// these — one per nested function being compiled.
+#[derive(Debug, Default)]
+struct FnCompiler {
+    /// Function bytecode being assembled.
     ops: Vec<Op>,
     /// Span per op (parallel to `ops`).
     spans: Vec<Span>,
-    /// Stack of nested scopes (lexical lets).
+    /// Stack of lexical scopes within this function.
     scopes: Vec<Scope>,
-    /// Highest-water-mark of locals (for the function's `locals` field).
+    /// Highest-water-mark for locals (param count + max simultaneous lets).
     locals_count: usize,
-    /// Param count of the current function — params occupy local
-    /// slots 0..params. New `let` bindings start at `params`.
-    /// Reserved for diagnostics / future use; reads will land with
-    /// frame-level inspection in the LSP.
-    #[allow(dead_code)]
+    /// Param count of this function. Local indices 0..params_count
+    /// are params; new bindings come after.
     params_count: usize,
-    /// Next free local-slot index. Bumped by `alloc_local`,
-    /// independent of when each allocation gets attached to a
-    /// `scope_define` (so multi-binding lets allocate distinct slots
-    /// even before bindings get committed to the scope).
+    /// Next free local slot — bumped by `alloc_local`.
     next_local: usize,
+    /// Free variables this function captures from enclosing scopes.
+    /// Each entry: (name, source). `source` says where to pull the
+    /// value from in the parent frame at MakeClosure time.
+    captures: Vec<(Arc<str>, CaptureSource)>,
+}
+
+impl FnCompiler {
+    fn new() -> Self {
+        Self {
+            scopes: vec![Scope::default()],
+            ..Default::default()
+        }
+    }
+
+    /// Resolve a name within THIS function's scopes only. Returns
+    /// the local slot index, or `None`.
+    fn resolve_in_scopes(&self, name: &str) -> Option<usize> {
+        for scope in self.scopes.iter().rev() {
+            for (n, idx) in scope.bindings.iter().rev() {
+                if &**n == name {
+                    return Some(*idx);
+                }
+            }
+        }
+        None
+    }
+
+    /// Find an existing capture entry for `name`, or add a fresh one
+    /// at the end. Returns the index in `captures` (which is also
+    /// the index `LoadCaptured` will reference).
+    fn intern_capture(&mut self, name: &Arc<str>, source: CaptureSource) -> usize {
+        for (i, (n, src)) in self.captures.iter().enumerate() {
+            if &**n == &**name && *src == source {
+                return i;
+            }
+        }
+        let idx = self.captures.len();
+        self.captures.push((name.clone(), source));
+        idx
+    }
+}
+
+/// Outer compiler — owns the chunk + a stack of in-flight function
+/// compilers. The "current" function is `fn_stack.last()`. Lambda
+/// compilation pushes a new `FnCompiler`, compiles its body, pops it,
+/// stores the result in `chunk.fn_table`, and emits MakeClosure in
+/// the now-current outer function.
+pub struct Compiler<'a> {
+    pub(super) chunk: &'a mut Chunk,
+    fn_stack: Vec<FnCompiler>,
 }
 
 impl<'a> Compiler<'a> {
     pub fn new(chunk: &'a mut Chunk) -> Self {
         Self {
             chunk,
-            ops: Vec::new(),
-            spans: Vec::new(),
-            scopes: vec![Scope::default()],
-            locals_count: 0,
-            params_count: 0,
-            next_local: 0,
+            fn_stack: vec![FnCompiler::new()],
         }
+    }
+
+    fn current(&self) -> &FnCompiler {
+        self.fn_stack.last().expect("at least one function on stack")
+    }
+
+    fn current_mut(&mut self) -> &mut FnCompiler {
+        self.fn_stack.last_mut().expect("at least one function on stack")
     }
 
     fn compile_top(&mut self, forms: &[Spanned]) -> Result<(), CompileError> {
@@ -108,13 +166,15 @@ impl<'a> Compiler<'a> {
         }
         self.emit_op(Op::Halt, Span::synthetic());
 
-        // Snapshot into the chunk's `top` field.
+        // Snapshot the top-level fn into chunk.top.
+        let top = self.fn_stack.pop().expect("top fn on stack");
         self.chunk.top = CompiledFn {
             params: Vec::new(),
             rest: None,
-            locals: self.locals_count,
-            ops: std::mem::take(&mut self.ops),
-            spans: std::mem::take(&mut self.spans),
+            locals: top.locals_count,
+            captures: Vec::new(),
+            ops: top.ops,
+            spans: top.spans,
             source_span: Span::synthetic(),
         };
         Ok(())
@@ -138,10 +198,6 @@ impl<'a> Compiler<'a> {
             SpannedForm::Quasiquote(_)
             | SpannedForm::Unquote(_)
             | SpannedForm::UnquoteSplice(_) => {
-                // Quasi-quote machinery isn't implemented in the VM
-                // yet — fall back to a runtime-error at execution time.
-                // A full implementation lifts the body to a runtime
-                // value tree.
                 return Err(CompileError::bad(
                     form.span,
                     "quasiquote / unquote not yet supported in VM — use the tree-walker path \
@@ -173,15 +229,118 @@ impl<'a> Compiler<'a> {
                 self.emit_op(Op::Const(idx), span);
             }
             Atom::Symbol(name) => {
-                if let Some(local_idx) = self.resolve_local(name) {
-                    self.emit_op(Op::LoadLocal(local_idx), span);
-                } else {
-                    let name_idx = self.chunk.names.intern(name.as_str());
-                    self.emit_op(Op::LoadGlobal(name_idx), span);
-                }
+                self.emit_load_name(name, span);
             }
         }
         Ok(())
+    }
+
+    /// Resolve a name reference and emit the appropriate Load op.
+    /// Walks the function stack: own scopes → captured (recording the
+    /// chain in every intermediate function's `captures`) → global.
+    fn emit_load_name(&mut self, name: &str, span: Span) {
+        if let Some(local_idx) = self.current().resolve_in_scopes(name) {
+            self.emit_op(Op::LoadLocal(local_idx), span);
+            return;
+        }
+        // Check outer functions.
+        let depth = self.fn_stack.len();
+        if depth >= 2 {
+            for outer_idx in (0..depth - 1).rev() {
+                if let Some(parent_local) = self.fn_stack[outer_idx].resolve_in_scopes(name) {
+                    // Found in fn_stack[outer_idx]. Record a capture
+                    // chain in every function between outer_idx + 1
+                    // and the current function (depth - 1).
+                    let captured_idx = self.register_capture_chain(
+                        Arc::from(name),
+                        outer_idx,
+                        CaptureSource::Local(parent_local),
+                    );
+                    self.emit_op(Op::LoadCaptured(captured_idx), span);
+                    return;
+                }
+                // Also check whether the outer fn has THIS name as
+                // one of ITS captures already — chained closures.
+                let already = self.fn_stack[outer_idx]
+                    .captures
+                    .iter()
+                    .position(|(n, _)| &**n == name);
+                if let Some(parent_capture_idx) = already {
+                    let captured_idx = self.register_capture_chain(
+                        Arc::from(name),
+                        outer_idx,
+                        CaptureSource::Captured(parent_capture_idx),
+                    );
+                    self.emit_op(Op::LoadCaptured(captured_idx), span);
+                    return;
+                }
+            }
+        }
+        // Fall through to global.
+        let name_idx = self.chunk.names.intern(name);
+        self.emit_op(Op::LoadGlobal(name_idx), span);
+    }
+
+    /// Mirror of `emit_load_name` for `set!` — emits a Store op.
+    fn emit_store_name(&mut self, name: &str, span: Span) {
+        if let Some(local_idx) = self.current().resolve_in_scopes(name) {
+            self.emit_op(Op::StoreLocal(local_idx), span);
+            return;
+        }
+        let depth = self.fn_stack.len();
+        if depth >= 2 {
+            for outer_idx in (0..depth - 1).rev() {
+                if let Some(parent_local) = self.fn_stack[outer_idx].resolve_in_scopes(name) {
+                    let captured_idx = self.register_capture_chain(
+                        Arc::from(name),
+                        outer_idx,
+                        CaptureSource::Local(parent_local),
+                    );
+                    self.emit_op(Op::StoreCaptured(captured_idx), span);
+                    return;
+                }
+                let already = self.fn_stack[outer_idx]
+                    .captures
+                    .iter()
+                    .position(|(n, _)| &**n == name);
+                if let Some(parent_capture_idx) = already {
+                    let captured_idx = self.register_capture_chain(
+                        Arc::from(name),
+                        outer_idx,
+                        CaptureSource::Captured(parent_capture_idx),
+                    );
+                    self.emit_op(Op::StoreCaptured(captured_idx), span);
+                    return;
+                }
+            }
+        }
+        let name_idx = self.chunk.names.intern(name);
+        self.emit_op(Op::StoreGlobal(name_idx), span);
+    }
+
+    /// Walk from the depth where the binding was found up to the
+    /// current function, registering captures in each intermediate
+    /// function. Returns the captured-index in the CURRENT (innermost)
+    /// function.
+    fn register_capture_chain(
+        &mut self,
+        name: Arc<str>,
+        found_at: usize,
+        first_source: CaptureSource,
+    ) -> usize {
+        let mut source = first_source;
+        // Iterate from `found_at + 1` (the function ABOVE the one
+        // where we found it) to the current function (depth - 1).
+        let depth = self.fn_stack.len();
+        let mut idx_in_outer = 0usize;
+        for fn_idx in (found_at + 1)..depth {
+            idx_in_outer = self.fn_stack[fn_idx].intern_capture(&name, source);
+            // Next loop iteration sees the binding as captured in
+            // fn_stack[fn_idx], so source should reference THAT
+            // function's captures slot.
+            source = CaptureSource::Captured(idx_in_outer);
+        }
+        idx_in_outer
     }
 
     fn compile_list(
@@ -209,7 +368,6 @@ impl<'a> Compiler<'a> {
             Some("and") => self.compile_and(&items[1..], span, tail),
             Some("or") => self.compile_or(&items[1..], span, tail),
             Some("not") => self.compile_not(items, span),
-            // Default: function call.
             _ => self.compile_call(items, span, tail),
         }
     }
@@ -228,20 +386,17 @@ impl<'a> Compiler<'a> {
                 format!("(if c t [e]): expected 2-3 args, got {}", items.len() - 1),
             ));
         }
-        // Test
         self.compile_form(&items[1], false)?;
         let jmp_to_else = self.emit_placeholder(Op::JmpNot(0), items[1].span);
-        // Then branch (tail position propagates from outer if).
         self.compile_form(&items[2], tail)?;
         let jmp_to_end = self.emit_placeholder(Op::Jmp(0), items[2].span);
-        // Else branch.
-        let else_target = self.ops.len();
+        let else_target = self.current().ops.len();
         if items.len() == 4 {
             self.compile_form(&items[3], tail)?;
         } else {
             self.emit_op(Op::Nil, span);
         }
-        let end_target = self.ops.len();
+        let end_target = self.current().ops.len();
         self.patch_jmp(jmp_to_else, else_target);
         self.patch_jmp(jmp_to_end, end_target);
         Ok(())
@@ -277,15 +432,12 @@ impl<'a> Compiler<'a> {
         match &items[1].form {
             SpannedForm::Atom(Atom::Symbol(name)) => {
                 self.compile_form(&items[2], false)?;
-                // (define name expr) returns nil; emit Dup + StoreGlobal
-                // so the defined value is on the stack before we drop it.
                 let name_idx = self.chunk.names.intern(name.as_str());
                 self.emit_op(Op::StoreGlobal(name_idx), span);
                 self.emit_op(Op::Nil, span);
                 Ok(())
             }
             SpannedForm::List(head) if !head.is_empty() => {
-                // (define (name args...) body...) → (define name (lambda (args) body))
                 let name = head[0].as_symbol().ok_or_else(|| {
                     CompileError::bad(items[1].span, "define: first form-elem must be a symbol")
                 })?;
@@ -329,9 +481,6 @@ impl<'a> Compiler<'a> {
             CompileError::bad(items[1].span, "let: bindings must be a list")
         })?;
 
-        // Compile each binding's value FIRST (parallel binding semantics
-        // — values evaluated in outer scope), then push a new scope and
-        // store each into a local.
         let mut binding_locals: Vec<(Arc<str>, usize)> = Vec::with_capacity(bindings.len());
         for binding in bindings {
             let pair = binding.as_list().ok_or_else(|| {
@@ -350,19 +499,14 @@ impl<'a> Compiler<'a> {
             let local_idx = self.alloc_local();
             binding_locals.push((Arc::<str>::from(name), local_idx));
         }
-        // Stores are in reverse order — top of stack is the LAST
-        // binding's value.
         for (_, local_idx) in binding_locals.iter().rev() {
             self.emit_op(Op::StoreLocal(*local_idx), span);
         }
-        // Push scope after all values pushed but before body, so body
-        // can see them.
         self.push_scope();
         for (name, idx) in &binding_locals {
             self.scope_define(name.clone(), *idx);
         }
 
-        // Body.
         let body = &items[2..];
         let last = body.len().saturating_sub(1);
         for (i, form) in body.iter().enumerate() {
@@ -385,7 +529,6 @@ impl<'a> Compiler<'a> {
                 "(lambda (params) body...): expected param list + body",
             ));
         }
-        // Parse params + rest.
         let param_list: Vec<Spanned> = match &items[1].form {
             SpannedForm::Nil => Vec::new(),
             SpannedForm::List(xs) => xs.clone(),
@@ -423,40 +566,42 @@ impl<'a> Compiler<'a> {
             i += 1;
         }
 
-        // Compile the body in a sub-compiler; it gets its own ops/spans
-        // and a fresh scope. Params occupy local slots 0..params.
+        // Push a fresh FnCompiler for the lambda body. Any captures
+        // it discovers will record into THIS new FnCompiler — and
+        // also into intermediate FnCompilers if the chain is nested.
         let initial_locals = params.len() + usize::from(rest.is_some());
-        let mut sub = Compiler {
-            chunk: self.chunk,
-            ops: Vec::new(),
-            spans: Vec::new(),
-            scopes: vec![Scope::default()],
-            locals_count: initial_locals,
-            params_count: initial_locals,
-            next_local: initial_locals,
-        };
+        let mut sub = FnCompiler::new();
+        sub.locals_count = initial_locals;
+        sub.params_count = initial_locals;
+        sub.next_local = initial_locals;
         for (i, name) in params.iter().enumerate() {
-            sub.scope_define(name.clone(), i);
+            sub.scopes[0].bindings.push((name.clone(), i));
         }
         if let Some(name) = &rest {
-            let idx = params.len();
-            sub.scope_define(name.clone(), idx);
+            sub.scopes[0]
+                .bindings
+                .push((name.clone(), params.len()));
         }
-        // Compile body forms; last one is in tail position.
-        let body = &items[2..];
-        let last = body.len() - 1;
-        for (i, form) in body.iter().enumerate() {
-            sub.compile_form(form, i == last)?;
+        self.fn_stack.push(sub);
+
+        // Compile body forms.
+        let body_forms = &items[2..];
+        let last = body_forms.len() - 1;
+        for (i, form) in body_forms.iter().enumerate() {
+            self.compile_form(form, /*tail=*/ i == last)?;
             if i != last {
-                sub.emit_op(Op::Pop, form.span);
+                self.emit_op(Op::Pop, form.span);
             }
         }
-        sub.emit_op(Op::Return, span);
+        self.emit_op(Op::Return, span);
 
+        // Pop the fn compiler and store as a CompiledFn in fn_table.
+        let sub = self.fn_stack.pop().expect("just pushed");
         let compiled = CompiledFn {
             params,
             rest,
             locals: sub.locals_count,
+            captures: sub.captures,
             ops: sub.ops,
             spans: sub.spans,
             source_span: span,
@@ -475,13 +620,7 @@ impl<'a> Compiler<'a> {
             CompileError::bad(items[1].span, "set!: first arg must be a symbol")
         })?;
         self.compile_form(&items[2], false)?;
-        // Try local first, then fall back to global.
-        if let Some(local_idx) = self.resolve_local(name) {
-            self.emit_op(Op::StoreLocal(local_idx), span);
-        } else {
-            let name_idx = self.chunk.names.intern(name);
-            self.emit_op(Op::StoreGlobal(name_idx), span);
-        }
+        self.emit_store_name(name, span);
         self.emit_op(Op::Nil, span);
         Ok(())
     }
@@ -496,7 +635,6 @@ impl<'a> Compiler<'a> {
             self.emit_op(Op::True, span);
             return Ok(());
         }
-        // Short-circuit: keep value on stack; jump to end when falsy.
         let mut end_jumps: Vec<usize> = Vec::new();
         let last = exprs.len() - 1;
         for (i, e) in exprs.iter().enumerate() {
@@ -508,7 +646,7 @@ impl<'a> Compiler<'a> {
                 self.emit_op(Op::Pop, e.span);
             }
         }
-        let end = self.ops.len();
+        let end = self.current().ops.len();
         for j in end_jumps {
             self.patch_jmp(j, end);
         }
@@ -536,7 +674,7 @@ impl<'a> Compiler<'a> {
                 self.emit_op(Op::Pop, e.span);
             }
         }
-        let end = self.ops.len();
+        let end = self.current().ops.len();
         for j in end_jumps {
             self.patch_jmp(j, end);
         }
@@ -548,14 +686,13 @@ impl<'a> Compiler<'a> {
             return Err(CompileError::bad(span, "(not x): expected 1 arg"));
         }
         self.compile_form(&items[1], false)?;
-        // Emit: (if x #f #t)
         let jmp_to_false = self.emit_placeholder(Op::JmpNot(0), span);
         self.emit_op(Op::False, span);
         let jmp_to_end = self.emit_placeholder(Op::Jmp(0), span);
-        let true_target = self.ops.len();
+        let true_target = self.current().ops.len();
         self.patch_jmp(jmp_to_false, true_target);
         self.emit_op(Op::True, span);
-        let end = self.ops.len();
+        let end = self.current().ops.len();
         self.patch_jmp(jmp_to_end, end);
         Ok(())
     }
@@ -566,9 +703,7 @@ impl<'a> Compiler<'a> {
         span: Span,
         tail: bool,
     ) -> Result<(), CompileError> {
-        // Push callable.
         self.compile_form(&items[0], false)?;
-        // Push args.
         for arg in &items[1..] {
             self.compile_form(arg, false)?;
         }
@@ -584,8 +719,9 @@ impl<'a> Compiler<'a> {
     // ── Helpers ──────────────────────────────────────────────────
 
     fn emit_op(&mut self, op: Op, span: Span) {
-        self.ops.push(op);
-        self.spans.push(span);
+        let f = self.current_mut();
+        f.ops.push(op);
+        f.spans.push(span);
     }
 
     fn emit_const(&mut self, v: Value, span: Span) {
@@ -593,56 +729,46 @@ impl<'a> Compiler<'a> {
         self.emit_op(Op::Const(idx), span);
     }
 
-    /// Emit a placeholder jump op. Returns the IP of the op so the
-    /// caller can patch the target later. Use `patch_jmp(ip, target)`.
     fn emit_placeholder(&mut self, op: Op, span: Span) -> usize {
-        let ip = self.ops.len();
+        let ip = self.current().ops.len();
         self.emit_op(op, span);
         ip
     }
 
     fn patch_jmp(&mut self, ip: usize, target: usize) {
-        let op = match &self.ops[ip] {
+        let f = self.current_mut();
+        let op = match &f.ops[ip] {
             Op::Jmp(_) => Op::Jmp(target),
             Op::JmpNot(_) => Op::JmpNot(target),
             Op::JmpIf(_) => Op::JmpIf(target),
             other => panic!("patch_jmp on non-jmp op: {other:?}"),
         };
-        self.ops[ip] = op;
+        f.ops[ip] = op;
     }
 
     fn alloc_local(&mut self) -> usize {
-        let idx = self.next_local;
-        self.next_local += 1;
-        self.locals_count = self.locals_count.max(self.next_local);
+        let f = self.current_mut();
+        let idx = f.next_local;
+        f.next_local += 1;
+        f.locals_count = f.locals_count.max(f.next_local);
         idx
     }
 
     fn push_scope(&mut self) {
-        self.scopes.push(Scope::default());
+        self.current_mut().scopes.push(Scope::default());
     }
 
     fn pop_scope(&mut self) {
-        self.scopes.pop();
+        self.current_mut().scopes.pop();
     }
 
     fn scope_define(&mut self, name: Arc<str>, idx: usize) {
-        self.scopes
+        self.current_mut()
+            .scopes
             .last_mut()
             .expect("at least one scope")
             .bindings
             .push((name, idx));
-    }
-
-    fn resolve_local(&self, name: &str) -> Option<usize> {
-        for scope in self.scopes.iter().rev() {
-            for (n, idx) in scope.bindings.iter().rev() {
-                if &**n == name {
-                    return Some(*idx);
-                }
-            }
-        }
-        None
     }
 }
 
@@ -666,8 +792,6 @@ mod tests {
     #[test]
     fn compile_arithmetic_call() {
         let c = compile_str("(+ 1 2)");
-        // (+ 1 2) → LoadGlobal "+" / Int 1 / Int 2 / TailCall(2) / Halt
-        // Top-level last form is in tail position; final TailCall feeds Halt.
         assert!(matches!(c.top.ops[0], Op::LoadGlobal(_)));
         assert!(matches!(c.top.ops[1], Op::Int(1)));
         assert!(matches!(c.top.ops[2], Op::Int(2)));
@@ -677,7 +801,6 @@ mod tests {
     #[test]
     fn compile_if_emits_jumps() {
         let c = compile_str("(if #t 1 2)");
-        // Test → JmpNot → Then → Jmp → Else
         let has_jmp_not = c.top.ops.iter().any(|o| matches!(o, Op::JmpNot(_)));
         let has_jmp = c.top.ops.iter().any(|o| matches!(o, Op::Jmp(_)));
         assert!(has_jmp_not && has_jmp);
@@ -709,5 +832,54 @@ mod tests {
     fn compile_quote_yields_const() {
         let c = compile_str("'foo");
         assert!(matches!(c.top.ops[0], Op::Const(_)));
+    }
+
+    #[test]
+    fn compile_lambda_captures_outer_let_local() {
+        // (let ((x 10)) (lambda (y) (+ x y))) — the lambda's body
+        // emits LoadCaptured for x (outer-let local) and LoadLocal
+        // for y (own param). The lambda's CompiledFn must record
+        // x in `captures` with source = Local(parent's x slot).
+        let c = compile_str("(let ((x 10)) (lambda (y) (+ x y)))");
+        assert_eq!(c.fn_table.len(), 1);
+        let fn_def = &c.fn_table[0];
+        assert_eq!(fn_def.captures.len(), 1);
+        assert_eq!(&*fn_def.captures[0].0, "x");
+        assert!(matches!(
+            fn_def.captures[0].1,
+            CaptureSource::Local(_)
+        ));
+        let has_load_captured = fn_def.ops.iter().any(|o| matches!(o, Op::LoadCaptured(_)));
+        assert!(has_load_captured);
+    }
+
+    #[test]
+    fn compile_nested_lambdas_chain_captures() {
+        // (let ((x 5))
+        //   (lambda (a) (lambda (b) (+ x a b))))
+        // Inner lambda captures x (chained — from the outer lambda's
+        // captures, not directly from the let) AND a (from the outer
+        // lambda's locals). Outer lambda captures x from the let.
+        // fn_table order is registration-order: inner is compiled
+        // first (during outer's body compilation) and gets index 0;
+        // outer gets index 1.
+        let c = compile_str("(let ((x 5)) (lambda (a) (lambda (b) (+ x a b))))");
+        assert_eq!(c.fn_table.len(), 2);
+        // Inner lambda — captures both x and a.
+        let inner = &c.fn_table[0];
+        let names: Vec<&str> = inner.captures.iter().map(|(n, _)| &**n).collect();
+        assert!(names.contains(&"x"));
+        assert!(names.contains(&"a"));
+        // x in inner should be Captured(_) — chained via outer's captures.
+        let x_src = inner.captures.iter().find(|(n, _)| &**n == "x").unwrap().1;
+        assert!(matches!(x_src, CaptureSource::Captured(_)));
+        // a in inner should be Local(_) — outer's a is its own param.
+        let a_src = inner.captures.iter().find(|(n, _)| &**n == "a").unwrap().1;
+        assert!(matches!(a_src, CaptureSource::Local(_)));
+        // Outer lambda — captures only x (a is its own param).
+        let outer = &c.fn_table[1];
+        assert_eq!(outer.captures.len(), 1);
+        assert_eq!(&*outer.captures[0].0, "x");
+        assert!(matches!(outer.captures[0].1, CaptureSource::Local(_)));
     }
 }

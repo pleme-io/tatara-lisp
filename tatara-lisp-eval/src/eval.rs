@@ -545,12 +545,274 @@ fn apply<H: 'static>(
                 }
             }
         }
-        Value::Closure(c) => call_closure(c, args, call_span, registry, host),
+        Value::Closure(c) => call_closure(c.clone(), args, call_span, registry, host),
         other => Err(EvalError::NotCallable {
             value_kind: other.type_name(),
             at: call_span,
         }),
     }
+}
+
+// ── Tail-call optimization ────────────────────────────────────────
+//
+// Tatara-lisp guarantees TCO in the sense Scheme R7RS requires: a
+// procedure call in tail position never grows the stack. This is
+// implemented as a trampoline driven from `call_closure`.
+//
+// "Tail position" is the structural notion: the form whose value
+// becomes the value of the surrounding form. The tail positions
+// supported here:
+//
+//   * `if` — both branches
+//   * `cond` / `when` / `unless` — last form of the matching body
+//   * `begin` / `let` / `let*` / `letrec` — last form of the body
+//   * `and` / `or` — last form when prior forms didn't short-circuit
+//   * Lambda body — last form
+//
+// `eval_in_tail` mirrors `eval_in` but, for closure-application forms
+// in tail position, returns `TailResult::Resume(closure, args)` rather
+// than calling `apply`. The outer trampoline in `call_closure` then
+// rebinds and loops without consuming a stack frame.
+
+/// Result of tail-position evaluation.
+enum TailResult {
+    /// Evaluation completed; here is the value.
+    Done(Value),
+    /// A tail call to a closure that the trampoline should re-enter
+    /// rather than recursing into. Carries the closure to invoke,
+    /// the already-evaluated arguments, and the call site span for
+    /// arity-error attribution.
+    Resume(Arc<Closure>, Vec<Value>, Span),
+}
+
+/// Tail-position evaluation. Same semantics as `eval_in` for forms
+/// that don't yield a closure tail call, but defers closure tail calls
+/// to the trampoline.
+fn eval_in_tail<H: 'static>(
+    env: &mut Env,
+    registry: &FnRegistry<H>,
+    form: &Spanned,
+    host: &mut H,
+) -> Result<TailResult> {
+    match &form.form {
+        SpannedForm::List(items) if !items.is_empty() => {
+            // Special-form check first.
+            if let Some(head_sym) = items[0].as_symbol() {
+                if let Some(sf) = SpecialForm::from_symbol(head_sym) {
+                    return eval_special_tail(sf, items, form.span, env, registry, host);
+                }
+            }
+            // Function application: evaluate head + args, then either
+            // resume (closure) or apply (everything else).
+            let head_val = eval_in(env, registry, &items[0], host)?;
+            let mut args: Vec<Value> = Vec::with_capacity(items.len().saturating_sub(1));
+            for arg_form in &items[1..] {
+                args.push(eval_in(env, registry, arg_form, host)?);
+            }
+            match head_val {
+                Value::Closure(c) => Ok(TailResult::Resume(c, args, form.span)),
+                _ => apply(&head_val, args, form.span, registry, host).map(TailResult::Done),
+            }
+        }
+        // Atoms, Quote, Nil — no tail context to exploit; just compute.
+        _ => eval_in(env, registry, form, host).map(TailResult::Done),
+    }
+}
+
+fn eval_special_tail<H: 'static>(
+    sf: SpecialForm,
+    items: &[Spanned],
+    call_span: Span,
+    env: &mut Env,
+    registry: &FnRegistry<H>,
+    host: &mut H,
+) -> Result<TailResult> {
+    match sf {
+        SpecialForm::If => {
+            if items.len() < 3 || items.len() > 4 {
+                return eval_special(sf, items, call_span, env, registry, host).map(TailResult::Done);
+            }
+            let c = eval_in(env, registry, &items[1], host)?;
+            if c.is_truthy() {
+                eval_in_tail(env, registry, &items[2], host)
+            } else if items.len() == 4 {
+                eval_in_tail(env, registry, &items[3], host)
+            } else {
+                Ok(TailResult::Done(Value::Nil))
+            }
+        }
+        SpecialForm::Begin => {
+            let body = &items[1..];
+            if body.is_empty() {
+                return Ok(TailResult::Done(Value::Nil));
+            }
+            for form in &body[..body.len() - 1] {
+                eval_in(env, registry, form, host)?;
+            }
+            eval_in_tail(env, registry, body.last().unwrap(), host)
+        }
+        SpecialForm::When | SpecialForm::Unless => {
+            if items.len() < 2 {
+                return eval_special(sf, items, call_span, env, registry, host).map(TailResult::Done);
+            }
+            let invert = matches!(sf, SpecialForm::Unless);
+            let cond = eval_in(env, registry, &items[1], host)?;
+            let run = cond.is_truthy() ^ invert;
+            if !run {
+                return Ok(TailResult::Done(Value::Nil));
+            }
+            let body = &items[2..];
+            if body.is_empty() {
+                return Ok(TailResult::Done(Value::Nil));
+            }
+            for form in &body[..body.len() - 1] {
+                eval_in(env, registry, form, host)?;
+            }
+            eval_in_tail(env, registry, body.last().unwrap(), host)
+        }
+        SpecialForm::Cond => {
+            for clause in &items[1..] {
+                let Some(clause_list) = clause.as_list() else {
+                    return eval_special(sf, items, call_span, env, registry, host)
+                        .map(TailResult::Done);
+                };
+                if clause_list.is_empty() {
+                    return eval_special(sf, items, call_span, env, registry, host)
+                        .map(TailResult::Done);
+                }
+                let is_else = clause_list[0].as_symbol() == Some("else");
+                let cond_matches = if is_else {
+                    true
+                } else {
+                    eval_in(env, registry, &clause_list[0], host)?.is_truthy()
+                };
+                if cond_matches {
+                    let body = &clause_list[1..];
+                    if body.is_empty() {
+                        return Ok(TailResult::Done(Value::Nil));
+                    }
+                    for form in &body[..body.len() - 1] {
+                        eval_in(env, registry, form, host)?;
+                    }
+                    return eval_in_tail(env, registry, body.last().unwrap(), host);
+                }
+            }
+            Ok(TailResult::Done(Value::Nil))
+        }
+        SpecialForm::Let | SpecialForm::LetStar | SpecialForm::LetRec => {
+            eval_let_family_tail(sf, items, call_span, env, registry, host)
+        }
+        SpecialForm::And => {
+            let exprs = &items[1..];
+            if exprs.is_empty() {
+                return Ok(TailResult::Done(Value::Bool(true)));
+            }
+            // All but last: short-circuit.
+            for e in &exprs[..exprs.len() - 1] {
+                let v = eval_in(env, registry, e, host)?;
+                if !v.is_truthy() {
+                    return Ok(TailResult::Done(v));
+                }
+            }
+            // Last in tail position.
+            eval_in_tail(env, registry, exprs.last().unwrap(), host)
+        }
+        SpecialForm::Or => {
+            let exprs = &items[1..];
+            if exprs.is_empty() {
+                return Ok(TailResult::Done(Value::Bool(false)));
+            }
+            for e in &exprs[..exprs.len() - 1] {
+                let v = eval_in(env, registry, e, host)?;
+                if v.is_truthy() {
+                    return Ok(TailResult::Done(v));
+                }
+            }
+            eval_in_tail(env, registry, exprs.last().unwrap(), host)
+        }
+        // Non-tail forms: just evaluate normally.
+        _ => eval_special(sf, items, call_span, env, registry, host).map(TailResult::Done),
+    }
+}
+
+/// Tail-aware evaluator for `let` / `let*` / `letrec`. Mirrors the
+/// non-tail versions in `sf_let` / `sf_let_star` / `sf_letrec` but uses
+/// `eval_in_tail` for the body's last form.
+fn eval_let_family_tail<H: 'static>(
+    sf: SpecialForm,
+    items: &[Spanned],
+    call_span: Span,
+    env: &mut Env,
+    registry: &FnRegistry<H>,
+    host: &mut H,
+) -> Result<TailResult> {
+    if items.len() < 3 {
+        return Err(EvalError::bad_form(
+            match sf {
+                SpecialForm::Let => "let",
+                SpecialForm::LetStar => "let*",
+                SpecialForm::LetRec => "letrec",
+                _ => "let-family",
+            },
+            "expected ((name expr)...) body...",
+            call_span,
+        ));
+    }
+    let bindings = parse_binding_list(
+        &items[1],
+        match sf {
+            SpecialForm::Let => "let",
+            SpecialForm::LetStar => "let*",
+            SpecialForm::LetRec => "letrec",
+            _ => "let-family",
+        },
+    )?;
+
+    match sf {
+        SpecialForm::Let => {
+            let mut values = Vec::with_capacity(bindings.len());
+            for (_, expr) in &bindings {
+                values.push(eval_in(env, registry, expr, host)?);
+            }
+            env.push();
+            for ((name, _), val) in bindings.into_iter().zip(values) {
+                env.define(name, val);
+            }
+        }
+        SpecialForm::LetStar => {
+            env.push();
+            for (name, expr) in bindings {
+                let v = eval_in(env, registry, expr, host)?;
+                env.define(name, v);
+            }
+        }
+        SpecialForm::LetRec => {
+            env.push();
+            for (name, _) in &bindings {
+                env.define(name.clone(), Value::Nil);
+            }
+            for (name, expr) in &bindings {
+                let v = eval_in(env, registry, expr, host)?;
+                env.define(name.clone(), v);
+            }
+        }
+        _ => unreachable!(),
+    }
+
+    let body = &items[2..];
+    let result = if body.is_empty() {
+        Ok(TailResult::Done(Value::Nil))
+    } else {
+        for form in &body[..body.len() - 1] {
+            if let Err(e) = eval_in(env, registry, form, host) {
+                env.pop();
+                return Err(e);
+            }
+        }
+        eval_in_tail(env, registry, body.last().unwrap(), host)
+    };
+    env.pop();
+    result
 }
 
 /// External entry point for `Caller::apply_value` — the higher-order
@@ -604,47 +866,73 @@ fn bind_macro_args(
     Ok(())
 }
 
+/// Apply a closure to arguments. Implements TCO: if the body's last
+/// form is a tail call to another closure, the trampoline reuses the
+/// stack frame instead of recursing. Self-recursion and mutual
+/// recursion both bottom out into a loop.
 fn call_closure<H: 'static>(
-    closure: &Closure,
+    closure: Arc<Closure>,
     args: Vec<Value>,
     call_span: Span,
     registry: &FnRegistry<H>,
     host: &mut H,
 ) -> Result<Value> {
-    let required = closure.params.len();
-    let has_rest = closure.rest.is_some();
-    if !has_rest && args.len() != required {
-        return Err(EvalError::ArityMismatch {
-            fn_name: Arc::from("<closure>"),
-            expected: Arity::Exact(required),
-            got: args.len(),
-            at: call_span,
-        });
-    }
-    if has_rest && args.len() < required {
-        return Err(EvalError::ArityMismatch {
-            fn_name: Arc::from("<closure>"),
-            expected: Arity::AtLeast(required),
-            got: args.len(),
-            at: call_span,
-        });
-    }
+    let mut current = closure;
+    let mut current_args = args;
+    let mut current_span = call_span;
+    loop {
+        // Arity check.
+        let required = current.params.len();
+        let has_rest = current.rest.is_some();
+        if !has_rest && current_args.len() != required {
+            return Err(EvalError::ArityMismatch {
+                fn_name: Arc::from("<closure>"),
+                expected: Arity::Exact(required),
+                got: current_args.len(),
+                at: current_span,
+            });
+        }
+        if has_rest && current_args.len() < required {
+            return Err(EvalError::ArityMismatch {
+                fn_name: Arc::from("<closure>"),
+                expected: Arity::AtLeast(required),
+                got: current_args.len(),
+                at: current_span,
+            });
+        }
 
-    let mut env = closure.captured_env.clone();
-    env.push();
-    for (param, arg) in closure.params.iter().zip(args.iter()) {
-        env.define(param.clone(), arg.clone());
-    }
-    if let Some(rest_name) = &closure.rest {
-        let rest_args: Vec<Value> = args.iter().skip(required).cloned().collect();
-        env.define(rest_name.clone(), Value::list(rest_args));
-    }
+        // Build the body env: capture closure's lexical scope, push frame,
+        // bind params + rest.
+        let mut env = current.captured_env.clone();
+        env.push();
+        for (param, arg) in current.params.iter().zip(current_args.iter()) {
+            env.define(param.clone(), arg.clone());
+        }
+        if let Some(rest_name) = &current.rest {
+            let rest_args: Vec<Value> = current_args.iter().skip(required).cloned().collect();
+            env.define(rest_name.clone(), Value::list(rest_args));
+        }
 
-    let mut result = Value::Nil;
-    for body_form in &closure.body {
-        result = eval_in(&mut env, registry, body_form, host)?;
+        // Body: evaluate all but the last normally, then the last in
+        // tail position so a tail call can be trampolined.
+        let body = &current.body;
+        if body.is_empty() {
+            return Ok(Value::Nil);
+        }
+        for body_form in &body[..body.len() - 1] {
+            eval_in(&mut env, registry, body_form, host)?;
+        }
+        match eval_in_tail(&mut env, registry, body.last().unwrap(), host)? {
+            TailResult::Done(v) => return Ok(v),
+            TailResult::Resume(next, next_args, next_span) => {
+                // Tail call: replace state and loop. Drop env (frame
+                // popped on next iteration's fresh env).
+                current = next;
+                current_args = next_args;
+                current_span = next_span;
+            }
+        }
     }
-    Ok(result)
 }
 
 // ── Special forms ─────────────────────────────────────────────────────
@@ -1895,5 +2183,117 @@ mod tests {
         let s = format!("{v}");
         assert!(s.contains(":evens 2 4 6"));
         assert!(s.contains(":odds 1 3 5"));
+    }
+
+    // ── Tail-call optimization tests ──────────────────────────────
+    //
+    // These prove the trampoline catches the standard tail positions:
+    // direct self-recursion through `if`, mutual recursion, deep
+    // recursion through `cond`, `let`-body, and `begin`. Without TCO,
+    // each would stack-overflow at ~10k frames; with TCO they run in
+    // bounded space.
+
+    #[test]
+    fn tco_self_recursion_via_if() {
+        // Sum integers 1..n via accumulator. Tail call inside `if` else
+        // branch. n=100_000 would overflow the default Rust stack
+        // without TCO.
+        let v = run_full(
+            "(define (sum n acc)
+               (if (= n 0)
+                   acc
+                   (sum (- n 1) (+ acc n))))
+             (sum 100000 0)",
+        );
+        // n*(n+1)/2 = 5_000_050_000
+        assert!(matches!(v, Value::Int(5_000_050_000)));
+    }
+
+    #[test]
+    fn tco_mutual_recursion() {
+        // Two closures call each other in tail position. Trampoline
+        // must support the closure swap.
+        let v = run_full(
+            "(define (even-r? n) (if (= n 0) #t (odd-r? (- n 1))))
+             (define (odd-r?  n) (if (= n 0) #f (even-r? (- n 1))))
+             (even-r? 50000)",
+        );
+        assert!(matches!(v, Value::Bool(true)));
+    }
+
+    #[test]
+    fn tco_via_cond_branch() {
+        let v = run_full(
+            "(define (countdown n)
+               (cond
+                 ((<= n 0) :done)
+                 (else (countdown (- n 1)))))
+             (countdown 50000)",
+        );
+        assert!(matches!(v, Value::Keyword(s) if &*s == "done"));
+    }
+
+    #[test]
+    fn tco_via_let_body() {
+        // Tail call inside the BODY of a `let`. Trampoline must respect
+        // that the let frame is on env when entering the call.
+        let v = run_full(
+            "(define (loop-let n)
+               (let ((m (- n 1)))
+                 (if (<= n 0) :done (loop-let m))))
+             (loop-let 50000)",
+        );
+        assert!(matches!(v, Value::Keyword(s) if &*s == "done"));
+    }
+
+    #[test]
+    fn tco_via_begin_last_form() {
+        let v = run_full(
+            "(define (counter n)
+               (begin
+                 (+ 1 1)
+                 (+ 2 2)
+                 (if (<= n 0) :done (counter (- n 1)))))
+             (counter 50000)",
+        );
+        assert!(matches!(v, Value::Keyword(s) if &*s == "done"));
+    }
+
+    #[test]
+    fn tco_via_when_unless() {
+        let v = run_full(
+            "(define (drain n)
+               (when (> n 0)
+                 (drain (- n 1))))
+             (drain 50000)",
+        );
+        // when's else branch returns nil; here recurses inside.
+        assert!(matches!(v, Value::Nil));
+    }
+
+    #[test]
+    fn tco_through_and_or_short_circuit_last() {
+        // `and` returns the last value if all are truthy. The last form
+        // is in tail position.
+        let v = run_full(
+            "(define (loop-and n)
+               (and #t #t (if (<= n 0) :done (loop-and (- n 1)))))
+             (loop-and 30000)",
+        );
+        assert!(matches!(v, Value::Keyword(s) if &*s == "done"));
+    }
+
+    #[test]
+    fn non_tail_recursion_still_works_for_small_n() {
+        // Non-tail recursion: (* n (fact (- n 1))) — the multiply
+        // happens AFTER the recursive call returns, so it's not a tail
+        // call. Should still work for moderate n via the regular stack.
+        let v = run_full(
+            "(define (fact n)
+               (if (= n 0) 1 (* n (fact (- n 1)))))
+             (fact 12)",
+        );
+        // 12! = 479_001_600
+        assert!(matches!(v, Value::Int(479_001_600)));
     }
 }

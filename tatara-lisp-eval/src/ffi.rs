@@ -99,15 +99,17 @@ where
 }
 
 /// Handle that a higher-order primitive uses to invoke a callable `Value`
-/// back into the eval loop. Holds a borrow of the function registry; the
-/// `apply` call dispatches through whichever `Value` kind the callee is
-/// (`Closure`, `NativeFn`, `HigherOrderFn`).
+/// back into the eval loop. Holds borrows of the eval-time read-only
+/// state — the function registry and the macro expander. `apply_value`
+/// dispatches through whichever `Value` kind the callee is (`Closure`,
+/// `NativeFn`, `HigherOrderFn`).
 ///
 /// Construction is private — `Caller` only ever appears via
 /// `HigherOrderCallable::call`, so primitives can only obtain one for the
 /// duration of the call they're servicing.
 pub struct Caller<'a, H> {
     pub(crate) registry: &'a FnRegistry<H>,
+    pub(crate) expander: &'a tatara_lisp::SpannedExpander,
 }
 
 impl<'a, H: 'static> Caller<'a, H> {
@@ -122,7 +124,13 @@ impl<'a, H: 'static> Caller<'a, H> {
         host: &mut H,
         call_span: Span,
     ) -> Result<Value> {
-        crate::eval::apply_external(callee, args, call_span, self.registry, host)
+        crate::eval::apply_external(callee, args, call_span, self.registry, self.expander, host)
+    }
+
+    /// Borrow the macro expander — primitives like `macroexpand-1`
+    /// look up registered macros through this handle.
+    pub fn expander(&self) -> &tatara_lisp::SpannedExpander {
+        self.expander
     }
 
     /// Convenience: call a unary callable with one arg. Errors with a

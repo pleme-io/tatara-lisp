@@ -30,6 +30,14 @@ pub enum SpecialForm {
     /// (TypeMismatch, ArityMismatch, etc.) are wrapped into a
     /// `Value::Error` with tag `:runtime` so they can be caught too.
     Try,
+    /// `(macroexpand-1 'form)` — evaluate the argument to a code value,
+    /// run ONE level of macro expansion if the head is a registered
+    /// macro, and return the expanded code as a Value. Useful for
+    /// debugging macros — see exactly what one expansion produces.
+    MacroexpandOne,
+    /// `(macroexpand 'form)` — like macroexpand-1, but fully expand
+    /// until no macro calls remain.
+    MacroexpandAll,
 }
 
 impl SpecialForm {
@@ -54,6 +62,8 @@ impl SpecialForm {
             "or" => Self::Or,
             "not" => Self::Not,
             "try" => Self::Try,
+            "macroexpand-1" => Self::MacroexpandOne,
+            "macroexpand" => Self::MacroexpandAll,
             _ => return None,
         })
     }

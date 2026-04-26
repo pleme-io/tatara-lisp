@@ -97,13 +97,12 @@ fn print_help() {
 /// remote URLs we synthesize a deterministic pseudo-path under the
 /// cache so `(require ...)` relative resolution still works.
 fn resolve_input(input: &str) -> Result<(String, PathBuf), String> {
-    let source = Source::parse(input)
-        .map_err(|e| format!("parse source {input:?}: {e}"))?;
+    let source = Source::parse(input).map_err(|e| format!("parse source {input:?}: {e}"))?;
 
     // Local paths read directly — no cache, no network.
     if let Source::Local { path } = &source {
-        let bytes = std::fs::read_to_string(path)
-            .map_err(|e| format!("read {}: {e}", path.display()))?;
+        let bytes =
+            std::fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
         return Ok((bytes, path.clone()));
     }
 
@@ -117,8 +116,7 @@ fn resolve_input(input: &str) -> Result<(String, PathBuf), String> {
         .resolve_source(&source)
         .map_err(|e| format!("{e}"))?;
 
-    let text = String::from_utf8(resolved.bytes)
-        .map_err(|e| format!("source not utf-8: {e}"))?;
+    let text = String::from_utf8(resolved.bytes).map_err(|e| format!("source not utf-8: {e}"))?;
 
     // Synthesize a canonical pseudo-path under the cache root so
     // `(require ...)` relative resolution behaves predictably for
@@ -325,9 +323,7 @@ fn dispatch_top_form(
             }
         }
     }
-    interp
-        .eval_spanned(form, ctx)
-        .map_err(|e| e.render(src))
+    interp.eval_spanned(form, ctx).map_err(|e| e.render(src))
 }
 
 fn dispatch_require(
@@ -348,10 +344,10 @@ fn dispatch_require(
     // Read the required file's source once and feed it through the same
     // pipeline as the root script — its own spans resolve into its own
     // src, which is what `e.render(src)` wants.
-    let src = std::fs::read_to_string(&path)
-        .map_err(|e| format!("read {}: {e}", path.display()))?;
-    let forms = tatara_lisp::read_spanned(&src)
-        .map_err(|e| format!("parse {}: {e:?}", path.display()))?;
+    let src =
+        std::fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
+    let forms =
+        tatara_lisp::read_spanned(&src).map_err(|e| format!("parse {}: {e:?}", path.display()))?;
     eval_forms_with_require(interp, &src, &forms, ctx, &path)
 }
 

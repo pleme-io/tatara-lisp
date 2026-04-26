@@ -270,10 +270,9 @@ fn template_eval(expr: &Sexp, bindings: &Bindings, call_span: Span) -> Result<Sp
             // Bare symbol — look up in bindings.
             match bindings.get(name) {
                 Some(Binding::Single(val)) => Ok(val.clone()),
-                Some(Binding::Rest(items)) => Ok(Spanned::new(
-                    call_span,
-                    SpannedForm::List(items.clone()),
-                )),
+                Some(Binding::Rest(items)) => {
+                    Ok(Spanned::new(call_span, SpannedForm::List(items.clone())))
+                }
                 None => Err(LispError::Compile {
                     form: format!(",{name}"),
                     message: "unbound in macro template".into(),
@@ -414,8 +413,7 @@ fn template_eval(expr: &Sexp, bindings: &Bindings, call_span: Span) -> Result<Sp
                     let c = template_eval(&items[1], bindings, call_span)?;
                     let truthy = !matches!(
                         &c.form,
-                        SpannedForm::Nil
-                            | SpannedForm::Atom(crate::ast::Atom::Bool(false))
+                        SpannedForm::Nil | SpannedForm::Atom(crate::ast::Atom::Bool(false))
                     );
                     if truthy {
                         template_eval(&items[2], bindings, call_span)
@@ -425,10 +423,9 @@ fn template_eval(expr: &Sexp, bindings: &Bindings, call_span: Span) -> Result<Sp
                 }
                 other => Err(LispError::Compile {
                     form: other.into(),
-                    message:
-                        "operation not supported in macro template `,expr`. Supported: \
+                    message: "operation not supported in macro template `,expr`. Supported: \
                          quote, car, cdr, cons, list, null?, pair?, list?, length, if"
-                            .into(),
+                        .into(),
                 }),
             }
         }

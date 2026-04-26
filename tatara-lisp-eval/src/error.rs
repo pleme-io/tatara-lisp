@@ -69,7 +69,10 @@ pub enum EvalError {
     /// the user threw — conventionally a `Value::Error` produced by
     /// `(error ...)` / `(ex-info ...)`, but any Value is allowed.
     #[error("user error: {value}")]
-    User { value: crate::value::Value, at: Span },
+    User {
+        value: crate::value::Value,
+        at: Span,
+    },
 }
 
 impl EvalError {

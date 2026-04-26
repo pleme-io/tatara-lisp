@@ -308,14 +308,18 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
 
     // (string x) — universal Value → string conversion via Display.
     // Clojure idiom — works on any Value.
-    interp.register_fn("string", Arity::Exact(1), |args: &[Value], _h: &mut H, _sp| {
-        let s = match &args[0] {
-            // Strings pass through unchanged (no quoting).
-            Value::Str(s) => s.to_string(),
-            other => format!("{other}"),
-        };
-        Ok(Value::Str(Arc::from(s)))
-    });
+    interp.register_fn(
+        "string",
+        Arity::Exact(1),
+        |args: &[Value], _h: &mut H, _sp| {
+            let s = match &args[0] {
+                // Strings pass through unchanged (no quoting).
+                Value::Str(s) => s.to_string(),
+                other => format!("{other}"),
+            };
+            Ok(Value::Str(Arc::from(s)))
+        },
+    );
 
     // ── More numeric ──────────────────────────────────────────────
     interp.register_fn(
@@ -336,14 +340,10 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
             }
         },
     );
-    interp.register_fn(
-        "sqrt",
-        Arity::Exact(1),
-        |args: &[Value], _h: &mut H, sp| {
-            let n = as_number_either(&args[0], sp)?.to_float();
-            Ok(Value::Float(n.sqrt()))
-        },
-    );
+    interp.register_fn("sqrt", Arity::Exact(1), |args: &[Value], _h: &mut H, sp| {
+        let n = as_number_either(&args[0], sp)?.to_float();
+        Ok(Value::Float(n.sqrt()))
+    });
     interp.register_fn(
         "floor",
         Arity::Exact(1),
@@ -410,30 +410,18 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
             Ok(Value::Int(l))
         },
     );
-    interp.register_fn(
-        "sin",
-        Arity::Exact(1),
-        |args: &[Value], _h: &mut H, sp| {
-            let n = as_number_either(&args[0], sp)?.to_float();
-            Ok(Value::Float(n.sin()))
-        },
-    );
-    interp.register_fn(
-        "cos",
-        Arity::Exact(1),
-        |args: &[Value], _h: &mut H, sp| {
-            let n = as_number_either(&args[0], sp)?.to_float();
-            Ok(Value::Float(n.cos()))
-        },
-    );
-    interp.register_fn(
-        "tan",
-        Arity::Exact(1),
-        |args: &[Value], _h: &mut H, sp| {
-            let n = as_number_either(&args[0], sp)?.to_float();
-            Ok(Value::Float(n.tan()))
-        },
-    );
+    interp.register_fn("sin", Arity::Exact(1), |args: &[Value], _h: &mut H, sp| {
+        let n = as_number_either(&args[0], sp)?.to_float();
+        Ok(Value::Float(n.sin()))
+    });
+    interp.register_fn("cos", Arity::Exact(1), |args: &[Value], _h: &mut H, sp| {
+        let n = as_number_either(&args[0], sp)?.to_float();
+        Ok(Value::Float(n.cos()))
+    });
+    interp.register_fn("tan", Arity::Exact(1), |args: &[Value], _h: &mut H, sp| {
+        let n = as_number_either(&args[0], sp)?.to_float();
+        Ok(Value::Float(n.tan()))
+    });
     interp.register_fn(
         "log",
         Arity::Range(1, 2),
@@ -447,62 +435,42 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
             }
         },
     );
-    interp.register_fn(
-        "exp",
-        Arity::Exact(1),
-        |args: &[Value], _h: &mut H, sp| {
-            let n = as_number_either(&args[0], sp)?.to_float();
-            Ok(Value::Float(n.exp()))
-        },
-    );
+    interp.register_fn("exp", Arity::Exact(1), |args: &[Value], _h: &mut H, sp| {
+        let n = as_number_either(&args[0], sp)?.to_float();
+        Ok(Value::Float(n.exp()))
+    });
 
     // ── More list ops ─────────────────────────────────────────────
-    interp.register_fn(
-        "take",
-        Arity::Exact(2),
-        |args: &[Value], _h: &mut H, sp| {
-            let n = expect_int(&args[0], sp)?.max(0) as usize;
-            let xs = list_view(&args[1], sp)?;
-            let take_n = n.min(xs.len());
-            Ok(Value::list(xs[..take_n].to_vec()))
-        },
-    );
-    interp.register_fn(
-        "drop",
-        Arity::Exact(2),
-        |args: &[Value], _h: &mut H, sp| {
-            let n = expect_int(&args[0], sp)?.max(0) as usize;
-            let xs = list_view(&args[1], sp)?;
-            let drop_n = n.min(xs.len());
-            Ok(Value::list(xs[drop_n..].to_vec()))
-        },
-    );
-    interp.register_fn(
-        "nth",
-        Arity::Exact(2),
-        |args: &[Value], _h: &mut H, sp| {
-            let n = expect_int(&args[0], sp)?;
-            let xs = list_view(&args[1], sp)?;
-            if n < 0 || (n as usize) >= xs.len() {
-                Ok(Value::Nil)
-            } else {
-                Ok(xs[n as usize].clone())
-            }
-        },
-    );
+    interp.register_fn("take", Arity::Exact(2), |args: &[Value], _h: &mut H, sp| {
+        let n = expect_int(&args[0], sp)?.max(0) as usize;
+        let xs = list_view(&args[1], sp)?;
+        let take_n = n.min(xs.len());
+        Ok(Value::list(xs[..take_n].to_vec()))
+    });
+    interp.register_fn("drop", Arity::Exact(2), |args: &[Value], _h: &mut H, sp| {
+        let n = expect_int(&args[0], sp)?.max(0) as usize;
+        let xs = list_view(&args[1], sp)?;
+        let drop_n = n.min(xs.len());
+        Ok(Value::list(xs[drop_n..].to_vec()))
+    });
+    interp.register_fn("nth", Arity::Exact(2), |args: &[Value], _h: &mut H, sp| {
+        let n = expect_int(&args[0], sp)?;
+        let xs = list_view(&args[1], sp)?;
+        if n < 0 || (n as usize) >= xs.len() {
+            Ok(Value::Nil)
+        } else {
+            Ok(xs[n as usize].clone())
+        }
+    });
     interp.register_fn("not=", Arity::Exact(2), |a: &[Value], _h: &mut H, _sp| {
         Ok(Value::Bool(!value_eq_deep(&a[0], &a[1])))
     });
-    interp.register_fn(
-        "atom?",
-        Arity::Exact(1),
-        |a: &[Value], _h: &mut H, _sp| {
-            Ok(Value::Bool(!matches!(
-                &a[0],
-                Value::List(_) | Value::Nil | Value::Closure(_) | Value::NativeFn(_)
-            )))
-        },
-    );
+    interp.register_fn("atom?", Arity::Exact(1), |a: &[Value], _h: &mut H, _sp| {
+        Ok(Value::Bool(!matches!(
+            &a[0],
+            Value::List(_) | Value::Nil | Value::Closure(_) | Value::NativeFn(_)
+        )))
+    });
     interp.register_fn(
         "keyword?",
         Arity::Exact(1),
@@ -570,26 +538,24 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
     );
 
     // (println v) — print + newline. Convenient for scripts.
-    interp.register_fn(
-        "println",
-        Arity::Any,
-        |args: &[Value], _h: &mut H, _sp| {
-            for (i, a) in args.iter().enumerate() {
-                if i > 0 {
-                    print!(" ");
-                }
-                print!("{a}");
+    interp.register_fn("println", Arity::Any, |args: &[Value], _h: &mut H, _sp| {
+        for (i, a) in args.iter().enumerate() {
+            if i > 0 {
+                print!(" ");
             }
-            println!();
-            Ok(Value::Nil)
-        },
-    );
+            print!("{a}");
+        }
+        println!();
+        Ok(Value::Nil)
+    });
 
     // (pr-str v) — like (string v) but strings retain their quotes
     // (useful for debugging — you can paste the result back).
-    interp.register_fn("pr-str", Arity::Exact(1), |args: &[Value], _h: &mut H, _sp| {
-        Ok(Value::Str(Arc::from(format!("{}", args[0]))))
-    });
+    interp.register_fn(
+        "pr-str",
+        Arity::Exact(1),
+        |args: &[Value], _h: &mut H, _sp| Ok(Value::Str(Arc::from(format!("{}", args[0])))),
+    );
 
     // (read-string source) — parse Lisp source from a string into a
     // Value (the first form). Errors if source is empty or has parse
@@ -620,10 +586,7 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
         |args: &[Value], _h: &mut H, sp| match &args[0] {
             Value::Str(s) => {
                 let forms = tatara_lisp::read_spanned(s)?;
-                let values: Vec<Value> = forms
-                    .iter()
-                    .map(crate::code::spanned_to_value)
-                    .collect();
+                let values: Vec<Value> = forms.iter().map(crate::code::spanned_to_value).collect();
                 Ok(Value::list(values))
             }
             other => Err(EvalError::type_mismatch("string", other.type_name(), sp)),
@@ -633,17 +596,22 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
     // (compare a b) — three-way comparison: -1 / 0 / 1. Defined for
     // numbers and strings; symbols and keywords compare lexically by
     // their name.
-    interp.register_fn("compare", Arity::Exact(2), |args: &[Value], _h: &mut H, sp| {
-        match (&args[0], &args[1]) {
+    interp.register_fn(
+        "compare",
+        Arity::Exact(2),
+        |args: &[Value], _h: &mut H, sp| match (&args[0], &args[1]) {
             (Value::Int(a), Value::Int(b)) => Ok(Value::Int(cmp_to_int(a.cmp(b)))),
-            (Value::Float(a), Value::Float(b)) => {
-                Ok(Value::Int(cmp_to_int(a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))))
-            }
+            (Value::Float(a), Value::Float(b)) => Ok(Value::Int(cmp_to_int(
+                a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal),
+            ))),
             (Value::Int(a), Value::Float(b)) => Ok(Value::Int(cmp_to_int(
-                (*a as f64).partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal),
+                (*a as f64)
+                    .partial_cmp(b)
+                    .unwrap_or(std::cmp::Ordering::Equal),
             ))),
             (Value::Float(a), Value::Int(b)) => Ok(Value::Int(cmp_to_int(
-                a.partial_cmp(&(*b as f64)).unwrap_or(std::cmp::Ordering::Equal),
+                a.partial_cmp(&(*b as f64))
+                    .unwrap_or(std::cmp::Ordering::Equal),
             ))),
             (Value::Str(a), Value::Str(b)) => {
                 Ok(Value::Int(cmp_to_int(a.as_ref().cmp(b.as_ref()))))
@@ -656,18 +624,20 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
             }
             (a, b) => Err(EvalError::type_mismatch(
                 "comparable values of the same kind",
-                std::boxed::Box::leak(format!("{} vs {}", a.type_name(), b.type_name()).into_boxed_str()),
+                std::boxed::Box::leak(
+                    format!("{} vs {}", a.type_name(), b.type_name()).into_boxed_str(),
+                ),
                 sp,
             )),
-        }
-    });
+        },
+    );
 
     // ── Bit ops ───────────────────────────────────────────────────
     interp.register_fn(
         "bit-and",
         Arity::AtLeast(0),
         |args: &[Value], _h: &mut H, sp| {
-            let mut acc: i64 = -1;  // all-ones for AND identity
+            let mut acc: i64 = -1; // all-ones for AND identity
             for a in args {
                 acc &= expect_int(a, sp)?;
             }
@@ -724,18 +694,28 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
     // Process-global counter — guaranteed unique across all
     // Interpreters in the same process. `(gensym)` returns "g42";
     // `(gensym "tag")` returns "tag42".
-    interp.register_fn("gensym", Arity::Range(0, 1), |args: &[Value], _h: &mut H, sp| {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let prefix: String = match args.first() {
-            None => "g".to_string(),
-            Some(Value::Str(s)) => s.to_string(),
-            Some(Value::Symbol(s)) => s.to_string(),
-            Some(other) => return Err(EvalError::type_mismatch("string or symbol", other.type_name(), sp)),
-        };
-        Ok(Value::Symbol(Arc::from(format!("{prefix}__{n}__auto"))))
-    });
+    interp.register_fn(
+        "gensym",
+        Arity::Range(0, 1),
+        |args: &[Value], _h: &mut H, sp| {
+            use std::sync::atomic::{AtomicU64, Ordering};
+            static COUNTER: AtomicU64 = AtomicU64::new(0);
+            let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+            let prefix: String = match args.first() {
+                None => "g".to_string(),
+                Some(Value::Str(s)) => s.to_string(),
+                Some(Value::Symbol(s)) => s.to_string(),
+                Some(other) => {
+                    return Err(EvalError::type_mismatch(
+                        "string or symbol",
+                        other.type_name(),
+                        sp,
+                    ))
+                }
+            };
+            Ok(Value::Symbol(Arc::from(format!("{prefix}__{n}__auto"))))
+        },
+    );
 
     // ── Structured errors ─────────────────────────────────────────
     // Clojure-style ex-info: tag + message + data plist.
@@ -743,71 +723,97 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
 
     // (error tag message [data]) — tag is keyword/string, message is
     // string, data is an optional plist (alternating key value list).
-    interp.register_fn("error", Arity::Range(2, 3), |args: &[Value], _h: &mut H, sp| {
-        let tag: Arc<str> = match &args[0] {
-            Value::Keyword(s) | Value::Symbol(s) | Value::Str(s) => s.clone(),
-            other => return Err(EvalError::type_mismatch("keyword/symbol/string", other.type_name(), sp)),
-        };
-        let message: Arc<str> = match &args[1] {
-            Value::Str(s) => s.clone(),
-            other => return Err(EvalError::type_mismatch("string", other.type_name(), sp)),
-        };
-        let data = if args.len() == 3 {
-            plist_to_pairs(&args[2], sp)?
-        } else {
-            Vec::new()
-        };
-        Ok(Value::Error(Arc::new(ErrorObj { tag, message, data })))
-    });
+    interp.register_fn(
+        "error",
+        Arity::Range(2, 3),
+        |args: &[Value], _h: &mut H, sp| {
+            let tag: Arc<str> = match &args[0] {
+                Value::Keyword(s) | Value::Symbol(s) | Value::Str(s) => s.clone(),
+                other => {
+                    return Err(EvalError::type_mismatch(
+                        "keyword/symbol/string",
+                        other.type_name(),
+                        sp,
+                    ))
+                }
+            };
+            let message: Arc<str> = match &args[1] {
+                Value::Str(s) => s.clone(),
+                other => return Err(EvalError::type_mismatch("string", other.type_name(), sp)),
+            };
+            let data = if args.len() == 3 {
+                plist_to_pairs(&args[2], sp)?
+            } else {
+                Vec::new()
+            };
+            Ok(Value::Error(Arc::new(ErrorObj { tag, message, data })))
+        },
+    );
 
     // (ex-info message data) — convenience: tag = "ex-info".
-    interp.register_fn("ex-info", Arity::Range(1, 2), |args: &[Value], _h: &mut H, sp| {
-        let message: Arc<str> = match &args[0] {
-            Value::Str(s) => s.clone(),
-            other => return Err(EvalError::type_mismatch("string", other.type_name(), sp)),
-        };
-        let data = if args.len() == 2 {
-            plist_to_pairs(&args[1], sp)?
-        } else {
-            Vec::new()
-        };
-        Ok(Value::Error(Arc::new(ErrorObj {
-            tag: Arc::from("ex-info"),
-            message,
-            data,
-        })))
-    });
+    interp.register_fn(
+        "ex-info",
+        Arity::Range(1, 2),
+        |args: &[Value], _h: &mut H, sp| {
+            let message: Arc<str> = match &args[0] {
+                Value::Str(s) => s.clone(),
+                other => return Err(EvalError::type_mismatch("string", other.type_name(), sp)),
+            };
+            let data = if args.len() == 2 {
+                plist_to_pairs(&args[1], sp)?
+            } else {
+                Vec::new()
+            };
+            Ok(Value::Error(Arc::new(ErrorObj {
+                tag: Arc::from("ex-info"),
+                message,
+                data,
+            })))
+        },
+    );
 
     // (throw err) — raise as EvalError::User. If err isn't an Error
     // value, wrap it with tag "user".
-    interp.register_fn("throw", Arity::Exact(1), |args: &[Value], _h: &mut H, sp| {
-        let value = args[0].clone();
-        Err(EvalError::User { value, at: sp })
-    });
+    interp.register_fn(
+        "throw",
+        Arity::Exact(1),
+        |args: &[Value], _h: &mut H, sp| {
+            let value = args[0].clone();
+            Err(EvalError::User { value, at: sp })
+        },
+    );
 
     // Predicate.
-    interp.register_fn("error?", Arity::Exact(1), |args: &[Value], _h: &mut H, _sp| {
-        Ok(Value::Bool(matches!(&args[0], Value::Error(_))))
-    });
+    interp.register_fn(
+        "error?",
+        Arity::Exact(1),
+        |args: &[Value], _h: &mut H, _sp| Ok(Value::Bool(matches!(&args[0], Value::Error(_)))),
+    );
 
     // Accessors.
-    interp.register_fn("error-tag", Arity::Exact(1), |args: &[Value], _h: &mut H, sp| {
-        match &args[0] {
+    interp.register_fn(
+        "error-tag",
+        Arity::Exact(1),
+        |args: &[Value], _h: &mut H, sp| match &args[0] {
             Value::Error(e) => Ok(Value::Keyword(e.tag.clone())),
             other => Err(EvalError::type_mismatch("error", other.type_name(), sp)),
-        }
-    });
+        },
+    );
 
-    interp.register_fn("error-message", Arity::Exact(1), |args: &[Value], _h: &mut H, sp| {
-        match &args[0] {
+    interp.register_fn(
+        "error-message",
+        Arity::Exact(1),
+        |args: &[Value], _h: &mut H, sp| match &args[0] {
             Value::Error(e) => Ok(Value::Str(e.message.clone())),
             other => Err(EvalError::type_mismatch("error", other.type_name(), sp)),
-        }
-    });
+        },
+    );
 
     // (error-data err) → plist (k1 v1 k2 v2 ...).
-    interp.register_fn("error-data", Arity::Exact(1), |args: &[Value], _h: &mut H, sp| {
-        match &args[0] {
+    interp.register_fn(
+        "error-data",
+        Arity::Exact(1),
+        |args: &[Value], _h: &mut H, sp| match &args[0] {
             Value::Error(e) => {
                 let mut out = Vec::with_capacity(e.data.len() * 2);
                 for (k, v) in &e.data {
@@ -817,12 +823,14 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
                 Ok(Value::list(out))
             }
             other => Err(EvalError::type_mismatch("error", other.type_name(), sp)),
-        }
-    });
+        },
+    );
 
     // (error-data-get err key) → value or nil.
-    interp.register_fn("error-data-get", Arity::Exact(2), |args: &[Value], _h: &mut H, sp| {
-        match &args[0] {
+    interp.register_fn(
+        "error-data-get",
+        Arity::Exact(2),
+        |args: &[Value], _h: &mut H, sp| match &args[0] {
             Value::Error(e) => {
                 for (k, v) in &e.data {
                     if value_eq_deep(k, &args[1]) {
@@ -832,8 +840,8 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
                 Ok(Value::Nil)
             }
             other => Err(EvalError::type_mismatch("error", other.type_name(), sp)),
-        }
-    });
+        },
+    );
 }
 
 /// Parse a plist Value (alternating k/v list) into a `Vec<(Value, Value)>`.
@@ -841,7 +849,13 @@ fn plist_to_pairs(v: &Value, sp: Span) -> Result<Vec<(Value, Value)>> {
     let xs = match v {
         Value::Nil => return Ok(Vec::new()),
         Value::List(xs) => xs,
-        other => return Err(EvalError::type_mismatch("plist (list)", other.type_name(), sp)),
+        other => {
+            return Err(EvalError::type_mismatch(
+                "plist (list)",
+                other.type_name(),
+                sp,
+            ))
+        }
     };
     if xs.len() % 2 != 0 {
         return Err(EvalError::native_fn(

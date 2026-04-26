@@ -20,9 +20,8 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
         Arity::Exact(0),
         |_args: &[Value], _ctx: &mut ScriptCtx, sp| {
             let mut buf = [0u8; 16];
-            fill_random(&mut buf).map_err(|e| {
-                EvalError::native_fn("uuid-v4", format!("rng: {e}"), sp)
-            })?;
+            fill_random(&mut buf)
+                .map_err(|e| EvalError::native_fn("uuid-v4", format!("rng: {e}"), sp))?;
             // Set version (4) + variant (RFC 4122).
             buf[6] = (buf[6] & 0x0f) | 0x40;
             buf[8] = (buf[8] & 0x3f) | 0x80;
@@ -47,9 +46,8 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
                 }
             };
             let mut buf = vec![0u8; n];
-            fill_random(&mut buf).map_err(|e| {
-                EvalError::native_fn("random-bytes", format!("rng: {e}"), sp)
-            })?;
+            fill_random(&mut buf)
+                .map_err(|e| EvalError::native_fn("random-bytes", format!("rng: {e}"), sp))?;
             Ok(Value::Str(Arc::from(hex_lower(&buf))))
         },
     );
@@ -70,10 +68,22 @@ fn format_uuid(b: &[u8; 16]) -> String {
          {:02x}{:02x}-{:02x}{:02x}-\
          {:02x}{:02x}-\
          {:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-        b[0], b[1], b[2], b[3],
-        b[4], b[5], b[6], b[7],
-        b[8], b[9],
-        b[10], b[11], b[12], b[13], b[14], b[15],
+        b[0],
+        b[1],
+        b[2],
+        b[3],
+        b[4],
+        b[5],
+        b[6],
+        b[7],
+        b[8],
+        b[9],
+        b[10],
+        b[11],
+        b[12],
+        b[13],
+        b[14],
+        b[15],
     )
 }
 

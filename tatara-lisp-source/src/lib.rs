@@ -176,7 +176,12 @@ mod tests {
     fn parse_github_basic() {
         let s = Source::parse("github:pleme-io/programs/dns-reconciler/main.tlisp").unwrap();
         match s {
-            Source::GitHub { owner, repo, path, rev } => {
+            Source::GitHub {
+                owner,
+                repo,
+                path,
+                rev,
+            } => {
                 assert_eq!(owner, "pleme-io");
                 assert_eq!(repo, "programs");
                 assert_eq!(path, PathBuf::from("dns-reconciler/main.tlisp"));
@@ -188,10 +193,8 @@ mod tests {
 
     #[test]
     fn parse_github_with_ref() {
-        let s = Source::parse(
-            "github:pleme-io/programs/pvc-autoresizer/main.tlisp?ref=v0.1.0",
-        )
-        .unwrap();
+        let s = Source::parse("github:pleme-io/programs/pvc-autoresizer/main.tlisp?ref=v0.1.0")
+            .unwrap();
         match s {
             Source::GitHub { rev, .. } => assert_eq!(rev.as_deref(), Some("v0.1.0")),
             other => panic!("expected GitHub, got {other:?}"),
@@ -200,8 +203,7 @@ mod tests {
 
     #[test]
     fn parse_https_with_blake3_pin() {
-        let s =
-            Source::parse("https://example.com/program.tlisp#blake3=abc123").unwrap();
+        let s = Source::parse("https://example.com/program.tlisp#blake3=abc123").unwrap();
         match s {
             Source::HttpDirect { url, blake3 } => {
                 assert_eq!(url, "https://example.com/program.tlisp");
@@ -276,7 +278,10 @@ mod tests {
 
         // Build an HttpDirect URL that lies about the hash.
         let url = format!("https://example.invalid/x#blake3=deadbeef");
-        let s = Source::HttpDirect { url, blake3: Some("deadbeef".into()) };
+        let s = Source::HttpDirect {
+            url,
+            blake3: Some("deadbeef".into()),
+        };
 
         // We won't actually hit the network here — this test verifies
         // that mismatch detection fires, by directly fabricating a

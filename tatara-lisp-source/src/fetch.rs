@@ -11,7 +11,12 @@ pub(crate) fn fetch(
 ) -> Result<Vec<u8>, ResolveError> {
     match source {
         Source::Local { path } => fetch_local(path),
-        Source::GitHub { owner, repo, path, rev } => {
+        Source::GitHub {
+            owner,
+            repo,
+            path,
+            rev,
+        } => {
             let raw_url = format!(
                 "https://raw.githubusercontent.com/{owner}/{repo}/{}/{}",
                 rev.as_deref().unwrap_or("HEAD"),
@@ -19,7 +24,12 @@ pub(crate) fn fetch(
             );
             fetch_http(&raw_url, timeout, user_agent)
         }
-        Source::GitLab { owner, repo, path, rev } => {
+        Source::GitLab {
+            owner,
+            repo,
+            path,
+            rev,
+        } => {
             // GitLab raw endpoint expects URL-encoded path.
             let raw_url = format!(
                 "https://gitlab.com/{owner}/{repo}/-/raw/{}/{}",
@@ -28,7 +38,12 @@ pub(crate) fn fetch(
             );
             fetch_http(&raw_url, timeout, user_agent)
         }
-        Source::Codeberg { owner, repo, path, rev } => {
+        Source::Codeberg {
+            owner,
+            repo,
+            path,
+            rev,
+        } => {
             let raw_url = format!(
                 "https://codeberg.org/{owner}/{repo}/raw/branch/{}/{}",
                 rev.as_deref().unwrap_or("main"),
@@ -76,9 +91,12 @@ fn fetch_http(url: &str, timeout: Duration, user_agent: &str) -> Result<Vec<u8>,
     })?;
 
     let mut buf = Vec::new();
-    response.into_reader().read_to_end(&mut buf).map_err(|e| ResolveError::Io {
-        path: url.into(),
-        source: e,
-    })?;
+    response
+        .into_reader()
+        .read_to_end(&mut buf)
+        .map_err(|e| ResolveError::Io {
+            path: url.into(),
+            source: e,
+        })?;
     Ok(buf)
 }

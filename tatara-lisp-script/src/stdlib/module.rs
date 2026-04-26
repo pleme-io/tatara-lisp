@@ -64,8 +64,7 @@ pub fn resolve_require_path(ctx: &ScriptCtx, target: &str) -> Result<PathBuf, St
             .map_err(|e| format!("cwd: {e}"))?
             .join(candidate)
     };
-    std::fs::canonicalize(&absolute)
-        .map_err(|e| format!("require {absolute:?}: {e}"))
+    std::fs::canonicalize(&absolute).map_err(|e| format!("require {absolute:?}: {e}"))
 }
 
 /// Utility for main.rs: take a `(require PATH)` string, resolve +
@@ -86,4 +85,3 @@ pub fn read_forms(path: &Path) -> Result<Vec<tatara_lisp::Spanned>, String> {
     let src = std::fs::read_to_string(path).map_err(|e| format!("read {path:?}: {e}"))?;
     tatara_lisp::read_spanned(&src).map_err(|e| format!("parse {path:?}: {e:?}"))
 }
-

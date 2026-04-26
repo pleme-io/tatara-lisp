@@ -52,9 +52,7 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
         Arity::Exact(1),
         |args: &[Value], _ctx: &mut ScriptCtx, sp| {
             let s = str_arg(&args[0], "string-reverse", sp)?;
-            Ok(Value::Str(Arc::from(
-                s.chars().rev().collect::<String>(),
-            )))
+            Ok(Value::Str(Arc::from(s.chars().rev().collect::<String>())))
         },
     );
 

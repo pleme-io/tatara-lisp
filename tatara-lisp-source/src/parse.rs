@@ -36,10 +36,7 @@ pub enum Source {
     },
 
     /// `https://...` or `http://...` — optionally pinned via `#blake3=<hex>`.
-    HttpDirect {
-        url: String,
-        blake3: Option<String>,
-    },
+    HttpDirect { url: String, blake3: Option<String> },
 }
 
 impl Source {
@@ -58,7 +55,9 @@ impl Source {
 
         // file:// scheme
         if let Some(rest) = input.strip_prefix("file://") {
-            return Ok(Source::Local { path: PathBuf::from(rest) });
+            return Ok(Source::Local {
+                path: PathBuf::from(rest),
+            });
         }
 
         // http(s):// — possibly with #blake3= fragment
@@ -85,14 +84,41 @@ impl Source {
     pub fn cache_key(&self) -> String {
         match self {
             Source::Local { path } => format!("local:{}", path.display()),
-            Source::GitHub { owner, repo, path, rev } => {
-                format!("github:{owner}/{repo}/{}@{}", path.display(), rev.as_deref().unwrap_or("HEAD"))
+            Source::GitHub {
+                owner,
+                repo,
+                path,
+                rev,
+            } => {
+                format!(
+                    "github:{owner}/{repo}/{}@{}",
+                    path.display(),
+                    rev.as_deref().unwrap_or("HEAD")
+                )
             }
-            Source::GitLab { owner, repo, path, rev } => {
-                format!("gitlab:{owner}/{repo}/{}@{}", path.display(), rev.as_deref().unwrap_or("HEAD"))
+            Source::GitLab {
+                owner,
+                repo,
+                path,
+                rev,
+            } => {
+                format!(
+                    "gitlab:{owner}/{repo}/{}@{}",
+                    path.display(),
+                    rev.as_deref().unwrap_or("HEAD")
+                )
             }
-            Source::Codeberg { owner, repo, path, rev } => {
-                format!("codeberg:{owner}/{repo}/{}@{}", path.display(), rev.as_deref().unwrap_or("HEAD"))
+            Source::Codeberg {
+                owner,
+                repo,
+                path,
+                rev,
+            } => {
+                format!(
+                    "codeberg:{owner}/{repo}/{}@{}",
+                    path.display(),
+                    rev.as_deref().unwrap_or("HEAD")
+                )
             }
             Source::HttpDirect { url, .. } => format!("http:{url}"),
         }
@@ -111,21 +137,36 @@ impl fmt::Display for Source {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Source::Local { path } => write!(f, "{}", path.display()),
-            Source::GitHub { owner, repo, path, rev } => {
+            Source::GitHub {
+                owner,
+                repo,
+                path,
+                rev,
+            } => {
                 write!(f, "github:{owner}/{repo}/{}", path.display())?;
                 if let Some(r) = rev {
                     write!(f, "?ref={r}")?;
                 }
                 Ok(())
             }
-            Source::GitLab { owner, repo, path, rev } => {
+            Source::GitLab {
+                owner,
+                repo,
+                path,
+                rev,
+            } => {
                 write!(f, "gitlab:{owner}/{repo}/{}", path.display())?;
                 if let Some(r) = rev {
                     write!(f, "?ref={r}")?;
                 }
                 Ok(())
             }
-            Source::Codeberg { owner, repo, path, rev } => {
+            Source::Codeberg {
+                owner,
+                repo,
+                path,
+                rev,
+            } => {
                 write!(f, "codeberg:{owner}/{repo}/{}", path.display())?;
                 if let Some(r) = rev {
                     write!(f, "?ref={r}")?;
@@ -184,9 +225,24 @@ fn parse_forge(rest: &str, kind: ForgeKind) -> Result<Source, ResolveError> {
     }
 
     Ok(match kind {
-        ForgeKind::GitHub => Source::GitHub { owner, repo, path, rev },
-        ForgeKind::GitLab => Source::GitLab { owner, repo, path, rev },
-        ForgeKind::Codeberg => Source::Codeberg { owner, repo, path, rev },
+        ForgeKind::GitHub => Source::GitHub {
+            owner,
+            repo,
+            path,
+            rev,
+        },
+        ForgeKind::GitLab => Source::GitLab {
+            owner,
+            repo,
+            path,
+            rev,
+        },
+        ForgeKind::Codeberg => Source::Codeberg {
+            owner,
+            repo,
+            path,
+            rev,
+        },
     })
 }
 

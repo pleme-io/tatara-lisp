@@ -519,8 +519,7 @@ pub fn install_hof<H: 'static>(interp: &mut Interpreter<H>) {
                             crate::value::PromiseState::Pending(thunk) => thunk.clone(),
                         }
                     };
-                    let result = caller
-                        .apply_value(&Value::Closure(thunk), vec![], host, sp)?;
+                    let result = caller.apply_value(&Value::Closure(thunk), vec![], host, sp)?;
                     let mut state = p.lock().unwrap();
                     *state = crate::value::PromiseState::Forced(result.clone());
                     Ok(result)

@@ -20,7 +20,6 @@ use crate::ffi::{
 use crate::special::SpecialForm;
 use crate::value::{Closure, NativeFn, Value};
 
-
 /// An embedded tatara-lisp evaluator, parameterized over the host context
 /// `H` that registered functions read/write.
 pub struct Interpreter<H> {
@@ -91,7 +90,13 @@ impl<H: 'static> Interpreter<H> {
     /// `defmacro` — `eval_top_form` is the entry point for that.
     pub fn eval_spanned(&mut self, form: &Spanned, host: &mut H) -> Result<Value> {
         let expanded = self.fully_expand(form, host)?;
-        eval_in(&mut self.globals, &self.registry, &self.expander, &expanded, host)
+        eval_in(
+            &mut self.globals,
+            &self.registry,
+            &self.expander,
+            &expanded,
+            host,
+        )
     }
 
     /// Evaluate a slice of forms in order, returning the last result.
@@ -122,7 +127,13 @@ impl<H: 'static> Interpreter<H> {
             return Ok(Value::Nil);
         }
         let expanded = self.fully_expand(form, host)?;
-        eval_in(&mut self.globals, &self.registry, &self.expander, &expanded, host)
+        eval_in(
+            &mut self.globals,
+            &self.registry,
+            &self.expander,
+            &expanded,
+            host,
+        )
     }
 
     /// Fully expand a form: walk the tree; whenever the head of a list
@@ -151,7 +162,8 @@ impl<H: 'static> Interpreter<H> {
                         // Macro call. Expand by running the body, then
                         // recurse on the result (it may itself be a
                         // macro call or contain nested macro calls).
-                        let expanded = self.expand_macro_call(head, &items[1..], form.span, host)?;
+                        let expanded =
+                            self.expand_macro_call(head, &items[1..], form.span, host)?;
                         return self.expand_recursive(&expanded, host);
                     }
                 }
@@ -171,9 +183,7 @@ impl<H: 'static> Interpreter<H> {
                 // Inside a `\`expr`, only unquoted subforms get expanded.
                 Ok(Spanned::new(
                     form.span,
-                    SpannedForm::Quasiquote(Box::new(
-                        self.expand_inside_quasiquote(inner, host)?,
-                    )),
+                    SpannedForm::Quasiquote(Box::new(self.expand_inside_quasiquote(inner, host)?)),
                 ))
             }
             // Atoms, Nil, bare Unquote/UnquoteSplice — pass through.
@@ -247,7 +257,13 @@ impl<H: 'static> Interpreter<H> {
 
         // Evaluate the body in the macro env using the live interpreter
         // — every primitive, every library fn is in scope.
-        let result = eval_in(&mut macro_env, &self.registry, &self.expander, &body_expanded, host)?;
+        let result = eval_in(
+            &mut macro_env,
+            &self.registry,
+            &self.expander,
+            &body_expanded,
+            host,
+        )?;
 
         // Convert the resulting Value back to a Spanned form. Anything
         // that can't be lifted (closure, native fn, foreign) is a user
@@ -625,7 +641,8 @@ fn eval_in_tail<H: 'static>(
             }
             match head_val {
                 Value::Closure(c) => Ok(TailResult::Resume(c, args, form.span)),
-                _ => apply(&head_val, args, form.span, registry, expander, host).map(TailResult::Done),
+                _ => apply(&head_val, args, form.span, registry, expander, host)
+                    .map(TailResult::Done),
             }
         }
         // Atoms, Quote, Nil — no tail context to exploit; just compute.
@@ -645,7 +662,8 @@ fn eval_special_tail<H: 'static>(
     match sf {
         SpecialForm::If => {
             if items.len() < 3 || items.len() > 4 {
-                return eval_special(sf, items, call_span, env, registry, expander, host).map(TailResult::Done);
+                return eval_special(sf, items, call_span, env, registry, expander, host)
+                    .map(TailResult::Done);
             }
             let c = eval_in(env, registry, expander, &items[1], host)?;
             if c.is_truthy() {
@@ -668,7 +686,8 @@ fn eval_special_tail<H: 'static>(
         }
         SpecialForm::When | SpecialForm::Unless => {
             if items.len() < 2 {
-                return eval_special(sf, items, call_span, env, registry, expander, host).map(TailResult::Done);
+                return eval_special(sf, items, call_span, env, registry, expander, host)
+                    .map(TailResult::Done);
             }
             let invert = matches!(sf, SpecialForm::Unless);
             let cond = eval_in(env, registry, expander, &items[1], host)?;
@@ -754,17 +773,21 @@ fn eval_special_tail<H: 'static>(
             sf_try(items, call_span, env, registry, expander, host).map(TailResult::Done)
         }
         SpecialForm::MacroexpandOne => {
-            sf_macroexpand(items, call_span, env, registry, expander, host, false).map(TailResult::Done)
+            sf_macroexpand(items, call_span, env, registry, expander, host, false)
+                .map(TailResult::Done)
         }
         SpecialForm::MacroexpandAll => {
-            sf_macroexpand(items, call_span, env, registry, expander, host, true).map(TailResult::Done)
+            sf_macroexpand(items, call_span, env, registry, expander, host, true)
+                .map(TailResult::Done)
         }
         SpecialForm::Delay => sf_delay(items, call_span, env).map(TailResult::Done),
         SpecialForm::Eval => {
             sf_eval(items, call_span, env, registry, expander, host).map(TailResult::Done)
         }
         // Non-tail forms: just evaluate normally.
-        _ => eval_special(sf, items, call_span, env, registry, expander, host).map(TailResult::Done),
+        _ => {
+            eval_special(sf, items, call_span, env, registry, expander, host).map(TailResult::Done)
+        }
     }
 }
 
@@ -890,7 +913,10 @@ fn bind_macro_args(
                 cursor += 1;
             }
             Param::Rest(name) => {
-                let rest: Vec<Value> = args.get(cursor..).unwrap_or(&[]).iter()
+                let rest: Vec<Value> = args
+                    .get(cursor..)
+                    .unwrap_or(&[])
+                    .iter()
                     .map(spanned_to_value)
                     .collect();
                 env.define(Arc::<str>::from(name.as_str()), Value::list(rest));
@@ -997,7 +1023,9 @@ fn eval_special<H: 'static>(
         SpecialForm::If => sf_if(items, call_span, env, registry, expander, host),
         SpecialForm::Cond => sf_cond(items, call_span, env, registry, expander, host),
         SpecialForm::When => sf_when_unless(items, call_span, env, registry, expander, host, false),
-        SpecialForm::Unless => sf_when_unless(items, call_span, env, registry, expander, host, true),
+        SpecialForm::Unless => {
+            sf_when_unless(items, call_span, env, registry, expander, host, true)
+        }
         SpecialForm::Let => sf_let(items, call_span, env, registry, expander, host),
         SpecialForm::LetStar => sf_let_star(items, call_span, env, registry, expander, host),
         SpecialForm::LetRec => sf_letrec(items, call_span, env, registry, expander, host),
@@ -1009,8 +1037,12 @@ fn eval_special<H: 'static>(
         SpecialForm::Or => sf_or(&items[1..], env, registry, expander, host),
         SpecialForm::Not => sf_not(items, call_span, env, registry, expander, host),
         SpecialForm::Try => sf_try(items, call_span, env, registry, expander, host),
-        SpecialForm::MacroexpandOne => sf_macroexpand(items, call_span, env, registry, expander, host, false),
-        SpecialForm::MacroexpandAll => sf_macroexpand(items, call_span, env, registry, expander, host, true),
+        SpecialForm::MacroexpandOne => {
+            sf_macroexpand(items, call_span, env, registry, expander, host, false)
+        }
+        SpecialForm::MacroexpandAll => {
+            sf_macroexpand(items, call_span, env, registry, expander, host, true)
+        }
         SpecialForm::Delay => sf_delay(items, call_span, env),
         SpecialForm::Eval => sf_eval(items, call_span, env, registry, expander, host),
     }
@@ -1546,7 +1578,8 @@ fn sf_try<H: 'static>(
                     &catch_list[2..],
                     env,
                     registry,
-                    expander, host,
+                    expander,
+                    host,
                 );
             }
             Err(other) => {
@@ -1560,7 +1593,8 @@ fn sf_try<H: 'static>(
                     &catch_list[2..],
                     env,
                     registry,
-                    expander, host,
+                    expander,
+                    host,
                 );
             }
         }
@@ -1617,9 +1651,8 @@ fn sf_eval<H: 'static>(
         ));
     }
     let form_value = eval_in(env, registry, expander, &items[1], host)?;
-    let form_spanned = crate::code::value_to_spanned(&form_value, call_span).map_err(|reason| {
-        EvalError::native_fn(Arc::<str>::from("eval"), reason, call_span)
-    })?;
+    let form_spanned = crate::code::value_to_spanned(&form_value, call_span)
+        .map_err(|reason| EvalError::native_fn(Arc::<str>::from("eval"), reason, call_span))?;
     let expanded = fully_expand_with(&form_spanned, registry, expander, env, host)?;
     eval_in(env, registry, expander, &expanded, host)
 }
@@ -1668,7 +1701,11 @@ fn sf_macroexpand<H: 'static>(
 ) -> Result<Value> {
     if items.len() != 2 {
         return Err(EvalError::bad_form(
-            if fully { "macroexpand" } else { "macroexpand-1" },
+            if fully {
+                "macroexpand"
+            } else {
+                "macroexpand-1"
+            },
             "expected (macroexpand[-1] form)",
             call_span,
         ));
@@ -1678,7 +1715,11 @@ fn sf_macroexpand<H: 'static>(
     // Lift to Spanned so the expander can walk it.
     let form_spanned = crate::code::value_to_spanned(&form_value, call_span).map_err(|reason| {
         EvalError::native_fn(
-            Arc::<str>::from(if fully { "macroexpand" } else { "macroexpand-1" }),
+            Arc::<str>::from(if fully {
+                "macroexpand"
+            } else {
+                "macroexpand-1"
+            }),
             reason,
             call_span,
         )
@@ -1776,19 +1817,19 @@ fn expand_recursive_with<H: 'static>(
             }
             let mut out = Vec::with_capacity(items.len());
             for child in items {
-                out.push(expand_recursive_with(child, registry, expander, parent_env, host)?);
+                out.push(expand_recursive_with(
+                    child, registry, expander, parent_env, host,
+                )?);
             }
             Ok(Spanned::new(form.span, SpannedForm::List(out)))
         }
         SpannedForm::Quote(_) => Ok(form.clone()),
-        SpannedForm::Quasiquote(inner) => {
-            Ok(Spanned::new(
-                form.span,
-                SpannedForm::Quasiquote(Box::new(
-                    expand_inside_quasiquote_with(inner, registry, expander, parent_env, host)?,
-                )),
-            ))
-        }
+        SpannedForm::Quasiquote(inner) => Ok(Spanned::new(
+            form.span,
+            SpannedForm::Quasiquote(Box::new(expand_inside_quasiquote_with(
+                inner, registry, expander, parent_env, host,
+            )?)),
+        )),
         _ => Ok(form.clone()),
     }
 }
@@ -2811,9 +2852,7 @@ mod tests {
 
     #[test]
     fn ex_info_uses_default_tag() {
-        let v = run_full(
-            "(ex-info \"validation failed\" (list :field \"email\" :code 42))",
-        );
+        let v = run_full("(ex-info \"validation failed\" (list :field \"email\" :code 42))");
         match v {
             Value::Error(e) => {
                 assert_eq!(&*e.tag, "ex-info");
@@ -2924,10 +2963,7 @@ mod tests {
         // Without try, throw bubbles up as EvalError::User.
         let mut i: Interpreter<NoHost> = Interpreter::new();
         install_full_stdlib_with(&mut i, &mut NoHost);
-        let forms = read_spanned(
-            "(throw (ex-info \"unhandled\" (list :code 99)))",
-        )
-        .unwrap();
+        let forms = read_spanned("(throw (ex-info \"unhandled\" (list :code 99)))").unwrap();
         let err = i.eval_program(&forms, &mut NoHost).unwrap_err();
         match err {
             EvalError::User { value, .. } => match value {

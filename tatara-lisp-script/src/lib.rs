@@ -35,8 +35,8 @@ pub use stdlib::install_stdlib;
 
 // Re-export the evaluator so embedders don't have to depend on tatara-lisp-eval
 // directly.
-pub use tatara_lisp_eval::{Arity, EvalError, Interpreter, Value};
 pub use tatara_lisp::{read_spanned, Spanned};
+pub use tatara_lisp_eval::{Arity, EvalError, Interpreter, Value};
 
 /// Convenience: read + evaluate a tatara-lisp source string against a fresh
 /// interpreter with the full stdlib installed.
@@ -45,8 +45,7 @@ pub use tatara_lisp::{read_spanned, Spanned};
 /// should construct the `Interpreter` directly to keep the host context
 /// available across calls.
 pub fn eval_str(src: &str) -> Result<Value, anyhow::Error> {
-    let forms = read_spanned(src)
-        .map_err(|e| anyhow::anyhow!("parse error: {e}"))?;
+    let forms = read_spanned(src).map_err(|e| anyhow::anyhow!("parse error: {e}"))?;
     let mut interp: Interpreter<ScriptCtx> = Interpreter::new();
     install_stdlib(&mut interp);
     let mut ctx = ScriptCtx::default();

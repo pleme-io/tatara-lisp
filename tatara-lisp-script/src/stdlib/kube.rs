@@ -37,9 +37,7 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
     interp.register_fn(
         "kube-in-cluster?",
         Arity::Exact(0),
-        |_args: &[Value], _ctx: &mut ScriptCtx, _sp| {
-            Ok(Value::Bool(in_cluster()))
-        },
+        |_args: &[Value], _ctx: &mut ScriptCtx, _sp| Ok(Value::Bool(in_cluster())),
     );
 
     interp.register_fn(
@@ -49,11 +47,7 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
             read_sa_file("token")
                 .map(|s| Value::Str(Arc::from(s.trim_end().to_string())))
                 .map_err(|e| {
-                    EvalError::native_fn(
-                        "kube-bearer-token",
-                        format!("read SA token: {e}"),
-                        sp,
-                    )
+                    EvalError::native_fn("kube-bearer-token", format!("read SA token: {e}"), sp)
                 })
         },
     );
@@ -65,11 +59,7 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
             read_sa_file("ca.crt")
                 .map(|s| Value::Str(Arc::from(s)))
                 .map_err(|e| {
-                    EvalError::native_fn(
-                        "kube-ca-cert",
-                        format!("read SA ca.crt: {e}"),
-                        sp,
-                    )
+                    EvalError::native_fn("kube-ca-cert", format!("read SA ca.crt: {e}"), sp)
                 })
         },
     );
@@ -110,8 +100,8 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
             // kubernetes.default.svc DNS + auto-mounted CA cert.
             let host = std::env::var("KUBERNETES_SERVICE_HOST")
                 .unwrap_or_else(|_| "kubernetes.default.svc".to_string());
-            let port = std::env::var("KUBERNETES_SERVICE_PORT")
-                .unwrap_or_else(|_| "443".to_string());
+            let port =
+                std::env::var("KUBERNETES_SERVICE_PORT").unwrap_or_else(|_| "443".to_string());
             Ok(Value::Str(Arc::from(format!("https://{host}:{port}"))))
         },
     );
@@ -151,8 +141,7 @@ fn read_sa_file(name: &str) -> Result<String, std::io::Error> {
 }
 
 fn in_cluster() -> bool {
-    std::path::Path::new(SA_DIR).is_dir()
-        && std::fs::metadata(format!("{SA_DIR}/token")).is_ok()
+    std::path::Path::new(SA_DIR).is_dir() && std::fs::metadata(format!("{SA_DIR}/token")).is_ok()
 }
 
 fn hostname_safe() -> String {

@@ -49,15 +49,11 @@ pub fn spanned_to_value(s: &Spanned) -> Value {
         SpannedForm::Nil => Value::Nil,
         SpannedForm::Atom(a) => atom_to_value(a),
         SpannedForm::List(xs) => Value::list(xs.iter().map(spanned_to_value)),
-        SpannedForm::Quote(inner) => {
-            wrap_with_head_symbol("quote", spanned_to_value(inner))
-        }
+        SpannedForm::Quote(inner) => wrap_with_head_symbol("quote", spanned_to_value(inner)),
         SpannedForm::Quasiquote(inner) => {
             wrap_with_head_symbol("quasiquote", spanned_to_value(inner))
         }
-        SpannedForm::Unquote(inner) => {
-            wrap_with_head_symbol("unquote", spanned_to_value(inner))
-        }
+        SpannedForm::Unquote(inner) => wrap_with_head_symbol("unquote", spanned_to_value(inner)),
         SpannedForm::UnquoteSplice(inner) => {
             wrap_with_head_symbol("unquote-splice", spanned_to_value(inner))
         }
@@ -95,7 +91,10 @@ pub fn value_to_spanned(v: &Value, span: Span) -> Result<Spanned, String> {
         Value::Bool(b) => Ok(Spanned::new(span, SpannedForm::Atom(Atom::Bool(*b)))),
         Value::Int(n) => Ok(Spanned::new(span, SpannedForm::Atom(Atom::Int(*n)))),
         Value::Float(n) => Ok(Spanned::new(span, SpannedForm::Atom(Atom::Float(*n)))),
-        Value::Str(s) => Ok(Spanned::new(span, SpannedForm::Atom(Atom::Str(s.to_string())))),
+        Value::Str(s) => Ok(Spanned::new(
+            span,
+            SpannedForm::Atom(Atom::Str(s.to_string())),
+        )),
         Value::Symbol(s) => Ok(Spanned::new(
             span,
             SpannedForm::Atom(Atom::Symbol(s.to_string())),
@@ -131,36 +130,26 @@ pub fn value_to_spanned(v: &Value, span: Span) -> Result<Spanned, String> {
             Ok(Spanned::new(span, SpannedForm::List(children?)))
         }
         Value::Sexp(sexp, sp) => Ok(Spanned::from_sexp_at(sexp, *sp)),
-        Value::Map(_) => Err(
-            "macro body returned a hash map — maps cannot be \
+        Value::Map(_) => Err("macro body returned a hash map — maps cannot be \
              converted to source forms (emit a `(hash-map ...)` call instead)"
-                .to_string(),
-        ),
+            .to_string()),
         Value::Promise(_) => Err(
             "macro body returned a promise — promises are runtime values \
              with no source-form representation (force it first)"
                 .to_string(),
         ),
-        Value::Error(_) => Err(
-            "macro body returned an Error value — errors cannot be \
+        Value::Error(_) => Err("macro body returned an Error value — errors cannot be \
              converted to source forms (use `throw` to raise instead)"
-                .to_string(),
-        ),
-        Value::Closure(_) => Err(
-            "macro body returned a closure — closures cannot be \
+            .to_string()),
+        Value::Closure(_) => Err("macro body returned a closure — closures cannot be \
              converted to source forms (did you mean to call the closure?)"
-                .to_string(),
-        ),
-        Value::NativeFn(_) => Err(
-            "macro body returned a native function — native fns \
+            .to_string()),
+        Value::NativeFn(_) => Err("macro body returned a native function — native fns \
              cannot be converted to source forms"
-                .to_string(),
-        ),
-        Value::Foreign(_) => Err(
-            "macro body returned a foreign Value — foreign values \
+            .to_string()),
+        Value::Foreign(_) => Err("macro body returned a foreign Value — foreign values \
              cannot be converted to source forms"
-                .to_string(),
-        ),
+            .to_string()),
     }
 }
 

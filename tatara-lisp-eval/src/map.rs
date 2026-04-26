@@ -280,11 +280,9 @@ mod tests {
 
     #[test]
     fn hash_map_set_returns_new_map() {
-        let v = run(
-            "(let* ((m1 (hash-map :a 1))
+        let v = run("(let* ((m1 (hash-map :a 1))
                     (m2 (hash-map-set m1 :b 2)))
-               (list (hash-map-count m1) (hash-map-count m2)))",
-        );
+               (list (hash-map-count m1) (hash-map-count m2)))");
         // m1 unchanged at 1 entry, m2 has 2.
         assert_eq!(format!("{v}"), "(1 2)");
     }
@@ -309,10 +307,7 @@ mod tests {
 
     #[test]
     fn hash_map_predicate_distinguishes() {
-        assert!(matches!(
-            run("(hash-map? (hash-map))"),
-            Value::Bool(true)
-        ));
+        assert!(matches!(run("(hash-map? (hash-map))"), Value::Bool(true)));
         assert!(matches!(run("(hash-map? (list))"), Value::Bool(false)));
     }
 
@@ -326,30 +321,24 @@ mod tests {
 
     #[test]
     fn hash_map_merge_later_wins() {
-        let v = run(
-            "(hash-map-get (hash-map-merge (hash-map :a 1) (hash-map :a 2)) :a)",
-        );
+        let v = run("(hash-map-get (hash-map-merge (hash-map :a 1) (hash-map :a 2)) :a)");
         assert!(matches!(v, Value::Int(2)));
     }
 
     #[test]
     fn hash_map_update_via_callback() {
-        let v = run(
-            "(hash-map-get
+        let v = run("(hash-map-get
                (hash-map-update (hash-map :n 5) :n (lambda (x) (* x x)))
-               :n)",
-        );
+               :n)");
         assert!(matches!(v, Value::Int(25)));
     }
 
     #[test]
     fn hash_map_update_handles_missing_key() {
         // Missing key → fn receives nil. Lambda must handle it.
-        let v = run(
-            "(hash-map-get
+        let v = run("(hash-map-get
                (hash-map-update (hash-map) :counter (lambda (x) (if (null? x) 1 (+ x 1))))
-               :counter)",
-        );
+               :counter)");
         assert!(matches!(v, Value::Int(1)));
     }
 

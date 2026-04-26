@@ -140,14 +140,7 @@ impl<'a, H: 'static> Caller<'a, H> {
     }
 
     /// Convenience: call a binary callable with two args.
-    pub fn call2(
-        &self,
-        f: &Value,
-        a: Value,
-        b: Value,
-        host: &mut H,
-        span: Span,
-    ) -> Result<Value> {
+    pub fn call2(&self, f: &Value, a: Value, b: Value, host: &mut H, span: Span) -> Result<Value> {
         self.apply_value(f, vec![a, b], host, span)
     }
 }

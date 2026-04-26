@@ -35,10 +35,15 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
         |args: &[Value], _ctx: &mut ScriptCtx, sp| {
             let port: u16 = match &args[0] {
                 Value::Int(n) => u16::try_from(*n).map_err(|_| {
-                    EvalError::native_fn("http-serve-static", format!("http-serve-static: port {n} out of range"), sp)
+                    EvalError::native_fn(
+                        "http-serve-static",
+                        format!("http-serve-static: port {n} out of range"),
+                        sp,
+                    )
                 })?,
                 v => {
-                    return Err(EvalError::native_fn("http-serve-static", 
+                    return Err(EvalError::native_fn(
+                        "http-serve-static",
                         format!("http-serve-static: port must be int, got {v:?}"),
                         sp,
                     ))
@@ -48,12 +53,19 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
             let routes = parse_routes(&args[1], sp)?;
             let addr = format!("0.0.0.0:{port}");
             let server = tiny_http::Server::http(&addr).map_err(|e| {
-                EvalError::native_fn("http-serve-static", format!("http-serve-static bind {addr} failed: {e}"), sp)
+                EvalError::native_fn(
+                    "http-serve-static",
+                    format!("http-serve-static bind {addr} failed: {e}"),
+                    sp,
+                )
             })?;
 
             eprintln!("[http-serve-static] listening on http://{addr}");
             for path_route in &routes {
-                eprintln!("[http-serve-static]   {} → {}", path_route.path, path_route.status);
+                eprintln!(
+                    "[http-serve-static]   {} → {}",
+                    path_route.path, path_route.status
+                );
             }
 
             for request in server.incoming_requests() {
@@ -64,18 +76,21 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
 
                 let response = match chosen {
                     Some(r) => {
-                        eprintln!("[http-serve-static] {} {} → {}", request.method(), path, r.status);
+                        eprintln!(
+                            "[http-serve-static] {} {} → {}",
+                            request.method(),
+                            path,
+                            r.status
+                        );
                         tiny_http::Response::from_string(r.body.clone())
                             .with_status_code(r.status)
                             .with_header(json_header())
                     }
                     None => {
                         eprintln!("[http-serve-static] {} {} → 404", request.method(), path);
-                        tiny_http::Response::from_string(
-                            r#"{"error":"not_found"}"#.to_string(),
-                        )
-                        .with_status_code(404)
-                        .with_header(json_header())
+                        tiny_http::Response::from_string(r#"{"error":"not_found"}"#.to_string())
+                            .with_status_code(404)
+                            .with_header(json_header())
                     }
                 };
                 let _ = request.respond(response);
@@ -86,11 +101,8 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
 }
 
 fn json_header() -> tiny_http::Header {
-    tiny_http::Header::from_bytes(
-        b"Content-Type".as_ref(),
-        b"application/json".as_ref(),
-    )
-    .expect("static header")
+    tiny_http::Header::from_bytes(b"Content-Type".as_ref(), b"application/json".as_ref())
+        .expect("static header")
 }
 
 #[derive(Debug)]
@@ -104,7 +116,8 @@ fn parse_routes(value: &Value, sp: tatara_lisp::Span) -> Result<Vec<Route>, Eval
     let outer = match value {
         Value::List(l) => l.as_ref(),
         v => {
-            return Err(EvalError::native_fn("http-serve-static", 
+            return Err(EvalError::native_fn(
+                "http-serve-static",
                 format!("http-serve-static: routes must be a list, got {v:?}"),
                 sp,
             ))
@@ -116,14 +129,16 @@ fn parse_routes(value: &Value, sp: tatara_lisp::Span) -> Result<Vec<Route>, Eval
         let triple = match entry {
             Value::List(l) => l.as_ref(),
             v => {
-                return Err(EvalError::native_fn("http-serve-static", 
+                return Err(EvalError::native_fn(
+                    "http-serve-static",
                     format!("http-serve-static: each route must be a 3-list, got {v:?}"),
                     sp,
                 ))
             }
         };
         if triple.len() != 3 {
-            return Err(EvalError::native_fn("http-serve-static", 
+            return Err(EvalError::native_fn(
+                "http-serve-static",
                 format!(
                     "http-serve-static: route needs (path status body), got {} elements",
                     triple.len()
@@ -135,7 +150,8 @@ fn parse_routes(value: &Value, sp: tatara_lisp::Span) -> Result<Vec<Route>, Eval
         let path = match &triple[0] {
             Value::Str(s) => s.to_string(),
             v => {
-                return Err(EvalError::native_fn("http-serve-static", 
+                return Err(EvalError::native_fn(
+                    "http-serve-static",
                     format!("http-serve-static: path must be string, got {v:?}"),
                     sp,
                 ))
@@ -143,13 +159,15 @@ fn parse_routes(value: &Value, sp: tatara_lisp::Span) -> Result<Vec<Route>, Eval
         };
         let status: i32 = match &triple[1] {
             Value::Int(n) => i32::try_from(*n).map_err(|_| {
-                EvalError::native_fn("http-serve-static", 
+                EvalError::native_fn(
+                    "http-serve-static",
                     format!("http-serve-static: status {n} out of range"),
                     sp,
                 )
             })?,
             v => {
-                return Err(EvalError::native_fn("http-serve-static", 
+                return Err(EvalError::native_fn(
+                    "http-serve-static",
                     format!("http-serve-static: status must be int, got {v:?}"),
                     sp,
                 ))
@@ -158,7 +176,8 @@ fn parse_routes(value: &Value, sp: tatara_lisp::Span) -> Result<Vec<Route>, Eval
         let body = match &triple[2] {
             Value::Str(s) => s.to_string(),
             v => {
-                return Err(EvalError::native_fn("http-serve-static", 
+                return Err(EvalError::native_fn(
+                    "http-serve-static",
                     format!("http-serve-static: body must be string, got {v:?}"),
                     sp,
                 ))

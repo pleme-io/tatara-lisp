@@ -53,7 +53,10 @@ impl FileCache {
     pub fn new(root: impl Into<PathBuf>) -> std::io::Result<Self> {
         let root = root.into();
         std::fs::create_dir_all(root.join("sources"))?;
-        Ok(Self { root, in_memory: HashMap::new() })
+        Ok(Self {
+            root,
+            in_memory: HashMap::new(),
+        })
     }
 
     fn data_path(&self, blake3: &str) -> PathBuf {

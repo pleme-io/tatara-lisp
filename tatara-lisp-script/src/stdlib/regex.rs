@@ -79,7 +79,9 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
             let re = compile(&args[0], sp)?;
             let s = str_arg(&args[1], "re-replace", sp)?;
             let repl = str_arg(&args[2], "re-replace", sp)?;
-            Ok(Value::Str(Arc::from(re.replace_all(&s, &*repl).into_owned())))
+            Ok(Value::Str(Arc::from(
+                re.replace_all(&s, &*repl).into_owned(),
+            )))
         },
     );
 
@@ -100,7 +102,6 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
 
 fn compile(v: &Value, sp: tatara_lisp::Span) -> Result<Regex, EvalError> {
     let pat = str_arg(v, "regex", sp)?;
-    Regex::new(&pat).map_err(|e| {
-        EvalError::native_fn("regex", format!("bad pattern {pat:?}: {e}"), sp)
-    })
+    Regex::new(&pat)
+        .map_err(|e| EvalError::native_fn("regex", format!("bad pattern {pat:?}: {e}"), sp))
 }

@@ -35,8 +35,7 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
         Arity::Exact(1),
         |args: &[Value], _ctx: &mut ScriptCtx, sp| {
             let pattern = str_arg(&args[0], "glob", sp)?;
-            let entries = simple_glob(&pattern)
-                .map_err(|e| EvalError::native_fn("glob", e, sp))?;
+            let entries = simple_glob(&pattern).map_err(|e| EvalError::native_fn("glob", e, sp))?;
             Ok(Value::list(
                 entries
                     .into_iter()

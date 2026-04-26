@@ -49,6 +49,16 @@ impl SpannedExpander {
         self.macros.is_empty()
     }
 
+    /// Look up a registered macro by name. `None` if unknown.
+    pub fn get_macro(&self, name: &str) -> Option<&MacroDef> {
+        self.macros.get(name)
+    }
+
+    /// All registered macro names. Order is unspecified.
+    pub fn macro_names(&self) -> impl Iterator<Item = &str> {
+        self.macros.keys().map(|s| s.as_str())
+    }
+
     /// Recognize `defmacro` / `defpoint-template` / `defcheck` and register
     /// the definition. Returns `true` if `form` was a macro definition
     /// (and was consumed), `false` if it was an ordinary form. Used by

@@ -9,10 +9,11 @@
 ;; Conventions:
 ;;  - Names follow Scheme/Clojure tradition where they overlap. New
 ;;    names follow Clojure (juxt, partial, comp, pipe).
-;;  - Predicates end in `?`, mutating ops end in `!`. No mutating ops
-;;    here — everything is functional.
-;;  - Macros only quasiquote; no Clojure-style auto-gensym (we don't have
-;;    hygiene yet — name your macro vars carefully).
+;;  - Predicates end in `?`, mutating ops end in `!`.
+;;  - Macros run with full evaluator access at expansion time — every
+;;    library fn is in scope inside a macro body. Use (gensym "tag")
+;;    to mint a hygienic unique symbol when introducing new bindings
+;;    in a macro.
 ;; ====================================================================
 
 ;; ── Identity / const / flip / comp ─────────────────────────────────
@@ -61,37 +62,37 @@
   x)
 
 ;; ── Threading macros (Clojure-style) ───────────────────────────────
+;;
+;; Macro bodies are regular Lisp programs evaluated at expansion time —
+;; full primitive surface available. Recursive `if`/`cond` dispatch on
+;; rest-arg shape works directly; no `\`,(if ...)` ceremony required.
 
 ;; (-> x) → x
-;; (-> x f1 f2 f3) — chain unary fns; each fn-form may also be (f a b),
-;;   in which case the previous accumulator is inserted as the FIRST arg.
-;;
-;; The body is a single quasiquote whose top level is `,(if …)` so the
-;; macro dispatches AT EXPANSION TIME on whether `steps` is empty —
-;; this is what makes recursive macros expressible without a full
-;; expansion-time evaluator.
+;; (-> x f1 f2 ...) — chain; each step is either a bare unary fn or a
+;; call form (f a b), in which case x is spliced into the FIRST arg
+;; position: (f x a b).
 (defmacro -> (x &rest steps)
-  `,(if (null? steps)
-        x
-        `(-> (->1 ,x ,(car steps)) ,@(cdr steps))))
+  (if (null? steps)
+      x
+      ;; Recursive: thread one step, then re-emit -> with the rest.
+      `(-> (->1 ,x ,(car steps)) ,@(cdr steps))))
 
-;; ->1: thread a single step. List step (f a b) becomes (f x a b);
-;; bare symbol step f becomes (f x).
 (defmacro ->1 (x step)
-  `,(if (list? step)
-        `(,(car step) ,x ,@(cdr step))
-        `(,step ,x)))
+  (if (list? step)
+      `(,(car step) ,x ,@(cdr step))
+      `(,step ,x)))
 
-;; (->> x f g) — same but inserts at the END of each call form.
+;; (->> x f1 f2 ...) — same threading but step's arg slot is the LAST
+;; position: (f a b x).
 (defmacro ->> (x &rest steps)
-  `,(if (null? steps)
-        x
-        `(->> (->>1 ,x ,(car steps)) ,@(cdr steps))))
+  (if (null? steps)
+      x
+      `(->> (->>1 ,x ,(car steps)) ,@(cdr steps))))
 
 (defmacro ->>1 (x step)
-  `,(if (list? step)
-        `(,(car step) ,@(cdr step) ,x)
-        `(,step ,x)))
+  (if (list? step)
+      `(,(car step) ,@(cdr step) ,x)
+      `(,step ,x)))
 
 ;; ── Control-flow macros ────────────────────────────────────────────
 

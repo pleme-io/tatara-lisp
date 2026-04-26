@@ -8,8 +8,9 @@
 
 use std::sync::Arc;
 
-use tatara_lisp::{Atom, Span, Spanned, SpannedExpander, SpannedForm};
+use tatara_lisp::{Atom, MacroDef, Param, Span, Spanned, SpannedExpander, SpannedForm};
 
+use crate::code::{spanned_to_value, value_to_spanned};
 use crate::env::Env;
 use crate::error::{EvalError, Result};
 use crate::ffi::{
@@ -84,27 +85,21 @@ impl<H: 'static> Interpreter<H> {
     }
 
     /// Evaluate a single already-read spanned form in this interpreter's
-    /// global environment. Macro expansion is applied first when the
-    /// expander has at least one macro registered — registration of
-    /// `defmacro` is a top-level concern handled by `eval_program` /
-    /// `eval_top_form`; bare `eval_spanned` skips it.
+    /// global environment. Macro expansion runs first if any macros are
+    /// registered. Bare `eval_spanned` does NOT register top-level
+    /// `defmacro` — `eval_top_form` is the entry point for that.
     pub fn eval_spanned(&mut self, form: &Spanned, host: &mut H) -> Result<Value> {
-        let expanded;
-        let target = if self.expander.is_empty() {
-            form
-        } else {
-            expanded = self.expander.expand(form)?;
-            &expanded
-        };
-        eval_in(&mut self.globals, &self.registry, target, host)
+        let expanded = self.fully_expand(form, host)?;
+        eval_in(&mut self.globals, &self.registry, &expanded, host)
     }
 
     /// Evaluate a slice of forms in order, returning the last result.
     ///
     /// Top-level `defmacro` / `defpoint-template` / `defcheck` forms register
     /// into the persistent expander and yield `Value::Nil`. All other forms
-    /// are run through `expander.expand` (rewriting any registered macro
-    /// calls anywhere in the form tree) before being evaluated. This is the
+    /// are fully expanded (recursively rewriting macro calls anywhere
+    /// in the form tree, with each macro body run through the live
+    /// evaluator at expansion time) before being evaluated. This is the
     /// canonical entry point for running a tatara-lisp program — REPL,
     /// embedded host, batch script.
     ///
@@ -125,14 +120,137 @@ impl<H: 'static> Interpreter<H> {
         if self.expander.try_register_macro(form)? {
             return Ok(Value::Nil);
         }
-        let expanded;
-        let target = if self.expander.is_empty() {
-            form
-        } else {
-            expanded = self.expander.expand(form)?;
-            &expanded
-        };
-        eval_in(&mut self.globals, &self.registry, target, host)
+        let expanded = self.fully_expand(form, host)?;
+        eval_in(&mut self.globals, &self.registry, &expanded, host)
+    }
+
+    /// Fully expand a form: walk the tree; whenever the head of a list
+    /// is a registered macro, evaluate the macro body (a regular Lisp
+    /// program) at expansion time, convert the resulting Value back to
+    /// a Spanned tree, and recurse — the expansion may itself contain
+    /// further macro calls.
+    ///
+    /// This is the CL/Racket macro model: the macro body has full access
+    /// to every primitive and library function, can compute over its
+    /// argument source forms (which arrive as Lisp data structures —
+    /// lists of symbols, etc.), and produces code as data.
+    pub fn fully_expand(&mut self, form: &Spanned, host: &mut H) -> Result<Spanned> {
+        // Fast path: no macros registered — nothing to expand.
+        if self.expander.is_empty() {
+            return Ok(form.clone());
+        }
+        self.expand_recursive(form, host)
+    }
+
+    fn expand_recursive(&mut self, form: &Spanned, host: &mut H) -> Result<Spanned> {
+        match &form.form {
+            SpannedForm::List(items) if !items.is_empty() => {
+                if let Some(head) = items[0].as_symbol() {
+                    if self.expander.has(head) {
+                        // Macro call. Expand by running the body, then
+                        // recurse on the result (it may itself be a
+                        // macro call or contain nested macro calls).
+                        let expanded = self.expand_macro_call(head, &items[1..], form.span, host)?;
+                        return self.expand_recursive(&expanded, host);
+                    }
+                }
+                // Not a macro call — recurse into children to catch
+                // nested macros.
+                let mut out = Vec::with_capacity(items.len());
+                for child in items {
+                    out.push(self.expand_recursive(child, host)?);
+                }
+                Ok(Spanned::new(form.span, SpannedForm::List(out)))
+            }
+            SpannedForm::Quote(_) => {
+                // Inside a `'expr`, expr is data — don't expand inside.
+                Ok(form.clone())
+            }
+            SpannedForm::Quasiquote(inner) => {
+                // Inside a `\`expr`, only unquoted subforms get expanded.
+                Ok(Spanned::new(
+                    form.span,
+                    SpannedForm::Quasiquote(Box::new(
+                        self.expand_inside_quasiquote(inner, host)?,
+                    )),
+                ))
+            }
+            // Atoms, Nil, bare Unquote/UnquoteSplice — pass through.
+            _ => Ok(form.clone()),
+        }
+    }
+
+    fn expand_inside_quasiquote(&mut self, form: &Spanned, host: &mut H) -> Result<Spanned> {
+        match &form.form {
+            SpannedForm::Unquote(inner) => Ok(Spanned::new(
+                form.span,
+                SpannedForm::Unquote(Box::new(self.expand_recursive(inner, host)?)),
+            )),
+            SpannedForm::UnquoteSplice(inner) => Ok(Spanned::new(
+                form.span,
+                SpannedForm::UnquoteSplice(Box::new(self.expand_recursive(inner, host)?)),
+            )),
+            SpannedForm::List(items) => {
+                let mut out = Vec::with_capacity(items.len());
+                for item in items {
+                    out.push(self.expand_inside_quasiquote(item, host)?);
+                }
+                Ok(Spanned::new(form.span, SpannedForm::List(out)))
+            }
+            _ => Ok(form.clone()),
+        }
+    }
+
+    /// Expand a single macro call: bind macro params to lowered Value
+    /// representations of the source-form args, evaluate the body in
+    /// the live interpreter, and lift the result Value back to Spanned.
+    fn expand_macro_call(
+        &mut self,
+        macro_name: &str,
+        args: &[Spanned],
+        call_span: Span,
+        host: &mut H,
+    ) -> Result<Spanned> {
+        // Take a clone of the def — we'll use it without holding the
+        // expander borrow across an eval call.
+        let def: MacroDef = self
+            .expander
+            .get_macro(macro_name)
+            .cloned()
+            .ok_or_else(|| {
+                EvalError::native_fn(
+                    Arc::<str>::from(macro_name),
+                    "macro disappeared during expansion",
+                    call_span,
+                )
+            })?;
+
+        // Lift the body Sexp (which has no spans) to a Spanned tree
+        // stamped with the call site. Errors inside the body will
+        // appear at the macro call site — the right behavior for
+        // user-facing diagnostics.
+        let body_spanned = Spanned::from_sexp_at(&def.body, call_span);
+
+        // Build the macro-time environment: capture globals, push a
+        // frame for the macro params.
+        let mut macro_env = self.globals.clone();
+        macro_env.push();
+        bind_macro_args(&mut macro_env, &def.name, &def.params, args, call_span)?;
+
+        // Evaluate the body in the macro env using the live interpreter
+        // — every primitive, every library fn is in scope.
+        let result = eval_in(&mut macro_env, &self.registry, &body_spanned, host)?;
+
+        // Convert the resulting Value back to a Spanned form. Anything
+        // that can't be lifted (closure, native fn, foreign) is a user
+        // error in the macro.
+        value_to_spanned(&result, call_span).map_err(|reason| {
+            EvalError::native_fn(
+                Arc::<str>::from(format!("macro {macro_name}")),
+                reason,
+                call_span,
+            )
+        })
     }
 
     /// Borrow the macro expander. Embedders may register macros directly
@@ -448,6 +566,42 @@ pub(crate) fn apply_external<H: 'static>(
     host: &mut H,
 ) -> Result<Value> {
     apply(callee, args, call_span, registry, host)
+}
+
+/// Bind macro parameters onto the macro-time env. Required params each
+/// take one arg, lowered Spanned→Value. The optional `&rest` param
+/// takes the remainder as a `Value::List` of lowered args.
+fn bind_macro_args(
+    env: &mut Env,
+    macro_name: &str,
+    params: &[Param],
+    args: &[Spanned],
+    call_span: Span,
+) -> Result<()> {
+    let mut cursor = 0usize;
+    for p in params {
+        match p {
+            Param::Required(name) => {
+                let arg = args.get(cursor).ok_or_else(|| {
+                    EvalError::native_fn(
+                        Arc::<str>::from(format!("macro {macro_name}")),
+                        format!("missing required arg: {name}"),
+                        call_span,
+                    )
+                })?;
+                env.define(Arc::<str>::from(name.as_str()), spanned_to_value(arg));
+                cursor += 1;
+            }
+            Param::Rest(name) => {
+                let rest: Vec<Value> = args.get(cursor..).unwrap_or(&[]).iter()
+                    .map(spanned_to_value)
+                    .collect();
+                env.define(Arc::<str>::from(name.as_str()), Value::list(rest));
+                cursor = args.len();
+            }
+        }
+    }
+    Ok(())
 }
 
 fn call_closure<H: 'static>(
@@ -1494,13 +1648,19 @@ mod tests {
 
     #[test]
     fn user_macro_unbound_template_var_errors() {
-        // ,y is not a parameter — expander should refuse.
+        // ,y refers to a name not bound in the macro's parameter list
+        // and not defined in the surrounding scope. Under the
+        // full-eval expander this surfaces as a proper unbound-symbol
+        // error at expansion time, with the offending symbol in the
+        // payload — strictly better than the legacy "compile" error.
         let mut i: Interpreter<NoHost> = Interpreter::new();
         install_primitives(&mut i);
         let forms = read_spanned("(defmacro bad (x) `(list ,y)) (bad 1)").unwrap();
         let err = i.eval_program(&forms, &mut NoHost).unwrap_err();
-        // Lowered through Reader from LispError::Compile.
-        assert!(matches!(err, EvalError::Reader(_)));
+        match err {
+            EvalError::UnboundSymbol { name, .. } => assert_eq!(&*name, "y"),
+            other => panic!("expected UnboundSymbol, got {other:?}"),
+        }
     }
 
     #[test]
@@ -1586,5 +1746,154 @@ mod tests {
         // Second form: macro expanded → 42.
         let r1 = i.eval_top_form(&forms[1], &mut host).unwrap();
         assert!(matches!(r1, Value::Int(42)));
+    }
+
+    // ── Full-eval macroexpansion power tests ──────────────────────
+    //
+    // These exercise the Racket/CL/Clojure-grade macro model: the
+    // macro body is a regular Lisp program evaluated at expansion time
+    // with full access to every primitive and library fn.
+
+    use crate::install_full_stdlib_with;
+
+    fn run_full(src: &str) -> Value {
+        let mut i: Interpreter<NoHost> = Interpreter::new();
+        install_full_stdlib_with(&mut i, &mut NoHost);
+        let forms = read_spanned(src).unwrap();
+        i.eval_program(&forms, &mut NoHost).unwrap()
+    }
+
+    #[test]
+    fn macro_can_use_map_at_expansion_time() {
+        // The macro body uses (map ...) at expansion time to transform
+        // each arg into a different form. Result: a `(list ...)` whose
+        // children are the squared symbols' representations.
+        let v = run_full(
+            "(defmacro double-each (&rest xs)
+               `(list ,@(map (lambda (x) (* x 2)) xs)))
+             (double-each 1 2 3 4 5)",
+        );
+        assert_eq!(format!("{v}"), "(2 4 6 8 10)");
+    }
+
+    #[test]
+    fn macro_can_use_foldl_at_expansion_time() {
+        // The expansion ITSELF is built by folding — the macro returns
+        // a sum-of-args expression, but only after expansion-time
+        // computation chooses the additive form.
+        let v = run_full(
+            "(defmacro static-sum (&rest xs)
+               (foldl + 0 xs))
+             (static-sum 1 2 3 4 5)",
+        );
+        assert!(matches!(v, Value::Int(15)));
+    }
+
+    #[test]
+    fn macro_can_use_filter_at_expansion_time() {
+        // Macro args arrive as source-form Values: literals stay
+        // literals, but `(- 4)` is a List not a negative number.
+        // Use direct negative literals so the filter sees integers.
+        let v = run_full(
+            "(defmacro sum-positives (&rest xs)
+               `(+ ,@(filter positive? xs)))
+             (sum-positives 1 -2 3 -4 5)",
+        );
+        // Filter to (1 3 5) at expansion → emit (+ 1 3 5) → 9.
+        assert!(matches!(v, Value::Int(9)));
+    }
+
+    #[test]
+    fn macro_can_recursively_emit_let_chain() {
+        // (chain-let (a 1) (b 2) (c 3) body) →
+        //   (let ((a 1)) (let ((b 2)) (let ((c 3)) body))).
+        let v = run_full(
+            "(defmacro chain-let (binding &rest more)
+               (if (null? more)
+                   `(let (,binding) #t)
+                   `(let (,binding) (chain-let ,@more))))
+             (chain-let (a 1) (b 2) (c 3))",
+        );
+        assert!(matches!(v, Value::Bool(true)));
+    }
+
+    #[test]
+    fn macro_can_use_gensym_for_hygiene() {
+        // The macro introduces a fresh local binding via gensym, so
+        // no name collision risk.
+        let v = run_full(
+            "(defmacro swap-bind (init body)
+               (let ((tmp (gensym \"tmp\")))
+                 `(let ((,tmp ,init))
+                    (+ ,tmp ,tmp))))
+             (swap-bind 21 #t)",
+        );
+        assert!(matches!(v, Value::Int(42)));
+    }
+
+    #[test]
+    fn macro_can_inspect_arg_shape() {
+        // Detect whether the arg is a list and emit different code.
+        let v = run_full(
+            "(defmacro shape-aware (x)
+               (if (list? x)
+                   `(+ ,@x)         ;; sum the children
+                   `,x))            ;; pass through scalars
+             (+ (shape-aware (1 2 3)) (shape-aware 100))",
+        );
+        // (1 2 3) → 6; 100 → 100; total → 106.
+        assert!(matches!(v, Value::Int(106)));
+    }
+
+    #[test]
+    fn macro_can_call_user_helper_fn() {
+        // Define a helper at top level; macro body calls it at expand.
+        let v = run_full(
+            "(define (square x) (* x x))
+             (defmacro static-square (n) (square n))
+             (static-square 7)",
+        );
+        assert!(matches!(v, Value::Int(49)));
+    }
+
+    #[test]
+    fn macro_emitting_quoted_form_round_trips() {
+        // A macro that produces a quoted constant — the (quote x)
+        // representation must round-trip cleanly.
+        let v = run_full(
+            "(defmacro literal-list (&rest xs)
+               `(quote ,xs))
+             (literal-list a b c)",
+        );
+        let s = format!("{v}");
+        assert!(s.contains('a') && s.contains('b') && s.contains('c'));
+    }
+
+    #[test]
+    fn quasiquote_inside_quasiquote_in_macro_output_is_preserved() {
+        // A macro that emits a quasiquote at runtime — the runtime
+        // should see a quasiquote and evaluate it.
+        let v = run_full(
+            "(defmacro emit-qq (x) `(quasiquote (a (unquote ,x) c)))
+             (let ((q (emit-qq 99))) q)",
+        );
+        // Result is the runtime-value (a 99 c).
+        assert_eq!(format!("{v}"), "(a 99 c)");
+    }
+
+    #[test]
+    fn macro_body_can_define_locals_and_dispatch() {
+        // Macro body uses let + cond + map — full programmability.
+        let v = run_full(
+            "(defmacro classify-args (&rest xs)
+               (let ((evens (filter even? xs))
+                     (odds  (filter odd?  xs)))
+                 `(list (list :evens ,@evens)
+                        (list :odds  ,@odds))))
+             (classify-args 1 2 3 4 5 6)",
+        );
+        let s = format!("{v}");
+        assert!(s.contains(":evens 2 4 6"));
+        assert!(s.contains(":odds 1 3 5"));
     }
 }

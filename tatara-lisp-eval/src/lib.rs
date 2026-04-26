@@ -15,6 +15,7 @@
 //! interpreter that evaluates only literal atoms. Subsequent phases
 //! (2.3-2.7) fill in special forms, FFI, REPL, errors, tests.
 
+pub mod code;
 pub mod env;
 pub mod error;
 pub mod eval;

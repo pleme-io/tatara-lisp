@@ -88,6 +88,8 @@ pub const PRIMITIVE_NAMES: &[&str] = &[
     "display",
     "newline",
     "print",
+    // Hygiene helpers
+    "gensym",
 ];
 
 /// Register the standard primitive set on `interp`.
@@ -532,6 +534,23 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
             Ok(Value::Nil)
         },
     );
+
+    // ── gensym ────────────────────────────────────────────────────
+    // Process-global counter — guaranteed unique across all
+    // Interpreters in the same process. `(gensym)` returns "g42";
+    // `(gensym "tag")` returns "tag42".
+    interp.register_fn("gensym", Arity::Range(0, 1), |args: &[Value], _h: &mut H, sp| {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let prefix: String = match args.first() {
+            None => "g".to_string(),
+            Some(Value::Str(s)) => s.to_string(),
+            Some(Value::Symbol(s)) => s.to_string(),
+            Some(other) => return Err(EvalError::type_mismatch("string or symbol", other.type_name(), sp)),
+        };
+        Ok(Value::Symbol(Arc::from(format!("{prefix}__{n}__auto"))))
+    });
 }
 
 fn gcd(a: i64, b: i64) -> i64 {

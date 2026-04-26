@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "tatara",
     "tatara-lisp",
     "tatara-lisp-derive",
     "tatara-lisp-eval",

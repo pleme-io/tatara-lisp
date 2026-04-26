@@ -1,0 +1,26 @@
+[package]
+name = "tatara"
+description = "tatara — umbrella CLI: fmt, lint, run, test, deploy. Drives feira for static checks, tatara-script for execution, wasm-platform for deploy."
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+tatara-lisp = { path = "../tatara-lisp" }
+tatara-lisp-eval = { path = "../tatara-lisp-eval" }
+tatara-lisp-source = { path = "../tatara-lisp-source" }
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+blake3 = "1.5"
+
+[[bin]]
+name = "tatara"
+path = "src/main.rs"

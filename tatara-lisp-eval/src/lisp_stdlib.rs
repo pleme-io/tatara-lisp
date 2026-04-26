@@ -710,4 +710,58 @@ mod tests {
         // After feeds: 1→odd, 0→odd, 1→even, 1→odd, 0→odd
         assert_eq!(format!("{v}"), "(:odd :odd :even :odd :odd)");
     }
+
+    // ── define-record ─────────────────────────────────────────────
+
+    #[test]
+    fn define_record_constructor_and_accessors() {
+        let v = run(
+            "(define-record point (x y))
+             (define p (make-point 3 4))
+             (list (point-x p) (point-y p))",
+        );
+        assert_eq!(format!("{v}"), "(3 4)");
+    }
+
+    #[test]
+    fn define_record_predicate() {
+        let v = run(
+            "(define-record point (x y))
+             (define p (make-point 1 2))
+             (list (point? p) (point? 42) (point? (hash-map :other 1)))",
+        );
+        assert_eq!(format!("{v}"), "(#t #f #f)");
+    }
+
+    #[test]
+    fn define_record_setter_returns_new_value() {
+        let v = run(
+            "(define-record point (x y))
+             (define p (make-point 1 2))
+             (define p2 (point-set-x p 99))
+             (list (point-x p) (point-x p2))",
+        );
+        // p unchanged, p2 has new x.
+        assert_eq!(format!("{v}"), "(1 99)");
+    }
+
+    #[test]
+    fn define_record_with_three_fields() {
+        let v = run(
+            "(define-record user (id name email))
+             (define u (make-user 7 \"luis\" \"luis@example.com\"))
+             (list (user-id u) (user-name u) (user-email u))",
+        );
+        assert_eq!(format!("{v}"), "(7 \"luis\" \"luis@example.com\")");
+    }
+
+    #[test]
+    fn define_record_to_map_returns_underlying() {
+        let v = run(
+            "(define-record point (x y))
+             (define p (make-point 1 2))
+             (hash-map-get (point->map p) :__type)",
+        );
+        assert!(matches!(v, Value::Keyword(s) if &*s == "point"));
+    }
 }

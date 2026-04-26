@@ -686,3 +686,74 @@
 (define (transducer-state t)    (t :state))
 (define (transducer-run! t inputs)
   (map (lambda (i) (transducer-feed! t i)) inputs))
+
+;; ====================================================================
+;; DEFINE-RECORD — Clojure defrecord-flavor structured data
+;; --------------------------------------------------------------------
+;; (define-record point (x y))
+;;
+;; Defines:
+;;   make-point(x y)   → record (a hash-map tagged :__type :point)
+;;   point-x(r)        → field accessor
+;;   point-y(r)        → field accessor
+;;   point?(v)         → type predicate
+;;   point->map(r)     → underlying hash-map (identity, but explicit)
+;;   point-set-x(r v)  → new record with x replaced
+;;   point-set-y(r v)  → new record with y replaced
+;; ====================================================================
+
+;; Helpers for the macro body.
+;; (record-field-accessor record-name field) → symbol like point-x
+(define (record-field-accessor record-name field)
+  (string->symbol
+    (string-append (symbol->string record-name)
+                   "-"
+                   (symbol->string field))))
+
+(define (record-field-setter record-name field)
+  (string->symbol
+    (string-append (symbol->string record-name)
+                   "-set-"
+                   (symbol->string field))))
+
+(define (record-keyword field)
+  (string->keyword (symbol->string field)))
+
+;; The macro itself. Uses the full-eval expander to compute names and
+;; emit a `(begin ...)` form that defines all the helpers.
+(defmacro define-record (name fields)
+  (let* ((type-key (record-keyword name))
+         (make-sym (string->symbol
+                    (string-append "make-" (symbol->string name))))
+         (pred-sym (string->symbol
+                    (string-append (symbol->string name) "?")))
+         (to-map-sym (string->symbol
+                      (string-append (symbol->string name) "->map")))
+         ;; Build the constructor's hash-map kv list:
+         ;;   (:__type ,type-key :x x :y y ...)
+         (ctor-kvs
+           (apply append
+             (cons (list :__type type-key)
+                   (map (lambda (f) (list (record-keyword f) f))
+                        fields))))
+         ;; Field accessor definitions.
+         (accessor-defs
+           (map (lambda (f)
+                  `(define (,(record-field-accessor name f) r)
+                     (hash-map-get r ,(record-keyword f))))
+                fields))
+         ;; Setter definitions (return a new record with one field replaced).
+         (setter-defs
+           (map (lambda (f)
+                  `(define (,(record-field-setter name f) r v)
+                     (hash-map-set r ,(record-keyword f) v)))
+                fields)))
+    `(begin
+       (define (,make-sym ,@fields)
+         (hash-map ,@ctor-kvs))
+       (define (,pred-sym v)
+         (and (hash-map? v)
+              (equal? (hash-map-get v :__type) ,type-key)))
+       (define (,to-map-sym r) r)
+       ,@accessor-defs
+       ,@setter-defs)))

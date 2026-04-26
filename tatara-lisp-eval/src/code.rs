@@ -136,6 +136,11 @@ pub fn value_to_spanned(v: &Value, span: Span) -> Result<Spanned, String> {
              converted to source forms (emit a `(hash-map ...)` call instead)"
                 .to_string(),
         ),
+        Value::Promise(_) => Err(
+            "macro body returned a promise — promises are runtime values \
+             with no source-form representation (force it first)"
+                .to_string(),
+        ),
         Value::Error(_) => Err(
             "macro body returned an Error value — errors cannot be \
              converted to source forms (use `throw` to raise instead)"

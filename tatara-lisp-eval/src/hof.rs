@@ -72,10 +72,12 @@ pub const HOF_NAMES: &[&str] = &[
     "foldl",
     "foldr",
     "for-each",
+    "force",
     "group-by",
     "iterate",
     "map",
     "partition",
+    "promise?",
     "reduce",
     "remove",
     "repeatedly",
@@ -497,6 +499,43 @@ pub fn install_hof<H: 'static>(interp: &mut Interpreter<H>) {
                 out.push(caller.apply_value(thunk, vec![], host, sp)?);
             }
             Ok(Value::list(out))
+        },
+    );
+
+    // ── force / promise? — lazy evaluation primitives ─────────────
+    interp.register_higher_order_fn(
+        "force",
+        Arity::Exact(1),
+        |args: &[Value], host: &mut H, caller: &Caller<H>, sp: Span| {
+            match &args[0] {
+                Value::Promise(p) => {
+                    // Two-pass: first check Forced (avoids re-running),
+                    // else run the thunk and store. We keep the lock
+                    // briefly to drop it before the call.
+                    let thunk = {
+                        let state = p.lock().unwrap();
+                        match &*state {
+                            crate::value::PromiseState::Forced(v) => return Ok(v.clone()),
+                            crate::value::PromiseState::Pending(thunk) => thunk.clone(),
+                        }
+                    };
+                    let result = caller
+                        .apply_value(&Value::Closure(thunk), vec![], host, sp)?;
+                    let mut state = p.lock().unwrap();
+                    *state = crate::value::PromiseState::Forced(result.clone());
+                    Ok(result)
+                }
+                // Non-promises pass through unchanged — Scheme convention.
+                other => Ok(other.clone()),
+            }
+        },
+    );
+
+    interp.register_higher_order_fn(
+        "promise?",
+        Arity::Exact(1),
+        |args: &[Value], _host: &mut H, _caller: &Caller<H>, _sp: Span| {
+            Ok(Value::Bool(matches!(&args[0], Value::Promise(_))))
         },
     );
 }

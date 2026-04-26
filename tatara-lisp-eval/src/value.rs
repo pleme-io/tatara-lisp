@@ -32,6 +32,12 @@ pub enum Value {
     Map(Arc<HashMap<MapKey, Value>>),
     Closure(Arc<Closure>),
     NativeFn(Arc<NativeFn>),
+    /// A delayed (lazy) computation. First force triggers evaluation
+    /// of the underlying thunk; subsequent forces return the cached
+    /// result. Backed by `Mutex` so a Promise can be shared across
+    /// references safely (single-threaded runtime, but the lock is
+    /// trivial overhead and gives us zero-effort safety).
+    Promise(Arc<std::sync::Mutex<PromiseState>>),
     /// A first-class structured error — Clojure ex-info shape:
     /// a tag (keyword/string), a message string, and a data plist.
     /// Constructed by `(error tag msg data)` / `(ex-info msg data)`.
@@ -112,6 +118,24 @@ impl fmt::Display for MapKey {
     }
 }
 
+/// State of a `Value::Promise`. Created Pending wrapping a thunk
+/// (always a unary closure of zero args); on first force, the thunk
+/// runs and the result replaces the state with `Forced(value)`. All
+/// subsequent forces return the cached value without re-evaluation.
+pub enum PromiseState {
+    Pending(Arc<Closure>),
+    Forced(Value),
+}
+
+impl fmt::Debug for PromiseState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Pending(_) => f.write_str("Pending(…)"),
+            Self::Forced(v) => write!(f, "Forced({v:?})"),
+        }
+    }
+}
+
 /// A user-defined closure produced by `(lambda …)` or `(define (f …) …)`.
 pub struct Closure {
     pub params: Vec<Arc<str>>,
@@ -172,6 +196,7 @@ impl Value {
             Self::Map(_) => "map",
             Self::Closure(_) => "closure",
             Self::NativeFn(_) => "native-fn",
+            Self::Promise(_) => "promise",
             Self::Error(_) => "error",
             Self::Sexp(..) => "sexp",
             Self::Foreign(_) => "foreign",
@@ -195,6 +220,7 @@ impl fmt::Debug for Value {
             Self::Map(m) => write!(f, "Map({} entries)", m.len()),
             Self::Closure(_) => f.write_str("Closure(…)"),
             Self::NativeFn(n) => write!(f, "NativeFn({})", n.name),
+            Self::Promise(_) => f.write_str("Promise(…)"),
             Self::Error(e) => write!(f, "Error({}: {})", e.tag, e.message),
             Self::Sexp(s, sp) => write!(f, "Sexp({s} @ {sp})"),
             Self::Foreign(_) => f.write_str("Foreign(…)"),
@@ -248,6 +274,13 @@ impl fmt::Display for Value {
                 write!(f, ">")
             }
             Self::NativeFn(n) => write!(f, "#<native {}>", n.name),
+            Self::Promise(p) => {
+                let state = p.lock().unwrap();
+                match &*state {
+                    PromiseState::Pending(_) => f.write_str("#<promise pending>"),
+                    PromiseState::Forced(v) => write!(f, "#<promise {v}>"),
+                }
+            }
             Self::Error(e) => {
                 write!(f, "#<error :{} {:?}", e.tag, e.message.as_ref())?;
                 if !e.data.is_empty() {

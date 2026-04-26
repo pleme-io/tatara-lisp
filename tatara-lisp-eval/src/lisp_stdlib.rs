@@ -764,4 +764,75 @@ mod tests {
         );
         assert!(matches!(v, Value::Keyword(s) if &*s == "point"));
     }
+
+    // ── Lazy sequences ────────────────────────────────────────────
+
+    #[test]
+    fn delay_force_evaluates_once_and_caches() {
+        let v = run(
+            "(define n 0)
+             (define p (delay (begin (set! n (+ n 1)) :computed)))
+             (force p)
+             (force p)
+             (force p)
+             n",
+        );
+        // Even after 3 forces, the body ran exactly once.
+        assert!(matches!(v, Value::Int(1)));
+    }
+
+    #[test]
+    fn promise_predicate() {
+        assert!(matches!(run("(promise? (delay 1))"), Value::Bool(true)));
+        assert!(matches!(run("(promise? 1)"), Value::Bool(false)));
+    }
+
+    #[test]
+    fn lazy_take_realizes_finite_prefix() {
+        let v = run(
+            "(define naturals (iterate-lazy inc 0))
+             (lazy-take 5 naturals)",
+        );
+        assert_eq!(format!("{v}"), "(0 1 2 3 4)");
+    }
+
+    #[test]
+    fn lazy_filter_drives_through_infinite() {
+        // First 3 even naturals.
+        let v = run(
+            "(define naturals (iterate-lazy inc 0))
+             (lazy-take 3 (lazy-filter even? naturals))",
+        );
+        assert_eq!(format!("{v}"), "(0 2 4)");
+    }
+
+    #[test]
+    fn lazy_map_transforms() {
+        let v = run(
+            "(define naturals (iterate-lazy inc 1))
+             (lazy-take 4 (lazy-map (lambda (x) (* x x)) naturals))",
+        );
+        assert_eq!(format!("{v}"), "(1 4 9 16)");
+    }
+
+    #[test]
+    fn cycle_repeats_finite_list() {
+        let v = run("(lazy-take 7 (cycle (list :a :b :c)))");
+        assert_eq!(format!("{v}"), "(:a :b :c :a :b :c :a)");
+    }
+
+    #[test]
+    fn repeat_lazy_infinite_constant() {
+        let v = run("(lazy-take 4 (repeat-lazy 7))");
+        assert_eq!(format!("{v}"), "(7 7 7 7)");
+    }
+
+    #[test]
+    fn lazy_drop_skips_prefix() {
+        let v = run(
+            "(define naturals (iterate-lazy inc 0))
+             (lazy-take 3 (lazy-drop 5 naturals))",
+        );
+        assert_eq!(format!("{v}"), "(5 6 7)");
+    }
 }

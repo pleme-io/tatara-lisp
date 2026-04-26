@@ -38,6 +38,10 @@ pub enum SpecialForm {
     /// `(macroexpand 'form)` — like macroexpand-1, but fully expand
     /// until no macro calls remain.
     MacroexpandAll,
+    /// `(delay expr)` — wrap `expr` as a memoizing thunk. The first
+    /// `(force p)` triggers evaluation; subsequent forces return the
+    /// cached value. Returns a `Value::Promise`.
+    Delay,
 }
 
 impl SpecialForm {
@@ -64,6 +68,7 @@ impl SpecialForm {
             "try" => Self::Try,
             "macroexpand-1" => Self::MacroexpandOne,
             "macroexpand" => Self::MacroexpandAll,
+            "delay" => Self::Delay,
             _ => return None,
         })
     }

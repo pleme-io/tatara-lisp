@@ -757,3 +757,85 @@
        (define (,to-map-sym r) r)
        ,@accessor-defs
        ,@setter-defs)))
+
+;; ====================================================================
+;; LAZY SEQUENCES — built on (delay) / (force)
+;; --------------------------------------------------------------------
+;; A lazy seq is one of:
+;;   nil                            — empty
+;;   (head promise-of-rest)         — non-empty cell where rest is a
+;;                                    Promise of either nil or another
+;;                                    such cell.
+;;
+;; (lazy-cons head tail-expr) — sugar for (list head (delay tail-expr)).
+;; (lazy-empty) — (). Lazy-empty? checks for ().
+;;
+;; Standard ops:
+;;   (lazy-take n s) — eagerly realize first n.
+;;   (lazy-drop n s) — drop n, return new lazy seq.
+;;   (lazy-map  f s) — produce a lazy seq applying f.
+;;   (lazy-filter p s) — produce a lazy seq keeping items.
+;;   (realize s)    — fully realize (warning: infinite seqs hang).
+;;
+;; Constructors:
+;;   (iterate-lazy f x) — (x, f(x), f(f(x)), ...)
+;;   (cycle xs)         — (cycle '(1 2 3)) → (1 2 3 1 2 3 ...)
+;;   (repeat-lazy x)    — (x x x ...)
+;;
+;; This is a pure-Lisp layer; the runtime work is in delay/force.
+;; ====================================================================
+
+(defmacro lazy-cons (head tail-expr)
+  `(list ,head (delay ,tail-expr)))
+
+(define (lazy-empty) ())
+(define (lazy-empty? s) (null? s))
+
+(define (lazy-head s) (car s))
+(define (lazy-rest s) (force (second s)))
+
+(define (lazy-take n s)
+  (cond
+    ((<= n 0) ())
+    ((lazy-empty? s) ())
+    (else (cons (lazy-head s) (lazy-take (- n 1) (lazy-rest s))))))
+
+(define (lazy-drop n s)
+  (cond
+    ((<= n 0) s)
+    ((lazy-empty? s) s)
+    (else (lazy-drop (- n 1) (lazy-rest s)))))
+
+(define (realize s)
+  (if (lazy-empty? s) ()
+      (cons (lazy-head s) (realize (lazy-rest s)))))
+
+(define (lazy-map f s)
+  (if (lazy-empty? s)
+      (lazy-empty)
+      (lazy-cons (f (lazy-head s)) (lazy-map f (lazy-rest s)))))
+
+(define (lazy-filter p s)
+  (cond
+    ((lazy-empty? s) (lazy-empty))
+    ((p (lazy-head s))
+     (lazy-cons (lazy-head s) (lazy-filter p (lazy-rest s))))
+    (else (lazy-filter p (lazy-rest s)))))
+
+;; (iterate-lazy f x) → (x, f(x), f(f(x)), ...) — infinite.
+(define (iterate-lazy f x)
+  (lazy-cons x (iterate-lazy f (f x))))
+
+;; (cycle xs) → (xs xs xs ...) flattened — infinite.
+(define (cycle xs)
+  (if (null? xs) ()
+      (cycle-impl xs xs)))
+
+(define (cycle-impl original remaining)
+  (if (null? remaining)
+      (cycle-impl original original)
+      (lazy-cons (car remaining) (cycle-impl original (cdr remaining)))))
+
+;; (repeat-lazy x) → (x x x ...) — infinite.
+(define (repeat-lazy x)
+  (lazy-cons x (repeat-lazy x)))

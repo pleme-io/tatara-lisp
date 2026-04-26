@@ -758,6 +758,7 @@ fn eval_special_tail<H: 'static>(
         SpecialForm::MacroexpandAll => {
             sf_macroexpand(items, call_span, env, registry, expander, host, true).map(TailResult::Done)
         }
+        SpecialForm::Delay => sf_delay(items, call_span, env).map(TailResult::Done),
         // Non-tail forms: just evaluate normally.
         _ => eval_special(sf, items, call_span, env, registry, expander, host).map(TailResult::Done),
     }
@@ -1006,6 +1007,7 @@ fn eval_special<H: 'static>(
         SpecialForm::Try => sf_try(items, call_span, env, registry, expander, host),
         SpecialForm::MacroexpandOne => sf_macroexpand(items, call_span, env, registry, expander, host, false),
         SpecialForm::MacroexpandAll => sf_macroexpand(items, call_span, env, registry, expander, host, true),
+        SpecialForm::Delay => sf_delay(items, call_span, env),
     }
 }
 
@@ -1569,6 +1571,31 @@ fn run_catch_handler<H: 'static>(
     }
     env.pop();
     Ok(last)
+}
+
+/// `(delay expr)` — wrap `expr` in a `Value::Promise` whose first
+/// `force` evaluates the body once and caches. The body becomes the
+/// closure body of a 0-arity lambda capturing the current env, then
+/// stored as the promise's pending state.
+fn sf_delay(items: &[Spanned], call_span: Span, env: &Env) -> Result<Value> {
+    if items.len() != 2 {
+        return Err(EvalError::bad_form(
+            "delay",
+            "expected (delay expr)",
+            call_span,
+        ));
+    }
+    let body = vec![items[1].clone()];
+    let thunk = Arc::new(Closure {
+        params: Vec::new(),
+        rest: None,
+        body,
+        captured_env: env.clone(),
+        source: call_span,
+    });
+    Ok(Value::Promise(Arc::new(std::sync::Mutex::new(
+        crate::value::PromiseState::Pending(thunk),
+    ))))
 }
 
 /// `(macroexpand-1 form)` and `(macroexpand form)` — return the

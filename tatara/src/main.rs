@@ -83,6 +83,14 @@ enum Cmd {
     /// Drop into the interactive REPL.
     Repl,
 
+    /// Run the build-time gradual type-check pass over a .tlisp source.
+    /// Reports any (the …) / (declare …) / (define …) annotations whose
+    /// inferred type doesn't match.
+    Typecheck {
+        /// Path to a .tlisp file or a fetchable URL.
+        path_or_url: String,
+    },
+
     /// Fetch a tatara-lisp program from a URL, run the canonical
     /// pre-flight checks (fmt/lint/test), and emit a ComputeUnit YAML
     /// manifest ready to apply.
@@ -127,6 +135,7 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
         Cmd::Run { path_or_url, args } => run_script(&path_or_url, &args, false, false),
         Cmd::Test { path_or_url } => run_script(&path_or_url, &[], true, false),
         Cmd::Repl => run_script("", &[], false, true),
+        Cmd::Typecheck { path_or_url } => typecheck(&path_or_url),
         Cmd::Deploy {
             url,
             output,
@@ -219,6 +228,30 @@ fn run_script(path: &str, args: &[String], test: bool, repl: bool) -> Result<Exi
     }
     let status = cmd.status().context("running tatara-script")?;
     Ok(ExitCode::from(status.code().unwrap_or(1) as u8))
+}
+
+// ── typecheck ────────────────────────────────────────────────────
+
+fn typecheck(path_or_url: &str) -> Result<ExitCode> {
+    let resolved = tatara_lisp_source::resolve_once(path_or_url)
+        .context("resolving source for typecheck")?;
+    let src = String::from_utf8(resolved.bytes)
+        .context("source is not UTF-8")?;
+    let forms = tatara_lisp::read_spanned(&src)
+        .map_err(|e| anyhow::anyhow!("parse error: {e:?}"))?;
+    let diags = tatara_lisp_eval::build_check::check_program(&forms);
+    if diags.is_empty() {
+        eprintln!("tatara typecheck: 0 errors");
+        return Ok(ExitCode::SUCCESS);
+    }
+    for d in &diags {
+        eprintln!("{}: {}", path_or_url, d.render(&src));
+    }
+    eprintln!(
+        "tatara typecheck: {} type error(s)",
+        diags.len()
+    );
+    Ok(ExitCode::from(1))
 }
 
 // ── deploy ───────────────────────────────────────────────────────

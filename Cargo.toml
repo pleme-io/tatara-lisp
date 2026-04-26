@@ -4,6 +4,7 @@ members = [
     "tatara-lisp-derive",
     "tatara-lisp-eval",
     "tatara-lisp-script",
+    "tatara-lisp-source",
 ]
 resolver = "2"
 

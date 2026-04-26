@@ -12,7 +12,10 @@ use tatara_lisp::{Atom, Span, Spanned, SpannedExpander, SpannedForm};
 
 use crate::env::Env;
 use crate::error::{EvalError, Result};
-use crate::ffi::{Arity, FnEntry, FnRegistry, FromValue, IntoValue, NativeCallable};
+use crate::ffi::{
+    Arity, Caller, FnEntry, FnImpl, FnRegistry, FromValue, HigherOrderCallable, IntoValue,
+    NativeCallable,
+};
 use crate::special::SpecialForm;
 use crate::value::{Closure, NativeFn, Value};
 
@@ -48,7 +51,31 @@ impl<H: 'static> Interpreter<H> {
         self.registry.insert(FnEntry {
             name: name.clone(),
             arity,
-            callable: Box::new(callable),
+            callable: FnImpl::Native(Box::new(callable)),
+        });
+        self.globals.define(
+            name.clone(),
+            Value::NativeFn(Arc::new(NativeFn { name, arity })),
+        );
+    }
+
+    /// Register a higher-order Rust primitive — receives a `Caller` so it
+    /// can invoke `Value::Closure` / `Value::NativeFn` arguments back into
+    /// the eval loop. Used for `map`, `filter`, `fold`, `apply`,
+    /// `for-each`, etc. Same overwrite semantics as `register_fn`.
+    pub fn register_higher_order_fn<F>(
+        &mut self,
+        name: impl Into<Arc<str>>,
+        arity: Arity,
+        callable: F,
+    ) where
+        F: HigherOrderCallable<H>,
+    {
+        let name = name.into();
+        self.registry.insert(FnEntry {
+            name: name.clone(),
+            arity,
+            callable: FnImpl::Higher(Box::new(callable)),
         });
         self.globals.define(
             name.clone(),
@@ -392,7 +419,13 @@ fn apply<H: 'static>(
                     call_span,
                 )
             })?;
-            entry.callable.call(&args, host, call_span)
+            match &entry.callable {
+                FnImpl::Native(f) => f.call(&args, host, call_span),
+                FnImpl::Higher(f) => {
+                    let caller = Caller { registry };
+                    f.call(&args, host, &caller, call_span)
+                }
+            }
         }
         Value::Closure(c) => call_closure(c, args, call_span, registry, host),
         other => Err(EvalError::NotCallable {
@@ -400,6 +433,21 @@ fn apply<H: 'static>(
             at: call_span,
         }),
     }
+}
+
+/// External entry point for `Caller::apply_value` — the higher-order
+/// primitive needs to invoke a callable Value back into the eval loop.
+/// This is the same `apply` function above; it is exposed `pub(crate)`
+/// at function visibility so the FFI module can reach it without
+/// publishing the rest of the eval internals.
+pub(crate) fn apply_external<H: 'static>(
+    callee: &Value,
+    args: Vec<Value>,
+    call_span: Span,
+    registry: &FnRegistry<H>,
+    host: &mut H,
+) -> Result<Value> {
+    apply(callee, args, call_span, registry, host)
 }
 
 fn call_closure<H: 'static>(

@@ -1,0 +1,251 @@
+;; ====================================================================
+;; tatara-lisp standard library — pure-Lisp layer.
+;;
+;; Loaded after install_primitives + install_hof. Everything here is
+;; expressible in terms of those Rust primitives. If a name needs the
+;; runtime registry, it lives in hof.rs; if it's pure manipulation, it
+;; lives here.
+;;
+;; Conventions:
+;;  - Names follow Scheme/Clojure tradition where they overlap. New
+;;    names follow Clojure (juxt, partial, comp, pipe).
+;;  - Predicates end in `?`, mutating ops end in `!`. No mutating ops
+;;    here — everything is functional.
+;;  - Macros only quasiquote; no Clojure-style auto-gensym (we don't have
+;;    hygiene yet — name your macro vars carefully).
+;; ====================================================================
+
+;; ── Identity / const / flip / comp ─────────────────────────────────
+
+(define (identity x) x)
+
+(define (const x)
+  (lambda (&rest _) x))
+
+(define (flip f)
+  (lambda (a b) (f b a)))
+
+;; Binary composition: (comp f g) → x ↦ (f (g x))
+(define (comp f g)
+  (lambda (x) (f (g x))))
+
+;; Right-to-left composition over N functions. (compose f g h) x → (f (g (h x))).
+;; Implementation: foldr comp identity.
+(define (compose &rest fs)
+  (foldr comp identity fs))
+
+;; Left-to-right composition. (pipe f g h) x → (h (g (f x))).
+;; Useful when the data-flow reads top-to-bottom in source.
+(define (pipe &rest fs)
+  (foldl (flip comp) identity fs))
+
+;; ── Partial application / juxt ─────────────────────────────────────
+
+;; (partial f a b) returns (lambda (&rest c) (apply f a b c)).
+;; The pre-bound args go on the LEFT — this is the standard convention.
+(define (partial f &rest more)
+  (lambda (&rest later)
+    (apply f (append more later))))
+
+;; (juxt f g h) x → ((f x) (g x) (h x)).
+(define (juxt &rest fs)
+  (lambda (&rest args)
+    (map (lambda (f) (apply f args)) fs)))
+
+;; ── Tap / doto-ish ─────────────────────────────────────────────────
+
+;; (tap f x) runs (f x) for its side effect and returns x unchanged.
+;; Useful in pipelines for logging / debugging.
+(define (tap f x)
+  (f x)
+  x)
+
+;; ── Threading macros (Clojure-style) ───────────────────────────────
+
+;; (-> x) → x
+;; (-> x f1 f2 f3) — chain unary fns; each fn-form may also be (f a b),
+;;   in which case the previous accumulator is inserted as the FIRST arg.
+;;
+;; The body is a single quasiquote whose top level is `,(if …)` so the
+;; macro dispatches AT EXPANSION TIME on whether `steps` is empty —
+;; this is what makes recursive macros expressible without a full
+;; expansion-time evaluator.
+(defmacro -> (x &rest steps)
+  `,(if (null? steps)
+        x
+        `(-> (->1 ,x ,(car steps)) ,@(cdr steps))))
+
+;; ->1: thread a single step. List step (f a b) becomes (f x a b);
+;; bare symbol step f becomes (f x).
+(defmacro ->1 (x step)
+  `,(if (list? step)
+        `(,(car step) ,x ,@(cdr step))
+        `(,step ,x)))
+
+;; (->> x f g) — same but inserts at the END of each call form.
+(defmacro ->> (x &rest steps)
+  `,(if (null? steps)
+        x
+        `(->> (->>1 ,x ,(car steps)) ,@(cdr steps))))
+
+(defmacro ->>1 (x step)
+  `,(if (list? step)
+        `(,(car step) ,@(cdr step) ,x)
+        `(,step ,x)))
+
+;; ── Control-flow macros ────────────────────────────────────────────
+
+;; (when-let (name expr) body...) — bind name to expr; if truthy run body.
+;; Like Clojure's when-let.
+(defmacro when-let (binding &rest body)
+  `(let ((,(car binding) ,(car (cdr binding))))
+     (if ,(car binding)
+         (begin ,@body)
+         ())))
+
+;; (if-let (name expr) then else) — same with an else branch.
+(defmacro if-let (binding then else)
+  `(let ((,(car binding) ,(car (cdr binding))))
+     (if ,(car binding) ,then ,else)))
+
+;; (unless-let (name expr) body...) — body runs when expr is FALSY.
+(defmacro unless-let (binding &rest body)
+  `(let ((,(car binding) ,(car (cdr binding))))
+     (if ,(car binding) () (begin ,@body))))
+
+;; ── Loops ──────────────────────────────────────────────────────────
+
+;; (dotimes (i n) body...) — i counts 0 .. n-1.
+(defmacro dotimes (binding &rest body)
+  `(for-each (lambda (,(car binding))
+               ,@body)
+             (range ,(car (cdr binding)))))
+
+;; (dolist (x xs) body...) — iterate xs.
+(defmacro dolist (binding &rest body)
+  `(for-each (lambda (,(car binding))
+               ,@body)
+             ,(car (cdr binding))))
+
+;; ── Composition macros for program flow ────────────────────────────
+
+;; (defflow name f1 f2 f3 ...) — define a unary function that pipes its
+;; argument through f1, then f2, then f3, etc. Reads top-to-bottom.
+(defmacro defflow (name &rest fs)
+  `(define ,name (pipe ,@fs)))
+
+;; ── Sequence helpers ───────────────────────────────────────────────
+
+(define (first xs) (car xs))
+(define (rest xs)  (cdr xs))
+(define (second xs) (car (cdr xs)))
+(define (third  xs) (car (cdr (cdr xs))))
+(define (fourth xs) (car (cdr (cdr (cdr xs)))))
+
+(define (last xs)
+  (if (null? (cdr xs)) (car xs) (last (cdr xs))))
+
+(define (butlast xs)
+  (if (null? (cdr xs))
+      ()
+      (cons (car xs) (butlast (cdr xs)))))
+
+(define (empty? xs) (null? xs))
+(define (not-empty? xs) (not (empty? xs)))
+
+;; (range n) → (0 1 ... n-1)
+;; (range a b) → (a a+1 ... b-1)
+;; (range a b s) → (a a+s ... < b) for positive s; descending for negative.
+(define (range &rest args)
+  (cond
+    ((= (length args) 1)
+     (range-impl 0 (car args) 1))
+    ((= (length args) 2)
+     (range-impl (car args) (second args) 1))
+    ((= (length args) 3)
+     (range-impl (car args) (second args) (third args)))
+    (else (error-msg "range: arity 1, 2, or 3"))))
+
+(define (range-impl start end step)
+  (cond
+    ((and (> step 0) (>= start end)) ())
+    ((and (< step 0) (<= start end)) ())
+    (else (cons start (range-impl (+ start step) end step)))))
+
+(define (error-msg msg)
+  ;; Lightweight assertion helper. Without throw/raise we surface via
+  ;; the embedded display + halt. Embedders that want richer errors
+  ;; should provide an `error` native fn.
+  (display msg) (newline))
+
+;; (repeat-list x n) → (x x x ...) length n
+(define (repeat-list x n)
+  (if (<= n 0) ()
+      (cons x (repeat-list x (- n 1)))))
+
+;; (concat &rest lists) — alias for append (already variadic)
+(define (concat &rest lists)
+  (apply append lists))
+
+;; (member? x xs) — true iff (equal? x e) for some e in xs.
+(define (member? x xs)
+  (any? (lambda (e) (equal? e x)) xs))
+
+;; (position x xs) — first index where (equal? x e) holds, or -1.
+(define (position x xs)
+  (find-index (lambda (e) (equal? e x)) xs))
+
+;; (zip xs ys) → ((x0 y0) (x1 y1) ...). Stops at shorter list.
+(define (zip xs ys)
+  (map (lambda (a b) (list a b)) xs ys))
+
+;; (interleave xs ys) → (x0 y0 x1 y1 ...). Stops at shorter list.
+(define (interleave xs ys)
+  (apply append (zip xs ys)))
+
+;; (intersperse sep xs) — insert sep between each pair of items.
+(define (intersperse sep xs)
+  (cond
+    ((null? xs) ())
+    ((null? (cdr xs)) (list (car xs)))
+    (else (cons (car xs) (cons sep (intersperse sep (cdr xs)))))))
+
+;; (flatten xs) — recursively flatten nested lists into one list.
+(define (flatten xs)
+  (cond
+    ((null? xs) ())
+    ((list? (car xs))
+     (append (flatten (car xs)) (flatten (cdr xs))))
+    (else (cons (car xs) (flatten (cdr xs))))))
+
+;; (distinct xs) — preserve first occurrence; drop duplicates by equal?.
+(define (distinct xs)
+  (foldl (lambda (acc x)
+           (if (member? x acc) acc (append acc (list x))))
+         (list) xs))
+
+;; (max-by f xs) / (min-by f xs) — find element with max/min (f x).
+(define (max-by f xs)
+  (foldl (lambda (best x)
+           (if (> (f x) (f best)) x best))
+         (car xs) (cdr xs)))
+
+(define (min-by f xs)
+  (foldl (lambda (best x)
+           (if (< (f x) (f best)) x best))
+         (car xs) (cdr xs)))
+
+;; ── Numeric helpers ────────────────────────────────────────────────
+
+(define (inc x) (+ x 1))
+(define (dec x) (- x 1))
+(define (zero? x) (= x 0))
+(define (positive? x) (> x 0))
+(define (negative? x) (< x 0))
+(define (even? x) (= 0 (modulo x 2)))
+(define (odd?  x) (= 1 (modulo x 2)))
+
+;; ── General predicates ─────────────────────────────────────────────
+
+(define (not= a b) (not (equal? a b)))
+(define (some? x) (not (null? x)))

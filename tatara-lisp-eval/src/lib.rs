@@ -19,6 +19,8 @@ pub mod env;
 pub mod error;
 pub mod eval;
 pub mod ffi;
+pub mod hof;
+pub mod lisp_stdlib;
 pub mod primitive;
 pub mod repl;
 pub mod special;
@@ -27,10 +29,28 @@ pub mod value;
 pub use env::Env;
 pub use error::{EvalError, Result};
 pub use eval::Interpreter;
-pub use ffi::{Arity, FromValue, IntoValue, NativeCallable};
+pub use ffi::{Arity, Caller, FromValue, HigherOrderCallable, IntoValue, NativeCallable};
+pub use hof::install_hof;
+pub use lisp_stdlib::install_lisp_stdlib_with;
 pub use primitive::install_primitives;
 pub use repl::ReplSession;
 pub use value::Value;
+
+/// One-stop installer: registers the full battery — Rust primitives
+/// (arithmetic, comparison, list, string, IO), higher-order Rust
+/// primitives (apply, map, filter, foldl, foldr, reduce, find, ...),
+/// and the pure-Lisp standard library (compose, pipe, ->, ->>, defflow,
+/// dotimes, range, distinct, group-by helpers, etc.).
+///
+/// This is the recommended entry point for embedders. If you want to
+/// install only a subset (e.g. primitives + hof, no Lisp stdlib),
+/// call the individual installers in order: `install_primitives`,
+/// `install_hof`, `install_lisp_stdlib_with`.
+pub fn install_full_stdlib_with<H: 'static>(interp: &mut Interpreter<H>, host: &mut H) {
+    install_primitives(interp);
+    install_hof(interp);
+    install_lisp_stdlib_with(interp, host);
+}
 
 // Re-export the tatara-lisp items every embedder will need.
 pub use tatara_lisp::{read, read_spanned, Sexp, Span, Spanned, SpannedExpander, SpannedForm};

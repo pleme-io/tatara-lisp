@@ -50,6 +50,13 @@ impl Arity {
 
 /// A native Rust function the host has registered. Parameterized over the
 /// host context type `H` so the callable can read/write host state.
+///
+/// The simple flavor — no access to the function registry. Use this for
+/// primitives that operate purely on `Value` arguments. For higher-order
+/// primitives (`map`, `filter`, `fold`, ...) that need to invoke a
+/// callable `Value`, register via `Interpreter::register_higher_order_fn`
+/// instead — the host then receives a `Caller` it can use to call back
+/// into the eval loop.
 pub trait NativeCallable<H>: Send + Sync + 'static {
     fn call(&self, args: &[Value], host: &mut H, call_span: Span) -> Result<Value>;
 }
@@ -63,6 +70,86 @@ where
     }
 }
 
+/// A higher-order Rust primitive — receives a `Caller` so it can invoke
+/// `Value::Closure` / `Value::NativeFn` arguments back into the eval loop.
+/// Used by `map`, `filter`, `fold`, `for-each`, and friends.
+pub trait HigherOrderCallable<H>: Send + Sync + 'static {
+    fn call(
+        &self,
+        args: &[Value],
+        host: &mut H,
+        caller: &Caller<H>,
+        call_span: Span,
+    ) -> Result<Value>;
+}
+
+impl<H, F> HigherOrderCallable<H> for F
+where
+    F: Fn(&[Value], &mut H, &Caller<H>, Span) -> Result<Value> + Send + Sync + 'static,
+{
+    fn call(
+        &self,
+        args: &[Value],
+        host: &mut H,
+        caller: &Caller<H>,
+        call_span: Span,
+    ) -> Result<Value> {
+        (self)(args, host, caller, call_span)
+    }
+}
+
+/// Handle that a higher-order primitive uses to invoke a callable `Value`
+/// back into the eval loop. Holds a borrow of the function registry; the
+/// `apply` call dispatches through whichever `Value` kind the callee is
+/// (`Closure`, `NativeFn`, `HigherOrderFn`).
+///
+/// Construction is private — `Caller` only ever appears via
+/// `HigherOrderCallable::call`, so primitives can only obtain one for the
+/// duration of the call they're servicing.
+pub struct Caller<'a, H> {
+    pub(crate) registry: &'a FnRegistry<H>,
+}
+
+impl<'a, H: 'static> Caller<'a, H> {
+    /// Apply a callable `Value` to `args` against this caller's registry.
+    /// Mirrors the eval loop's `apply` precisely — closures get a fresh
+    /// frame; native fns dispatch through the registry; higher-order
+    /// fns receive a fresh `Caller` of their own.
+    pub fn apply_value(
+        &self,
+        callee: &Value,
+        args: Vec<Value>,
+        host: &mut H,
+        call_span: Span,
+    ) -> Result<Value> {
+        crate::eval::apply_external(callee, args, call_span, self.registry, host)
+    }
+
+    /// Convenience: call a unary callable with one arg. Errors with a
+    /// canonical message if the callee is not a procedure.
+    pub fn call1(&self, f: &Value, x: Value, host: &mut H, span: Span) -> Result<Value> {
+        self.apply_value(f, vec![x], host, span)
+    }
+
+    /// Convenience: call a binary callable with two args.
+    pub fn call2(
+        &self,
+        f: &Value,
+        a: Value,
+        b: Value,
+        host: &mut H,
+        span: Span,
+    ) -> Result<Value> {
+        self.apply_value(f, vec![a, b], host, span)
+    }
+}
+
+/// One registered callable. Internal storage; primitives don't see this.
+pub(crate) enum FnImpl<H> {
+    Native(Box<dyn NativeCallable<H>>),
+    Higher(Box<dyn HigherOrderCallable<H>>),
+}
+
 /// Registry of registered native functions for an `Interpreter<H>`.
 pub(crate) struct FnRegistry<H> {
     entries: Vec<FnEntry<H>>,
@@ -74,7 +161,7 @@ pub(crate) struct FnEntry<H> {
     /// time uses the copy on `Value::NativeFn` for a quicker path.
     #[allow(dead_code)]
     pub arity: Arity,
-    pub callable: Box<dyn NativeCallable<H>>,
+    pub callable: FnImpl<H>,
 }
 
 impl<H> Default for FnRegistry<H> {

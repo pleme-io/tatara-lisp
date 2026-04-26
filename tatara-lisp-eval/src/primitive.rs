@@ -29,12 +29,26 @@ pub const PRIMITIVE_NAMES: &[&str] = &[
     "abs",
     "min",
     "max",
+    "expt",
+    "sqrt",
+    "floor",
+    "ceiling",
+    "round",
+    "truncate",
+    "gcd",
+    "lcm",
+    "sin",
+    "cos",
+    "tan",
+    "log",
+    "exp",
     // comparison
     "=",
     "<",
     ">",
     "<=",
     ">=",
+    "not=",
     // type predicates
     "null?",
     "pair?",
@@ -46,6 +60,8 @@ pub const PRIMITIVE_NAMES: &[&str] = &[
     "boolean?",
     "procedure?",
     "foreign?",
+    "atom?",
+    "keyword?",
     // lists
     "car",
     "cdr",
@@ -54,12 +70,20 @@ pub const PRIMITIVE_NAMES: &[&str] = &[
     "length",
     "reverse",
     "append",
+    "take",
+    "drop",
+    "nth",
     // equality
     "eq?",
     "equal?",
     // strings
     "string-length",
     "string-append",
+    // string <-> symbol/keyword
+    "symbol->string",
+    "keyword->string",
+    "string->symbol",
+    "string->keyword",
     // IO (embedder may replace)
     "display",
     "newline",
@@ -132,7 +156,13 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
 
     // ── Predicates ────────────────────────────────────────────────
     interp.register_fn("null?", Arity::Exact(1), |a: &[Value], _h: &mut H, _sp| {
-        Ok(Value::Bool(matches!(&a[0], Value::Nil)))
+        // Scheme R7RS: null? holds for both `()` and the empty list literal.
+        // We represent both as `Value::Nil` and `Value::List([])` — accept both.
+        Ok(Value::Bool(match &a[0] {
+            Value::Nil => true,
+            Value::List(xs) => xs.is_empty(),
+            _ => false,
+        }))
     });
     interp.register_fn("pair?", Arity::Exact(1), |a: &[Value], _h: &mut H, _sp| {
         Ok(Value::Bool(
@@ -251,6 +281,232 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
         },
     );
 
+    // ── More numeric ──────────────────────────────────────────────
+    interp.register_fn(
+        "expt",
+        Arity::Exact(2),
+        |args: &[Value], _h: &mut H, sp| match (&args[0], &args[1]) {
+            (Value::Int(b), Value::Int(e)) if *e >= 0 && *e < 64 => {
+                let mut acc: i64 = 1;
+                for _ in 0..*e {
+                    acc = acc.wrapping_mul(*b);
+                }
+                Ok(Value::Int(acc))
+            }
+            (a, b) => {
+                let af = as_number_either(a, sp)?.to_float();
+                let bf = as_number_either(b, sp)?.to_float();
+                Ok(Value::Float(af.powf(bf)))
+            }
+        },
+    );
+    interp.register_fn(
+        "sqrt",
+        Arity::Exact(1),
+        |args: &[Value], _h: &mut H, sp| {
+            let n = as_number_either(&args[0], sp)?.to_float();
+            Ok(Value::Float(n.sqrt()))
+        },
+    );
+    interp.register_fn(
+        "floor",
+        Arity::Exact(1),
+        |args: &[Value], _h: &mut H, sp| {
+            let n = as_number_either(&args[0], sp)?.to_float();
+            Ok(Value::Int(n.floor() as i64))
+        },
+    );
+    interp.register_fn(
+        "ceiling",
+        Arity::Exact(1),
+        |args: &[Value], _h: &mut H, sp| {
+            let n = as_number_either(&args[0], sp)?.to_float();
+            Ok(Value::Int(n.ceil() as i64))
+        },
+    );
+    interp.register_fn(
+        "round",
+        Arity::Exact(1),
+        |args: &[Value], _h: &mut H, sp| {
+            let n = as_number_either(&args[0], sp)?.to_float();
+            Ok(Value::Int(n.round() as i64))
+        },
+    );
+    interp.register_fn(
+        "truncate",
+        Arity::Exact(1),
+        |args: &[Value], _h: &mut H, sp| {
+            let n = as_number_either(&args[0], sp)?.to_float();
+            Ok(Value::Int(n.trunc() as i64))
+        },
+    );
+    interp.register_fn(
+        "gcd",
+        Arity::AtLeast(0),
+        |args: &[Value], _h: &mut H, sp| {
+            if args.is_empty() {
+                return Ok(Value::Int(0));
+            }
+            let mut g = expect_int(&args[0], sp)?.unsigned_abs() as i64;
+            for a in &args[1..] {
+                let b = expect_int(a, sp)?.unsigned_abs() as i64;
+                g = gcd(g, b);
+            }
+            Ok(Value::Int(g))
+        },
+    );
+    interp.register_fn(
+        "lcm",
+        Arity::AtLeast(0),
+        |args: &[Value], _h: &mut H, sp| {
+            if args.is_empty() {
+                return Ok(Value::Int(1));
+            }
+            let mut l = expect_int(&args[0], sp)?.unsigned_abs() as i64;
+            for a in &args[1..] {
+                let b = expect_int(a, sp)?.unsigned_abs() as i64;
+                if l == 0 || b == 0 {
+                    l = 0;
+                } else {
+                    l = l / gcd(l, b) * b;
+                }
+            }
+            Ok(Value::Int(l))
+        },
+    );
+    interp.register_fn(
+        "sin",
+        Arity::Exact(1),
+        |args: &[Value], _h: &mut H, sp| {
+            let n = as_number_either(&args[0], sp)?.to_float();
+            Ok(Value::Float(n.sin()))
+        },
+    );
+    interp.register_fn(
+        "cos",
+        Arity::Exact(1),
+        |args: &[Value], _h: &mut H, sp| {
+            let n = as_number_either(&args[0], sp)?.to_float();
+            Ok(Value::Float(n.cos()))
+        },
+    );
+    interp.register_fn(
+        "tan",
+        Arity::Exact(1),
+        |args: &[Value], _h: &mut H, sp| {
+            let n = as_number_either(&args[0], sp)?.to_float();
+            Ok(Value::Float(n.tan()))
+        },
+    );
+    interp.register_fn(
+        "log",
+        Arity::Range(1, 2),
+        |args: &[Value], _h: &mut H, sp| {
+            let n = as_number_either(&args[0], sp)?.to_float();
+            if args.len() == 1 {
+                Ok(Value::Float(n.ln()))
+            } else {
+                let base = as_number_either(&args[1], sp)?.to_float();
+                Ok(Value::Float(n.log(base)))
+            }
+        },
+    );
+    interp.register_fn(
+        "exp",
+        Arity::Exact(1),
+        |args: &[Value], _h: &mut H, sp| {
+            let n = as_number_either(&args[0], sp)?.to_float();
+            Ok(Value::Float(n.exp()))
+        },
+    );
+
+    // ── More list ops ─────────────────────────────────────────────
+    interp.register_fn(
+        "take",
+        Arity::Exact(2),
+        |args: &[Value], _h: &mut H, sp| {
+            let n = expect_int(&args[0], sp)?.max(0) as usize;
+            let xs = list_view(&args[1], sp)?;
+            let take_n = n.min(xs.len());
+            Ok(Value::list(xs[..take_n].to_vec()))
+        },
+    );
+    interp.register_fn(
+        "drop",
+        Arity::Exact(2),
+        |args: &[Value], _h: &mut H, sp| {
+            let n = expect_int(&args[0], sp)?.max(0) as usize;
+            let xs = list_view(&args[1], sp)?;
+            let drop_n = n.min(xs.len());
+            Ok(Value::list(xs[drop_n..].to_vec()))
+        },
+    );
+    interp.register_fn(
+        "nth",
+        Arity::Exact(2),
+        |args: &[Value], _h: &mut H, sp| {
+            let n = expect_int(&args[0], sp)?;
+            let xs = list_view(&args[1], sp)?;
+            if n < 0 || (n as usize) >= xs.len() {
+                Ok(Value::Nil)
+            } else {
+                Ok(xs[n as usize].clone())
+            }
+        },
+    );
+    interp.register_fn("not=", Arity::Exact(2), |a: &[Value], _h: &mut H, _sp| {
+        Ok(Value::Bool(!value_eq_deep(&a[0], &a[1])))
+    });
+    interp.register_fn(
+        "atom?",
+        Arity::Exact(1),
+        |a: &[Value], _h: &mut H, _sp| {
+            Ok(Value::Bool(!matches!(
+                &a[0],
+                Value::List(_) | Value::Nil | Value::Closure(_) | Value::NativeFn(_)
+            )))
+        },
+    );
+    interp.register_fn(
+        "keyword?",
+        Arity::Exact(1),
+        |a: &[Value], _h: &mut H, _sp| Ok(Value::Bool(matches!(&a[0], Value::Keyword(_)))),
+    );
+
+    // ── String <-> symbol/keyword interop ────────────────────────
+    interp.register_fn(
+        "symbol->string",
+        Arity::Exact(1),
+        |args: &[Value], _h: &mut H, sp| match &args[0] {
+            Value::Symbol(s) => Ok(Value::Str(s.clone())),
+            other => Err(EvalError::type_mismatch("symbol", other.type_name(), sp)),
+        },
+    );
+    interp.register_fn(
+        "keyword->string",
+        Arity::Exact(1),
+        |args: &[Value], _h: &mut H, sp| match &args[0] {
+            Value::Keyword(s) => Ok(Value::Str(s.clone())),
+            other => Err(EvalError::type_mismatch("keyword", other.type_name(), sp)),
+        },
+    );
+    interp.register_fn(
+        "string->symbol",
+        Arity::Exact(1),
+        |args: &[Value], _h: &mut H, sp| match &args[0] {
+            Value::Str(s) => Ok(Value::Symbol(s.clone())),
+            other => Err(EvalError::type_mismatch("string", other.type_name(), sp)),
+        },
+    );
+    interp.register_fn(
+        "string->keyword",
+        Arity::Exact(1),
+        |args: &[Value], _h: &mut H, sp| match &args[0] {
+            Value::Str(s) => Ok(Value::Keyword(s.clone())),
+            other => Err(EvalError::type_mismatch("string", other.type_name(), sp)),
+        },
+    );
+
     // ── IO (embedder may substitute) ─────────────────────────────
     interp.register_fn(
         "display",
@@ -276,6 +532,24 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
             Ok(Value::Nil)
         },
     );
+}
+
+fn gcd(a: i64, b: i64) -> i64 {
+    if b == 0 {
+        a
+    } else {
+        gcd(b, a % b)
+    }
+}
+
+/// Borrow a list-shaped Value as a slice. `Nil` is treated as an empty
+/// list. Used by primitives that don't care about ownership.
+fn list_view(v: &Value, sp: Span) -> Result<&[Value]> {
+    match v {
+        Value::Nil => Ok(&[]),
+        Value::List(xs) => Ok(xs.as_ref()),
+        other => Err(EvalError::type_mismatch("list", other.type_name(), sp)),
+    }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────

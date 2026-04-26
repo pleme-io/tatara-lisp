@@ -147,25 +147,16 @@ fn bind_spanned_args(
 /// Walk a plain-Sexp template body, substituting `,name` / `,@name` with
 /// the spanned bindings and stamping literal template content with the
 /// call-site span.
+///
+/// Inside `,expr`, the expression is evaluated at expansion time against
+/// the macro's parameter bindings — a tiny built-in template-time
+/// evaluator handles bare symbols, `car`/`cdr`/`cons`/`list`/`null?`/
+/// `pair?`/`length`/`if`/`quote`, and literal atoms. This is enough
+/// expressive power for the `->` / `->>` / threading macros and other
+/// recursive macro definitions that need to dispatch on rest-arg shape.
 fn substitute_spanned(template: &Sexp, bindings: &Bindings, call_span: Span) -> Result<Spanned> {
     match template {
-        Sexp::Unquote(inner) => {
-            let sym = inner.as_symbol().ok_or_else(|| LispError::Compile {
-                form: "unquote".into(),
-                message: "only bound symbols may appear after `,`".into(),
-            })?;
-            match bindings.get(sym) {
-                Some(Binding::Single(val)) => Ok(val.clone()),
-                Some(Binding::Rest(_)) => Err(LispError::Compile {
-                    form: format!(",{sym}"),
-                    message: "cannot splice rest arg with `,` — use `,@`".into(),
-                }),
-                None => Err(LispError::Compile {
-                    form: format!(",{sym}"),
-                    message: "unbound".into(),
-                }),
-            }
-        }
+        Sexp::Unquote(inner) => template_eval(inner, bindings, call_span),
         Sexp::UnquoteSplice(_) => Err(LispError::Compile {
             form: "unquote-splice".into(),
             message: "`,@` may only appear inside a list".into(),
@@ -174,22 +165,8 @@ fn substitute_spanned(template: &Sexp, bindings: &Bindings, call_span: Span) -> 
             let mut out: Vec<Spanned> = Vec::with_capacity(items.len());
             for item in items {
                 if let Sexp::UnquoteSplice(inner) = item {
-                    let sym = inner.as_symbol().ok_or_else(|| LispError::Compile {
-                        form: "unquote-splice".into(),
-                        message: "only bound symbols may appear after `,@`".into(),
-                    })?;
-                    let binding = bindings.get(sym).ok_or_else(|| LispError::Compile {
-                        form: format!(",@{sym}"),
-                        message: "unbound".into(),
-                    })?;
-                    match binding {
-                        Binding::Rest(items) => out.extend(items.iter().cloned()),
-                        Binding::Single(sp) => match &sp.form {
-                            SpannedForm::List(children) => out.extend(children.iter().cloned()),
-                            SpannedForm::Nil => {}
-                            _ => out.push(sp.clone()),
-                        },
-                    }
+                    let evaluated = template_eval(inner, bindings, call_span)?;
+                    splice_into(&evaluated, &mut out);
                 } else {
                     out.push(substitute_spanned(item, bindings, call_span)?);
                 }
@@ -246,6 +223,235 @@ fn spanned_macro_def_from(form: &Spanned) -> Result<Option<MacroDef>> {
     let params = parse_params_spanned(param_list)?;
     let body = list[3].to_sexp();
     Ok(Some(MacroDef { name, params, body }))
+}
+
+/// Splice `evaluated` into the surrounding list builder. List values
+/// flatten in; nil disappears; everything else is pushed as a single item.
+fn splice_into(evaluated: &Spanned, out: &mut Vec<Spanned>) {
+    match &evaluated.form {
+        SpannedForm::List(children) => out.extend(children.iter().cloned()),
+        SpannedForm::Nil => {}
+        _ => out.push(evaluated.clone()),
+    }
+}
+
+/// Template-time evaluator. Lives inside `,expr` and walks a Sexp
+/// template expression, substituting bindings and computing a result
+/// Spanned tree. Intentionally bounded — supports the operations
+/// needed for self-recursive macros that pattern-match on rest args.
+///
+/// Supports:
+///
+/// * Bare symbols → look up in `bindings` (Single binding returns its
+///   Spanned; Rest returns a Spanned::List of the rest items).
+/// * Atoms (Int / Float / Str / Bool / Keyword) → wrapped with
+///   `call_span`.
+/// * `(quote x)` → x lifted to Spanned without evaluation.
+/// * `(car x)`, `(cdr x)`, `(cons h t)`, `(list ...)` — list ops on
+///   evaluated children.
+/// * `(null? x)`, `(pair? x)`, `(list? x)` — predicates → `Bool` Spanned.
+/// * `(length x)` → integer Spanned.
+/// * `(if c t e)` — picks branch by truthiness of the evaluated cond.
+///
+/// Anything else is rejected with a clear error.
+fn template_eval(expr: &Sexp, bindings: &Bindings, call_span: Span) -> Result<Spanned> {
+    match expr {
+        Sexp::Atom(crate::ast::Atom::Symbol(name)) => {
+            // Bare symbol — look up in bindings.
+            match bindings.get(name) {
+                Some(Binding::Single(val)) => Ok(val.clone()),
+                Some(Binding::Rest(items)) => Ok(Spanned::new(
+                    call_span,
+                    SpannedForm::List(items.clone()),
+                )),
+                None => Err(LispError::Compile {
+                    form: format!(",{name}"),
+                    message: "unbound in macro template".into(),
+                }),
+            }
+        }
+        Sexp::Atom(a) => Ok(Spanned::new(call_span, SpannedForm::Atom(a.clone()))),
+        Sexp::Nil => Ok(Spanned::new(call_span, SpannedForm::Nil)),
+        Sexp::Quote(inner) => Ok(Spanned::from_sexp_at(inner, call_span)),
+        // `\`expr` at template-eval time MEANS "produce the substituted
+        // form of expr" — i.e., re-enter substitution. This is how a
+        // recursive macro template reaches its else-branch, e.g.
+        // `(-> ,x ,(if (null? steps) `,result `(-> ,inner ,@rest)))`.
+        Sexp::Quasiquote(inner) => substitute_spanned(inner, bindings, call_span),
+        // `,expr` inside template_eval just unwraps one level — it
+        // identifies an expression to evaluate, which is exactly what
+        // template_eval is doing anyway.
+        Sexp::Unquote(inner) => template_eval(inner, bindings, call_span),
+        Sexp::UnquoteSplice(_) => Err(LispError::Compile {
+            form: "template-eval".into(),
+            message: "`,@` only valid directly inside a list".into(),
+        }),
+        Sexp::List(items) => {
+            if items.is_empty() {
+                return Ok(Spanned::new(call_span, SpannedForm::List(Vec::new())));
+            }
+            let head = items[0].as_symbol().ok_or_else(|| LispError::Compile {
+                form: "template-eval".into(),
+                message: "first element of a template-time list must be a symbol".into(),
+            })?;
+            match head {
+                "quote" => {
+                    let arg = items.get(1).ok_or_else(|| LispError::Compile {
+                        form: "quote".into(),
+                        message: "expected one arg".into(),
+                    })?;
+                    Ok(Spanned::from_sexp_at(arg, call_span))
+                }
+                "car" => {
+                    let xs = template_eval_list(&items[1..], 1, "car", bindings, call_span)?;
+                    let inner = template_eval(&xs[0].1, bindings, call_span)?;
+                    let list = require_spanned_list(&inner, "car")?;
+                    if list.is_empty() {
+                        return Err(LispError::Compile {
+                            form: "car".into(),
+                            message: "car of empty list".into(),
+                        });
+                    }
+                    Ok(list[0].clone())
+                }
+                "cdr" => {
+                    let xs = template_eval_list(&items[1..], 1, "cdr", bindings, call_span)?;
+                    let inner = template_eval(&xs[0].1, bindings, call_span)?;
+                    let list = require_spanned_list(&inner, "cdr")?;
+                    if list.is_empty() {
+                        return Err(LispError::Compile {
+                            form: "cdr".into(),
+                            message: "cdr of empty list".into(),
+                        });
+                    }
+                    Ok(Spanned::new(
+                        call_span,
+                        SpannedForm::List(list[1..].to_vec()),
+                    ))
+                }
+                "cons" => {
+                    let xs = template_eval_list(&items[1..], 2, "cons", bindings, call_span)?;
+                    let h = template_eval(&xs[0].1, bindings, call_span)?;
+                    let t = template_eval(&xs[1].1, bindings, call_span)?;
+                    let mut out = vec![h];
+                    match t.form {
+                        SpannedForm::List(children) => out.extend(children),
+                        SpannedForm::Nil => {}
+                        _ => out.push(t),
+                    }
+                    Ok(Spanned::new(call_span, SpannedForm::List(out)))
+                }
+                "list" => {
+                    let mut out: Vec<Spanned> = Vec::with_capacity(items.len() - 1);
+                    for child in &items[1..] {
+                        out.push(template_eval(child, bindings, call_span)?);
+                    }
+                    Ok(Spanned::new(call_span, SpannedForm::List(out)))
+                }
+                "null?" => {
+                    let xs = template_eval_list(&items[1..], 1, "null?", bindings, call_span)?;
+                    let v = template_eval(&xs[0].1, bindings, call_span)?;
+                    let is_null = matches!(&v.form, SpannedForm::Nil)
+                        || matches!(&v.form, SpannedForm::List(c) if c.is_empty());
+                    Ok(Spanned::new(
+                        call_span,
+                        SpannedForm::Atom(crate::ast::Atom::Bool(is_null)),
+                    ))
+                }
+                "pair?" => {
+                    let xs = template_eval_list(&items[1..], 1, "pair?", bindings, call_span)?;
+                    let v = template_eval(&xs[0].1, bindings, call_span)?;
+                    let ok = matches!(&v.form, SpannedForm::List(c) if !c.is_empty());
+                    Ok(Spanned::new(
+                        call_span,
+                        SpannedForm::Atom(crate::ast::Atom::Bool(ok)),
+                    ))
+                }
+                "list?" => {
+                    let xs = template_eval_list(&items[1..], 1, "list?", bindings, call_span)?;
+                    let v = template_eval(&xs[0].1, bindings, call_span)?;
+                    let ok = matches!(&v.form, SpannedForm::List(_) | SpannedForm::Nil);
+                    Ok(Spanned::new(
+                        call_span,
+                        SpannedForm::Atom(crate::ast::Atom::Bool(ok)),
+                    ))
+                }
+                "length" => {
+                    let xs = template_eval_list(&items[1..], 1, "length", bindings, call_span)?;
+                    let v = template_eval(&xs[0].1, bindings, call_span)?;
+                    let n = match &v.form {
+                        SpannedForm::Nil => 0,
+                        SpannedForm::List(c) => c.len() as i64,
+                        _ => {
+                            return Err(LispError::Compile {
+                                form: "length".into(),
+                                message: "expected a list".into(),
+                            })
+                        }
+                    };
+                    Ok(Spanned::new(
+                        call_span,
+                        SpannedForm::Atom(crate::ast::Atom::Int(n)),
+                    ))
+                }
+                "if" => {
+                    if items.len() != 4 {
+                        return Err(LispError::Compile {
+                            form: "if".into(),
+                            message: "expected (if cond then else)".into(),
+                        });
+                    }
+                    let c = template_eval(&items[1], bindings, call_span)?;
+                    let truthy = !matches!(
+                        &c.form,
+                        SpannedForm::Nil
+                            | SpannedForm::Atom(crate::ast::Atom::Bool(false))
+                    );
+                    if truthy {
+                        template_eval(&items[2], bindings, call_span)
+                    } else {
+                        template_eval(&items[3], bindings, call_span)
+                    }
+                }
+                other => Err(LispError::Compile {
+                    form: other.into(),
+                    message:
+                        "operation not supported in macro template `,expr`. Supported: \
+                         quote, car, cdr, cons, list, null?, pair?, list?, length, if"
+                            .into(),
+                }),
+            }
+        }
+    }
+}
+
+/// Helper: collect indexed (i, &Sexp) for a template-eval call's args,
+/// checking arity. Lets the call sites get clear error messages.
+fn template_eval_list<'a>(
+    args: &'a [Sexp],
+    expected: usize,
+    fn_name: &'static str,
+    _bindings: &Bindings,
+    _call_span: Span,
+) -> Result<Vec<(usize, &'a Sexp)>> {
+    if args.len() != expected {
+        return Err(LispError::Compile {
+            form: fn_name.into(),
+            message: format!("expected {expected} args, got {}", args.len()),
+        });
+    }
+    Ok(args.iter().enumerate().collect())
+}
+
+fn require_spanned_list<'a>(s: &'a Spanned, fn_name: &'static str) -> Result<&'a [Spanned]> {
+    match &s.form {
+        SpannedForm::List(c) => Ok(c.as_slice()),
+        SpannedForm::Nil => Ok(&[]),
+        _ => Err(LispError::Compile {
+            form: fn_name.into(),
+            message: "expected a list".into(),
+        }),
+    }
 }
 
 fn parse_params_spanned(list: &[Spanned]) -> Result<Vec<Param>> {

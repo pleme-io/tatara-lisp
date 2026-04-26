@@ -985,6 +985,7 @@ dependencies = [
  "clap",
  "serde",
  "serde_yaml",
+ "tatara-domain-forge",
  "tatara-lisp",
  "tatara-lisp-eval",
  "tatara-lisp-source",

@@ -3176,6 +3176,10 @@ rec {
             packageId = "serde_yaml";
           }
           {
+            name = "tatara-domain-forge";
+            packageId = "tatara-domain-forge";
+          }
+          {
             name = "tatara-lisp";
             packageId = "tatara-lisp";
           }

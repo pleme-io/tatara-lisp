@@ -115,6 +115,28 @@ enum Cmd {
         #[arg(long, default_value = "default")]
         namespace: String,
     },
+
+    /// Generate a tatara-lisp domain crate from a typed input
+    /// (currently: K8s CRD YAML — single doc or multi-doc bundle).
+    /// The generated crate ships #[derive(TataraDomain)] structs +
+    /// register() so embedders pull it in like any other crate
+    /// and immediately get keyword forms in the Lisp surface.
+    ForgeDomain {
+        /// Input file. K8s CRD YAML — single CRD or multi-doc bundle.
+        #[arg(long)]
+        input: PathBuf,
+        /// Crate name, by convention `tatara-{thing}`.
+        #[arg(long)]
+        name: String,
+        /// Output directory (created if missing). Holds Cargo.toml,
+        /// src/lib.rs, README.md.
+        #[arg(long)]
+        output: PathBuf,
+        /// Print emitted files to stdout instead of writing —
+        /// useful for diffing against existing generated output.
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 fn main() -> ExitCode {
@@ -157,7 +179,51 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
             name,
             namespace,
         } => deploy(&url, output.as_deref(), skip_checks, name.as_deref(), &namespace),
+        Cmd::ForgeDomain {
+            input,
+            name,
+            output,
+            dry_run,
+        } => forge_domain(&input, &name, &output, dry_run),
     }
+}
+
+// ── domain forge ─────────────────────────────────────────────────
+
+fn forge_domain(
+    input: &std::path::Path,
+    name: &str,
+    output: &std::path::Path,
+    dry_run: bool,
+) -> Result<ExitCode> {
+    let domain = tatara_domain_forge::from_crd_yaml(input, name)
+        .with_context(|| format!("parsing CRD input {}", input.display()))?;
+    let opts = tatara_domain_forge::EmitOptions::default();
+    let cargo = tatara_domain_forge::emit_cargo_toml(&domain, &opts);
+    let lib = tatara_domain_forge::emit_lib_rs(&domain);
+    let readme = tatara_domain_forge::emit_readme(&domain);
+    if dry_run {
+        println!("───── Cargo.toml ─────\n{cargo}");
+        println!("───── src/lib.rs ─────\n{lib}");
+        println!("───── README.md ─────\n{readme}");
+        return Ok(ExitCode::SUCCESS);
+    }
+    let src_dir = output.join("src");
+    std::fs::create_dir_all(&src_dir)
+        .with_context(|| format!("mkdir {}", src_dir.display()))?;
+    std::fs::write(output.join("Cargo.toml"), &cargo)
+        .with_context(|| format!("write {}/Cargo.toml", output.display()))?;
+    std::fs::write(src_dir.join("lib.rs"), &lib)
+        .with_context(|| format!("write {}/src/lib.rs", output.display()))?;
+    std::fs::write(output.join("README.md"), &readme)
+        .with_context(|| format!("write {}/README.md", output.display()))?;
+    eprintln!(
+        "tatara: forge-domain → wrote {} ({} resource{})",
+        output.display(),
+        domain.resources.len(),
+        if domain.resources.len() == 1 { "" } else { "s" }
+    );
+    Ok(ExitCode::SUCCESS)
 }
 
 // ── feira delegates ──────────────────────────────────────────────

@@ -15,6 +15,7 @@ workspace = true
 tatara-lisp = { path = "../tatara-lisp" }
 tatara-lisp-eval = { path = "../tatara-lisp-eval" }
 tatara-lisp-source = { path = "../tatara-lisp-source" }
+tatara-domain-forge = { path = "../tatara-domain-forge" }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }

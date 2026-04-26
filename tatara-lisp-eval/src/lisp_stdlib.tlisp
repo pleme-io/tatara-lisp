@@ -1104,3 +1104,77 @@
                            (begin ,@body (,loop))
                            ()))))
        (,loop))))
+
+;; ====================================================================
+;; CASE — Scheme-style equality dispatch
+;; --------------------------------------------------------------------
+;; (case x
+;;   ((1 2 3)         "small")
+;;   ((10 20 30)      "round")
+;;   ((:a :b :c)      "letter")
+;;   (else            "other"))
+;;
+;; Each clause's first form is a list of literals; the clause matches if
+;; x is `equal?` to any of them. Compiles to nested cond.
+;; ====================================================================
+
+;; Build one case clause as a runtime list. Avoids nested quasi-quote
+;; (which would need the lambda's `lit` binding to reach inside an
+;; inner backtick — currently fragile when nested in a closure).
+(define (case-build-clause k-sym clause)
+  (let ((head (car clause))
+        (body (cdr clause)))
+    (cond
+      ((equal? head (quote else))
+       (cons (quote else) body))
+      ((list? head)
+       (cons (cons (quote or)
+                   (map (lambda (lit)
+                          (list (quote equal?)
+                                k-sym
+                                (list (quote quote) lit)))
+                        head))
+             body))
+      (else
+       (cons (list (quote equal?)
+                   k-sym
+                   (list (quote quote) head))
+             body)))))
+
+(defmacro case (key &rest clauses)
+  (with-gensyms (k)
+    `(let ((,k ,key))
+       ,(cons (quote cond)
+              (map (lambda (c) (case-build-clause k c)) clauses)))))
+
+;; ====================================================================
+;; MEMOIZE — wrap a fn in a hash-map cache keyed by its args
+;; --------------------------------------------------------------------
+;; (memoize f) → cached fn. Cache is per-fn, lives as long as the
+;; returned closure. Keys are arg-tuples (built as a hashable pair-key
+;; via string-encoding when args have non-hashable shapes).
+;;
+;; For simplicity, we encode arg lists by stringifying them with pr-str
+;; into a single hashable cache key. This handles all Value types
+;; including nested lists.
+;; ====================================================================
+
+(define (memoize f)
+  (let ((cache (hash-map)))
+    (lambda (&rest args)
+      (let ((k (pr-str args)))
+        (if (hash-map-has? cache k)
+            (hash-map-get cache k)
+            (let ((v (apply f args)))
+              (set! cache (hash-map-set cache k v))
+              v))))))
+
+;; ====================================================================
+;; DOSEQ — Clojure-style multi-binding iteration
+;; --------------------------------------------------------------------
+;; (doseq (x xs) body...) iterates xs binding x; identical to dolist.
+;; Provided as the more familiar Clojure name.
+;; ====================================================================
+
+(defmacro doseq (binding &rest body)
+  `(dolist ,binding ,@body))

@@ -1189,4 +1189,59 @@ mod tests {
         // Strings in pr-str retain the surrounding quotes for round-trip.
         assert_eq!(format!("{v}"), "\"\\\"hello\\\"\"");
     }
+
+    // ── case / memoize / doseq ────────────────────────────────────
+
+    #[test]
+    fn case_dispatches_on_literal_membership() {
+        let v = run(
+            "(define (classify n)
+               (case n
+                 ((1 2 3)        :small)
+                 ((10 20 30)     :round)
+                 ((100 200 300)  :hundred)
+                 (else           :other)))
+             (list (classify 2) (classify 30) (classify 200) (classify 99))",
+        );
+        assert_eq!(format!("{v}"), "(:small :round :hundred :other)");
+    }
+
+    #[test]
+    fn case_works_with_keywords() {
+        let v = run(
+            "(case :red
+               ((:red :pink :rose)   :warm)
+               ((:blue :cyan :teal)  :cool)
+               (else                  :neutral))",
+        );
+        assert!(matches!(v, Value::Keyword(s) if &*s == "warm"));
+    }
+
+    #[test]
+    fn memoize_caches_results() {
+        let v = run(
+            "(define call-count 0)
+             (define expensive
+               (memoize (lambda (n)
+                          (set! call-count (+ call-count 1))
+                          (* n n))))
+             (expensive 5)
+             (expensive 5)
+             (expensive 5)
+             (expensive 6)
+             (list call-count (expensive 5))",
+        );
+        // call-count = 2 (5 once + 6 once); 5*5=25.
+        assert_eq!(format!("{v}"), "(2 25)");
+    }
+
+    #[test]
+    fn doseq_iterates_like_dolist() {
+        let v = run(
+            "(define s 0)
+             (doseq (n (list 1 2 3 4 5)) (set! s (+ s n)))
+             s",
+        );
+        assert!(matches!(v, Value::Int(15)));
+    }
 }

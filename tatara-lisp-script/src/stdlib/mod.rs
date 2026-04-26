@@ -20,6 +20,7 @@ pub mod env;
 pub mod fs;
 pub mod hash;
 pub mod http;
+pub mod http_server;
 pub mod io;
 pub mod json;
 pub mod list_ext;
@@ -48,6 +49,7 @@ pub fn install_stdlib(interp: &mut Interpreter<ScriptCtx>) {
     fs::install(interp);
     hash::install(interp);
     http::install(interp);
+    http_server::install(interp);
     io::install(interp);
     json::install(interp);
     list_ext::install(interp);

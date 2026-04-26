@@ -231,6 +231,13 @@ impl<H: 'static> Interpreter<H> {
         // user-facing diagnostics.
         let body_spanned = Spanned::from_sexp_at(&def.body, call_span);
 
+        // Expand any macros INSIDE the body before evaluation. This is
+        // what lets a macro use other macros (`dolist`, `when-let`,
+        // helper macros from stdlib) in its expansion logic. Without
+        // this pass, the body's eval would hit those forms as plain
+        // function calls and fail.
+        let body_expanded = self.fully_expand(&body_spanned, host)?;
+
         // Build the macro-time environment: capture globals, push a
         // frame for the macro params.
         let mut macro_env = self.globals.clone();
@@ -239,7 +246,7 @@ impl<H: 'static> Interpreter<H> {
 
         // Evaluate the body in the macro env using the live interpreter
         // — every primitive, every library fn is in scope.
-        let result = eval_in(&mut macro_env, &self.registry, &body_spanned, host)?;
+        let result = eval_in(&mut macro_env, &self.registry, &body_expanded, host)?;
 
         // Convert the resulting Value back to a Spanned form. Anything
         // that can't be lifted (closure, native fn, foreign) is a user

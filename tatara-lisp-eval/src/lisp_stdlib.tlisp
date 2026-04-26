@@ -151,6 +151,14 @@
       ()
       (cons (car xs) (butlast (cdr xs)))))
 
+;; Safe variants — return nil for out-of-bounds instead of erroring.
+;; Useful for "optional" positional fields like state-machine row guards.
+(define (safe-nth n xs)
+  (cond
+    ((null? xs) ())
+    ((<= n 0) (car xs))
+    (else (safe-nth (- n 1) (cdr xs)))))
+
 (define (empty? xs) (null? xs))
 (define (not-empty? xs) (not (empty? xs)))
 
@@ -250,3 +258,431 @@
 
 (define (not= a b) (not (equal? a b)))
 (define (some? x) (not (null? x)))
+
+;; ====================================================================
+;; STATE MACHINES + AUTOMATA
+;; --------------------------------------------------------------------
+;; Pure-Lisp finite state machine and friends. The runtime model: an FSM
+;; is a closure that captures `current` in a lexical cell and dispatches
+;; on a message keyword. No Rust types involved — every layer is editable.
+;;
+;; API surface:
+;;
+;;   (defsm name :initial S :transitions ((S evt T) ...) ...)
+;;     ↳ (define name (make-sm <spec>))
+;;
+;;   (sm-send sm event &rest args)   → next-state
+;;   (sm-current sm)                  → current state
+;;   (sm-reset! sm)                   → re-initialize
+;;   (sm-can? sm event)               → bool (transition exists from current?)
+;;   (sm-history sm)                  → list of states visited (newest-first)
+;;
+;; Spec keywords:
+;;   :initial        — starting state
+;;   :transitions    — list of (state event next-state) or
+;;                     (state event next-state guard-fn) or
+;;                     (state event next-state guard-fn action-fn)
+;;   :on-enter       — list of (state action-fn) — runs on entering state
+;;   :on-exit        — list of (state action-fn) — runs on leaving state
+;;   :on-event       — list of (event action-fn) — runs on every fire
+;; ====================================================================
+
+;; Plist accessor — pull a value out of a (:k1 v1 :k2 v2 ...) list.
+;; Returns nil when not found.
+(define (plist-get plist key)
+  (cond
+    ((null? plist) ())
+    ((null? (cdr plist)) ())
+    ((equal? (car plist) key) (second plist))
+    (else (plist-get (cdr (cdr plist)) key))))
+
+;; Lookup a (state event next [guard] [action]) row in the transition
+;; table. Returns the matching row or nil.
+(define (sm-lookup-row trans state event)
+  (find (lambda (row)
+          (and (equal? (car row) state)
+               (equal? (second row) event)))
+        trans))
+
+;; Build a state-machine spec from kv pairs. Just a tagged plist.
+(define (sm-spec &rest kvs) (cons :sm-spec kvs))
+
+(define (sm-spec? s)
+  (and (pair? s) (equal? (car s) :sm-spec)))
+
+(define (sm-spec-get s key) (plist-get (cdr s) key))
+
+;; Run all matching action-fns from an alist of (state action-fn) pairs.
+(define (sm-fire-state-actions actions state)
+  (dolist (entry actions)
+    (when-let (action-fn (and (equal? (car entry) state)
+                              (second entry)))
+      (action-fn state))))
+
+(define (sm-fire-event-actions actions event payload)
+  (dolist (entry actions)
+    (when-let (action-fn (and (equal? (car entry) event)
+                              (second entry)))
+      (action-fn event payload))))
+
+;; Build an FSM closure. Captures `current` and `history` in a closure.
+(define (make-sm spec)
+  (let ((current   (sm-spec-get spec :initial))
+        (history   (list (sm-spec-get spec :initial)))
+        (trans     (or (sm-spec-get spec :transitions) (list)))
+        (on-enter  (or (sm-spec-get spec :on-enter)  (list)))
+        (on-exit   (or (sm-spec-get spec :on-exit)   (list)))
+        (on-event  (or (sm-spec-get spec :on-event)  (list))))
+    ;; Initial-state on-enter.
+    (sm-fire-state-actions on-enter current)
+    (lambda (msg &rest args)
+      (cond
+        ((equal? msg :send)
+         (let* ((event   (car args))
+                (payload (if (null? (cdr args)) () (second args)))
+                (row     (sm-lookup-row trans current event)))
+           (cond
+             ((null? row) current)        ; no transition — stay
+             (else
+              ;; Row layout: (state event next [guard] [action])
+              ;; Use safe-nth so 3-, 4-, and 5-element rows all work.
+              (let* ((next   (safe-nth 2 row))
+                     (guard  (safe-nth 3 row))
+                     (action (safe-nth 4 row))
+                     (passes (or (null? guard) (guard current event payload))))
+                (cond
+                  ((not passes) current)  ; guard rejected — stay
+                  (else
+                   (sm-fire-state-actions on-exit current)
+                   (when (not (null? action))
+                     (action current event payload))
+                   (sm-fire-event-actions on-event event payload)
+                   (set! current next)
+                   (set! history (cons next history))
+                   (sm-fire-state-actions on-enter current)
+                   current)))))))
+        ((equal? msg :current) current)
+        ((equal? msg :history) history)
+        ((equal? msg :reset!)
+         (let ((init (sm-spec-get spec :initial)))
+           (set! current init)
+           (set! history (list init))
+           (sm-fire-state-actions on-enter init)
+           init))
+        ((equal? msg :can?)
+         (let ((event (car args)))
+           (not= () (sm-lookup-row trans current event))))
+        (else (error-msg "unknown SM message"))))))
+
+;; (defsm name &rest kvs) — define a state-machine binding.
+(defmacro defsm (name &rest kvs)
+  `(define ,name (make-sm (sm-spec ,@kvs))))
+
+;; Public driver fns.
+(define (sm-send    sm event &rest args)   (apply sm :send (cons event args)))
+(define (sm-current sm)                     (sm :current))
+(define (sm-history sm)                     (sm :history))
+(define (sm-reset!  sm)                     (sm :reset!))
+(define (sm-can?    sm event)               (sm :can? event))
+
+;; ====================================================================
+;; ACTOR PATTERN
+;; --------------------------------------------------------------------
+;; An actor is a closure carrying:
+;;   - a mailbox (FIFO queue of messages)
+;;   - a state cell
+;;   - a behavior fn: (state, msg) -> state
+;;
+;; Messages enqueue synchronously; a single (actor-step!) dequeues and
+;; processes one. (actor-run! actor n) processes up to n messages.
+;; (actor-drain! actor) processes until the mailbox is empty.
+;;
+;; This is a single-threaded actor — no real concurrency, but the model
+;; is identical and the API is the same.
+;; ====================================================================
+
+(define (make-actor initial-state behavior)
+  (let ((state initial-state)
+        (mailbox (list)))
+    (lambda (msg &rest args)
+      (cond
+        ((equal? msg :tell)
+         (set! mailbox (append mailbox (list (car args))))
+         state)
+        ((equal? msg :step!)
+         (cond
+           ((null? mailbox) state)
+           (else
+            (let ((m (car mailbox)))
+              (set! mailbox (cdr mailbox))
+              (set! state (behavior state m))
+              state))))
+        ((equal? msg :state) state)
+        ((equal? msg :mailbox) mailbox)
+        ((equal? msg :empty?) (null? mailbox))))))
+
+(defmacro defactor (name initial-state behavior-fn)
+  `(define ,name (make-actor ,initial-state ,behavior-fn)))
+
+(define (actor-tell  a m)      (a :tell m))
+(define (actor-step! a)        (a :step!))
+(define (actor-state a)        (a :state))
+(define (actor-empty? a)       (a :empty?))
+(define (actor-drain! a)
+  (define (loop)
+    (if (actor-empty? a) (actor-state a)
+        (begin (actor-step! a) (loop))))
+  (loop))
+(define (actor-run! a n)
+  (cond
+    ((<= n 0) (actor-state a))
+    ((actor-empty? a) (actor-state a))
+    (else
+     (actor-step! a)
+     (actor-run! a (- n 1)))))
+
+;; ====================================================================
+;; OBSERVER (pub/sub)
+;; --------------------------------------------------------------------
+;; (make-subject) → a subject that holds a subscriber list.
+;; (subject-subscribe! subj fn) → subscription handle (just the fn).
+;; (subject-unsubscribe! subj fn).
+;; (subject-emit! subj msg) → calls every subscriber with msg.
+;; ====================================================================
+
+(define (make-subject)
+  (let ((subs (list)))
+    (lambda (msg &rest args)
+      (cond
+        ((equal? msg :subscribe!)
+         (set! subs (cons (car args) subs))
+         (car args))
+        ((equal? msg :unsubscribe!)
+         (set! subs (filter (lambda (f) (not= f (car args))) subs))
+         ())
+        ((equal? msg :emit!)
+         (dolist (f subs) (f (car args)))
+         ())
+        ((equal? msg :subs) subs)))))
+
+(define (subject-subscribe! s f)   (s :subscribe! f))
+(define (subject-unsubscribe! s f) (s :unsubscribe! f))
+(define (subject-emit! s m)        (s :emit! m))
+
+;; ====================================================================
+;; COMMAND / QUERY (CQRS-flavored separation)
+;; --------------------------------------------------------------------
+;; A Bus dispatches commands and queries via a registry of handlers.
+;; - register-command! + dispatch-command — usually returns nothing,
+;;   may mutate state inside the handler closure.
+;; - register-query!   + dispatch-query   — returns a value.
+;;
+;; (defcommand BUS NAME (args...) body...) registers the handler.
+;; (defquery   BUS NAME (args...) body...) registers the query handler.
+;; ====================================================================
+
+(define (make-bus)
+  ;; Entries are 2-element lists (name fn) — tatara-lisp doesn't have
+  ;; true cons pairs, so use indexed access (`car` for name, `second`
+  ;; for fn) instead of dotted-pair conventions.
+  (let ((commands (list))
+        (queries  (list)))
+    (lambda (msg &rest args)
+      (cond
+        ((equal? msg :register-command!)
+         (set! commands (cons (list (car args) (second args)) commands))
+         (car args))
+        ((equal? msg :register-query!)
+         (set! queries (cons (list (car args) (second args)) queries))
+         (car args))
+        ((equal? msg :dispatch-command)
+         (let ((cmd-name (car args))
+               (cmd-args (cdr args)))
+           (let ((entry (find (lambda (kv) (equal? (car kv) cmd-name))
+                              commands)))
+             (if (null? entry)
+                 (error-msg (string-append "no command: " (keyword->string cmd-name)))
+                 (apply (second entry) cmd-args)))))
+        ((equal? msg :dispatch-query)
+         (let ((q-name (car args))
+               (q-args (cdr args)))
+           (let ((entry (find (lambda (kv) (equal? (car kv) q-name))
+                              queries)))
+             (if (null? entry)
+                 (error-msg (string-append "no query: " (keyword->string q-name)))
+                 (apply (second entry) q-args)))))))))
+
+(define (register-command! bus name fn) (bus :register-command! name fn))
+(define (register-query!   bus name fn) (bus :register-query!   name fn))
+(define (dispatch-command  bus name &rest args) (apply bus :dispatch-command (cons name args)))
+(define (dispatch-query    bus name &rest args) (apply bus :dispatch-query   (cons name args)))
+
+(defmacro defcommand (bus name params &rest body)
+  `(register-command! ,bus ,name (lambda ,params ,@body)))
+
+(defmacro defquery (bus name params &rest body)
+  `(register-query! ,bus ,name (lambda ,params ,@body)))
+
+;; ====================================================================
+;; EVENT SOURCING (lightweight)
+;; --------------------------------------------------------------------
+;; An event store holds a list of events. A projection is a fold over
+;; events into a state. Both are supplied by the user — this layer is
+;; just bookkeeping.
+;;
+;; (make-event-store) → store
+;; (event-append! store evt)
+;; (event-history store)            ; events oldest-first
+;; (event-project store fold init)  ; runs fold over history
+;; ====================================================================
+
+(define (make-event-store)
+  (let ((events (list)))
+    (lambda (msg &rest args)
+      (cond
+        ((equal? msg :append!)
+         (set! events (append events (list (car args))))
+         (car args))
+        ((equal? msg :history) events)
+        ((equal? msg :project)
+         (foldl (car args) (second args) events))))))
+
+(define (event-append! s e) (s :append! e))
+(define (event-history s)   (s :history))
+(define (event-project s fold init) (s :project fold init))
+
+;; ====================================================================
+;; STRATEGY / DECORATOR / VISITOR
+;; --------------------------------------------------------------------
+;; Strategy: a named handler chosen at call time.
+;;   (defstrategy s :default fn :variant fn ...)
+;;   (strategy-call s :variant arg1 ...)  — picks variant, falls back
+;;                                          to :default.
+;;
+;; Decorator: wrap an existing fn with before/after/around behavior.
+;;   (decorate f :before pre :after post)
+;;
+;; Visitor: dispatch on a tag in the value.
+;;   (defvisitor v (:tagA fn) (:tagB fn) ...)
+;;   (visit v tagged-value)  — looks up the tag (assumed first elem)
+;;                              and calls the matching fn with (rest).
+;; ====================================================================
+
+(define (make-strategy &rest kvs)
+  (let ((handlers kvs))
+    (lambda (variant &rest args)
+      (let ((fn (or (plist-get handlers variant)
+                    (plist-get handlers :default))))
+        (if (null? fn)
+            (error-msg "no strategy variant matched + no :default")
+            (apply fn args))))))
+
+(defmacro defstrategy (name &rest kvs)
+  `(define ,name (make-strategy ,@kvs)))
+
+(define (strategy-call s variant &rest args)
+  (apply s (cons variant args)))
+
+(define (decorate f &rest kvs)
+  (let ((before (plist-get kvs :before))
+        (after  (plist-get kvs :after))
+        (around (plist-get kvs :around)))
+    (lambda (&rest args)
+      (cond
+        ((some? around) (apply around (cons f args)))
+        (else
+         (when (some? before) (apply before args))
+         (let ((result (apply f args)))
+           (when (some? after) (apply after (cons result args)))
+           result))))))
+
+(define (make-visitor &rest kvs)
+  (let ((handlers kvs))
+    (lambda (tagged-value)
+      (cond
+        ((null? tagged-value) ())
+        (else
+         (let ((tag (car tagged-value))
+               (rest (cdr tagged-value)))
+           (let ((fn (or (plist-get handlers tag)
+                         (plist-get handlers :default))))
+             (if (null? fn)
+                 (error-msg "no visitor matched tag")
+                 (apply fn rest)))))))))
+
+(defmacro defvisitor (name &rest kvs)
+  `(define ,name (make-visitor ,@kvs)))
+
+(define (visit v tagged-value) (v tagged-value))
+
+;; ====================================================================
+;; PIPELINE — typed multi-stage with named hooks
+;; --------------------------------------------------------------------
+;; Pipeline like a defflow but each stage has a name and you can hook
+;; before/after each stage.
+;;
+;; (make-pipeline (list (list :stage1 fn1) (list :stage2 fn2) ...))
+;; (pipeline-run! p init)
+;; (pipeline-on-stage! p stage hook-fn)   — runs (hook stage in out)
+;; ====================================================================
+
+(define (make-pipeline stages)
+  (let ((hooks (list)))
+    (lambda (msg &rest args)
+      (cond
+        ((equal? msg :run!)
+         (foldl (lambda (acc stage)
+                  (let* ((name (car stage))
+                         (fn   (second stage))
+                         (out  (fn acc)))
+                    (dolist (h hooks)
+                      (when (or (equal? (car h) :*) (equal? (car h) name))
+                        ((second h) name acc out)))
+                    out))
+                (car args) stages))
+        ((equal? msg :on-stage!)
+         (set! hooks (cons (list (car args) (second args)) hooks))
+         ())
+        ((equal? msg :stages) stages)))))
+
+(define (pipeline-run!  p init)        (p :run! init))
+(define (pipeline-on-stage! p s f)     (p :on-stage! s f))
+
+;; ====================================================================
+;; FINITE STATE TRANSDUCER (Mealy / Moore)
+;; --------------------------------------------------------------------
+;; A transducer maps an input symbol to (next-state, output-symbol).
+;;   :type :mealy  — output depends on (state, input)
+;;   :type :moore  — output depends only on state
+;;
+;; (make-transducer :initial S :type :mealy :transitions ((S in T out) ...))
+;; (transducer-feed! t input) → output (and advances state)
+;; (transducer-run! t input-list) → list of outputs
+;; ====================================================================
+
+(define (make-transducer &rest kvs)
+  (let ((current (plist-get kvs :initial))
+        (kind    (or (plist-get kvs :type) :mealy))
+        (trans   (or (plist-get kvs :transitions) (list))))
+    (lambda (msg &rest args)
+      (cond
+        ((equal? msg :feed!)
+         (let ((row (find (lambda (r)
+                            (and (equal? (car r) current)
+                                 (equal? (second r) (car args))))
+                          trans)))
+           (cond
+             ((null? row) ())
+             (else
+              (let ((next (third row))
+                    (out  (if (equal? kind :moore)
+                              (fourth row)
+                              (fourth row))))
+                (set! current next)
+                out)))))
+        ((equal? msg :state) current)))))
+
+(define (transducer-feed! t in) (t :feed! in))
+(define (transducer-state t)    (t :state))
+(define (transducer-run! t inputs)
+  (map (lambda (i) (transducer-feed! t i)) inputs))

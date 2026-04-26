@@ -440,4 +440,274 @@ mod tests {
         // process(1)=5, process(2)=7, process(3)=9
         assert_eq!(format!("{v}"), "(5 7 9)");
     }
+
+    // ── State machines ─────────────────────────────────────────────
+
+    #[test]
+    fn defsm_traffic_light_cycles_through_states() {
+        let v = run(
+            "(defsm light
+               :initial :red
+               :transitions
+                 (list (list :red    :go    :green)
+                       (list :green  :slow  :yellow)
+                       (list :yellow :stop  :red)))
+             (sm-current light)",
+        );
+        assert!(matches!(v, Value::Keyword(s) if &*s == "red"));
+    }
+
+    #[test]
+    fn defsm_send_advances_state() {
+        let v = run(
+            "(defsm light
+               :initial :red
+               :transitions
+                 (list (list :red    :go    :green)
+                       (list :green  :slow  :yellow)
+                       (list :yellow :stop  :red)))
+             (sm-send light :go)
+             (sm-current light)",
+        );
+        assert!(matches!(v, Value::Keyword(s) if &*s == "green"));
+    }
+
+    #[test]
+    fn defsm_full_cycle_back_to_red() {
+        let v = run(
+            "(defsm light
+               :initial :red
+               :transitions
+                 (list (list :red    :go    :green)
+                       (list :green  :slow  :yellow)
+                       (list :yellow :stop  :red)))
+             (sm-send light :go)
+             (sm-send light :slow)
+             (sm-send light :stop)
+             (sm-current light)",
+        );
+        assert!(matches!(v, Value::Keyword(s) if &*s == "red"));
+    }
+
+    #[test]
+    fn defsm_no_transition_stays_put() {
+        let v = run(
+            "(defsm light
+               :initial :red
+               :transitions
+                 (list (list :red    :go    :green)))
+             (sm-send light :nonsense)
+             (sm-current light)",
+        );
+        assert!(matches!(v, Value::Keyword(s) if &*s == "red"));
+    }
+
+    #[test]
+    fn defsm_can_predicate() {
+        let v = run(
+            "(defsm light
+               :initial :red
+               :transitions (list (list :red :go :green)))
+             (list (sm-can? light :go) (sm-can? light :stop))",
+        );
+        assert_eq!(format!("{v}"), "(#t #f)");
+    }
+
+    #[test]
+    fn defsm_history_tracks_visited() {
+        let v = run(
+            "(defsm light
+               :initial :red
+               :transitions
+                 (list (list :red :go :green)
+                       (list :green :slow :yellow)))
+             (sm-send light :go)
+             (sm-send light :slow)
+             (sm-history light)",
+        );
+        // Newest-first
+        assert_eq!(format!("{v}"), "(:yellow :green :red)");
+    }
+
+    // ── Actors ─────────────────────────────────────────────────────
+
+    #[test]
+    fn actor_processes_messages_one_at_a_time() {
+        // Counter actor — increment by message integer.
+        let v = run(
+            "(defactor c 0 (lambda (state msg) (+ state msg)))
+             (actor-tell c 5)
+             (actor-tell c 10)
+             (actor-step! c)
+             (actor-step! c)
+             (actor-state c)",
+        );
+        assert!(matches!(v, Value::Int(15)));
+    }
+
+    #[test]
+    fn actor_drain_processes_all_messages() {
+        let v = run(
+            "(defactor c 0 (lambda (state msg) (+ state msg)))
+             (actor-tell c 1)
+             (actor-tell c 2)
+             (actor-tell c 3)
+             (actor-tell c 4)
+             (actor-drain! c)",
+        );
+        assert!(matches!(v, Value::Int(10)));
+    }
+
+    #[test]
+    fn actor_run_processes_n_messages() {
+        let v = run(
+            "(defactor c 0 (lambda (state msg) (+ state msg)))
+             (actor-tell c 1)
+             (actor-tell c 2)
+             (actor-tell c 3)
+             (actor-run! c 2)
+             (actor-state c)",
+        );
+        // Processed first 2: 1+2 = 3
+        assert!(matches!(v, Value::Int(3)));
+    }
+
+    // ── Observer ───────────────────────────────────────────────────
+
+    #[test]
+    fn subject_emits_to_subscribers() {
+        // Two subscribers, both record into their own counters.
+        let v = run(
+            "(define s (make-subject))
+             (define a 0)
+             (define b 0)
+             (subject-subscribe! s (lambda (m) (set! a (+ a m))))
+             (subject-subscribe! s (lambda (m) (set! b (* b 10))))
+             (subject-emit! s 5)
+             (subject-emit! s 3)
+             (list a b)",
+        );
+        // a: 0 → 5 → 8
+        // b: 0 → 0 → 0  (0*10*10 = 0)
+        assert_eq!(format!("{v}"), "(8 0)");
+    }
+
+    // ── Strategy ───────────────────────────────────────────────────
+
+    #[test]
+    fn strategy_picks_named_variant() {
+        let v = run(
+            "(defstrategy formatter
+               :json    (lambda (x) (string-append \"j:\" x))
+               :default (lambda (x) (string-append \"d:\" x)))
+             (list (strategy-call formatter :json    \"hi\")
+                   (strategy-call formatter :unknown \"hi\"))",
+        );
+        assert_eq!(format!("{v}"), "(\"j:hi\" \"d:hi\")");
+    }
+
+    // ── Decorator ──────────────────────────────────────────────────
+
+    #[test]
+    fn decorator_wraps_with_before_after() {
+        let v = run(
+            "(define log (list))
+             (define (push! x) (set! log (append log (list x))))
+             (define wrapped
+               (decorate
+                 (lambda (n) (* n 2))
+                 :before (lambda (n) (push! :before))
+                 :after  (lambda (result n) (push! :after))))
+             (define result (wrapped 5))
+             (list result log)",
+        );
+        // Result is 10; log is (:before :after)
+        assert_eq!(format!("{v}"), "(10 (:before :after))");
+    }
+
+    // ── Visitor ────────────────────────────────────────────────────
+
+    #[test]
+    fn visitor_dispatches_on_tag() {
+        let v = run(
+            "(defvisitor render
+               :text  (lambda (s) (string-append \"<text>\" s))
+               :image (lambda (url) (string-append \"<img \" url \">\")))
+             (list (visit render (list :text \"hello\"))
+                   (visit render (list :image \"u.png\")))",
+        );
+        assert_eq!(format!("{v}"), "(\"<text>hello\" \"<img u.png>\")");
+    }
+
+    // ── Pipeline ───────────────────────────────────────────────────
+
+    #[test]
+    fn pipeline_runs_stages_in_order() {
+        let v = run(
+            "(define p (make-pipeline
+               (list (list :double (lambda (x) (* x 2)))
+                     (list :add-one (lambda (x) (+ x 1)))
+                     (list :square  (lambda (x) (* x x))))))
+             (pipeline-run! p 3)",
+        );
+        // 3 → double=6 → +1=7 → square=49
+        assert!(matches!(v, Value::Int(49)));
+    }
+
+    // ── Event store ────────────────────────────────────────────────
+
+    #[test]
+    fn event_store_appends_and_projects() {
+        let v = run(
+            "(define s (make-event-store))
+             (event-append! s :+1)
+             (event-append! s :+2)
+             (event-append! s :+10)
+             (event-project s
+               (lambda (acc evt)
+                 (cond ((equal? evt :+1)  (+ acc 1))
+                       ((equal? evt :+2)  (+ acc 2))
+                       ((equal? evt :+10) (+ acc 10))
+                       (else acc)))
+               0)",
+        );
+        assert!(matches!(v, Value::Int(13)));
+    }
+
+    // ── CQRS Bus ───────────────────────────────────────────────────
+
+    #[test]
+    fn defcommand_defquery_dispatch() {
+        let v = run(
+            "(define bus (make-bus))
+             (define balance 100)
+             (defcommand bus :deposit (n) (set! balance (+ balance n)))
+             (defquery   bus :balance ()  balance)
+             (dispatch-command bus :deposit 25)
+             (dispatch-command bus :deposit 25)
+             (dispatch-query   bus :balance)",
+        );
+        assert!(matches!(v, Value::Int(150)));
+    }
+
+    // ── Transducer ─────────────────────────────────────────────────
+
+    #[test]
+    fn transducer_runs_mealy_machine() {
+        // Even-parity bit detector. State :even / :odd.
+        // 0 keeps state; 1 flips state; output the new state.
+        let v = run(
+            "(define t (make-transducer
+               :initial :even
+               :type :mealy
+               :transitions
+                 (list (list :even 0 :even :even)
+                       (list :even 1 :odd  :odd)
+                       (list :odd  0 :odd  :odd)
+                       (list :odd  1 :even :even))))
+             (transducer-run! t (list 1 0 1 1 0))",
+        );
+        // After feeds: 1→odd, 0→odd, 1→even, 1→odd, 0→odd
+        assert_eq!(format!("{v}"), "(:odd :odd :even :odd :odd)");
+    }
 }

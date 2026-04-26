@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use tatara_lisp::{Atom, Span, Spanned, SpannedForm};
+use tatara_lisp::{Atom, Span, Spanned, SpannedExpander, SpannedForm};
 
 use crate::env::Env;
 use crate::error::{EvalError, Result};
@@ -21,6 +21,11 @@ use crate::value::{Closure, NativeFn, Value};
 pub struct Interpreter<H> {
     pub(crate) registry: FnRegistry<H>,
     pub(crate) globals: Env,
+    /// Span-preserving macro expander. Top-level `defmacro`,
+    /// `defpoint-template`, and `defcheck` forms register here; macro calls
+    /// in subsequent forms are rewritten before evaluation. Persisted across
+    /// `eval_program` calls so REPL sessions accumulate macros naturally.
+    pub(crate) expander: SpannedExpander,
 }
 
 impl<H: 'static> Interpreter<H> {
@@ -28,6 +33,7 @@ impl<H: 'static> Interpreter<H> {
         Self {
             registry: FnRegistry::new(),
             globals: Env::new(),
+            expander: SpannedExpander::new(),
         }
     }
 
@@ -51,19 +57,68 @@ impl<H: 'static> Interpreter<H> {
     }
 
     /// Evaluate a single already-read spanned form in this interpreter's
-    /// global environment.
+    /// global environment. Macro expansion is applied first when the
+    /// expander has at least one macro registered — registration of
+    /// `defmacro` is a top-level concern handled by `eval_program` /
+    /// `eval_top_form`; bare `eval_spanned` skips it.
     pub fn eval_spanned(&mut self, form: &Spanned, host: &mut H) -> Result<Value> {
-        eval_in(&mut self.globals, &self.registry, form, host)
+        let expanded;
+        let target = if self.expander.is_empty() {
+            form
+        } else {
+            expanded = self.expander.expand(form)?;
+            &expanded
+        };
+        eval_in(&mut self.globals, &self.registry, target, host)
     }
 
     /// Evaluate a slice of forms in order, returning the last result.
+    ///
+    /// Top-level `defmacro` / `defpoint-template` / `defcheck` forms register
+    /// into the persistent expander and yield `Value::Nil`. All other forms
+    /// are run through `expander.expand` (rewriting any registered macro
+    /// calls anywhere in the form tree) before being evaluated. This is the
+    /// canonical entry point for running a tatara-lisp program — REPL,
+    /// embedded host, batch script.
+    ///
     /// Empty input returns `Value::Nil`.
     pub fn eval_program(&mut self, forms: &[Spanned], host: &mut H) -> Result<Value> {
         let mut last = Value::Nil;
         for form in forms {
-            last = self.eval_spanned(form, host)?;
+            last = self.eval_top_form(form, host)?;
         }
         Ok(last)
+    }
+
+    /// Evaluate one top-level form: register macros, expand, then eval.
+    /// Public so embedders that drive the read-eval loop themselves
+    /// (REPL, hot-reload watchers) can preserve top-level semantics
+    /// without re-implementing the registration handshake.
+    pub fn eval_top_form(&mut self, form: &Spanned, host: &mut H) -> Result<Value> {
+        if self.expander.try_register_macro(form)? {
+            return Ok(Value::Nil);
+        }
+        let expanded;
+        let target = if self.expander.is_empty() {
+            form
+        } else {
+            expanded = self.expander.expand(form)?;
+            &expanded
+        };
+        eval_in(&mut self.globals, &self.registry, target, host)
+    }
+
+    /// Borrow the macro expander. Embedders may register macros directly
+    /// (e.g. preloaded standard library) without reading them from source.
+    pub fn expander(&self) -> &SpannedExpander {
+        &self.expander
+    }
+
+    /// Mutable access to the expander — for preloading macros via
+    /// `try_register_macro` from a separately-read form list, or clearing
+    /// the registry.
+    pub fn expander_mut(&mut self) -> &mut SpannedExpander {
+        &mut self.expander
     }
 
     /// Look up a symbol in the global env.
@@ -1318,5 +1373,170 @@ mod tests {
         let mut h = Ctx { records: vec![] };
         let v = i.eval_program(&forms, &mut h).unwrap();
         assert!(matches!(v, Value::Int(60)));
+    }
+
+    // ── User macros via defmacro ──────────────────────────────────
+
+    #[test]
+    fn user_macro_expands_and_evaluates() {
+        let v = eval_ok(
+            "(defmacro twice (x) `(* ,x 2))
+             (twice 21)",
+        );
+        assert!(matches!(v, Value::Int(42)));
+    }
+
+    #[test]
+    fn user_macro_definition_returns_nil() {
+        let v = eval_ok("(defmacro inc (x) `(+ ,x 1))");
+        assert!(matches!(v, Value::Nil));
+    }
+
+    #[test]
+    fn user_macro_inside_define_body_expands() {
+        // (define (f n) (inc n)) — the (inc n) call is rewritten to (+ n 1)
+        // before define captures the body.
+        let v = eval_ok(
+            "(defmacro inc (x) `(+ ,x 1))
+             (define (f n) (inc n))
+             (f 41)",
+        );
+        assert!(matches!(v, Value::Int(42)));
+    }
+
+    #[test]
+    fn user_macro_with_rest_args_splices() {
+        let v = eval_ok(
+            "(defmacro sum-all (&rest xs) `(+ ,@xs))
+             (sum-all 1 2 3 4 5)",
+        );
+        assert!(matches!(v, Value::Int(15)));
+    }
+
+    #[test]
+    fn nested_user_macros_compose() {
+        let v = eval_ok(
+            "(defmacro twice (x) `(* ,x 2))
+             (defmacro quad (x) `(twice (twice ,x)))
+             (quad 5)",
+        );
+        assert!(matches!(v, Value::Int(20)));
+    }
+
+    #[test]
+    fn user_macro_can_expand_to_special_form() {
+        // Macros can expand into special forms — `if`, `let`, `lambda`,
+        // `define` are all reachable as expansion targets.
+        let v = eval_ok(
+            "(defmacro guard (test then) `(if ,test ,then 0))
+             (guard #t 99)",
+        );
+        assert!(matches!(v, Value::Int(99)));
+    }
+
+    #[test]
+    fn user_macro_redefined_replaces_prior_template() {
+        let v = eval_ok(
+            "(defmacro k () `1)
+             (defmacro k () `2)
+             (k)",
+        );
+        assert!(matches!(v, Value::Int(2)));
+    }
+
+    #[test]
+    fn user_macro_unbound_template_var_errors() {
+        // ,y is not a parameter — expander should refuse.
+        let mut i: Interpreter<NoHost> = Interpreter::new();
+        install_primitives(&mut i);
+        let forms = read_spanned("(defmacro bad (x) `(list ,y)) (bad 1)").unwrap();
+        let err = i.eval_program(&forms, &mut NoHost).unwrap_err();
+        // Lowered through Reader from LispError::Compile.
+        assert!(matches!(err, EvalError::Reader(_)));
+    }
+
+    #[test]
+    fn defpoint_template_keyword_registers_as_macro() {
+        // `defpoint-template` is the typed-DSL spelling of `defmacro` —
+        // the runtime should accept both.
+        let v = eval_ok(
+            "(defpoint-template double (x) `(* ,x 2))
+             (double 7)",
+        );
+        assert!(matches!(v, Value::Int(14)));
+    }
+
+    #[test]
+    fn defcheck_keyword_registers_as_macro() {
+        let v = eval_ok(
+            "(defcheck always-7 () `7)
+             (always-7)",
+        );
+        assert!(matches!(v, Value::Int(7)));
+    }
+
+    #[test]
+    fn macro_call_evaluated_with_runtime_arg() {
+        // Macro arg is itself an expression — the substituted expression
+        // is evaluated *after* expansion, so the arg's runtime value is
+        // what reaches the expanded form.
+        let v = eval_ok(
+            "(defmacro double (x) `(+ ,x ,x))
+             (define n 13)
+             (double n)",
+        );
+        assert!(matches!(v, Value::Int(26)));
+    }
+
+    #[test]
+    fn macro_persists_across_eval_program_calls() {
+        // The expander state outlives a single eval_program call — REPL
+        // semantics rely on this.
+        let mut i: Interpreter<NoHost> = Interpreter::new();
+        install_primitives(&mut i);
+        let mut host = NoHost;
+        let defs = read_spanned("(defmacro inc (x) `(+ ,x 1))").unwrap();
+        i.eval_program(&defs, &mut host).unwrap();
+        assert_eq!(i.expander().len(), 1);
+
+        let call = read_spanned("(inc 41)").unwrap();
+        let v = i.eval_program(&call, &mut host).unwrap();
+        assert!(matches!(v, Value::Int(42)));
+    }
+
+    #[test]
+    fn macro_expansion_inside_lambda_body() {
+        let v = eval_ok(
+            "(defmacro sq (x) `(* ,x ,x))
+             ((lambda (n) (sq n)) 9)",
+        );
+        assert!(matches!(v, Value::Int(81)));
+    }
+
+    #[test]
+    fn no_macros_registered_keeps_eval_program_a_passthrough() {
+        // Sanity: with no macros registered, eval_program should still run
+        // every existing test path correctly. Touching the same code as
+        // the rest of the suite — this just asserts the optimization
+        // we baked in (skip expand when expander is empty) didn't
+        // accidentally drop forms.
+        let v = eval_ok("(+ 1 2 3)");
+        assert!(matches!(v, Value::Int(6)));
+    }
+
+    #[test]
+    fn eval_top_form_drives_one_form_at_a_time() {
+        let mut i: Interpreter<NoHost> = Interpreter::new();
+        install_primitives(&mut i);
+        let mut host = NoHost;
+        let forms = read_spanned("(defmacro id (x) `,x) (id 42)").unwrap();
+
+        // First form: registers, returns Nil.
+        let r0 = i.eval_top_form(&forms[0], &mut host).unwrap();
+        assert!(matches!(r0, Value::Nil));
+
+        // Second form: macro expanded → 42.
+        let r1 = i.eval_top_form(&forms[1], &mut host).unwrap();
+        assert!(matches!(r1, Value::Int(42)));
     }
 }

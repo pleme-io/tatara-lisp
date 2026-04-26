@@ -49,13 +49,26 @@ impl SpannedExpander {
         self.macros.is_empty()
     }
 
+    /// Recognize `defmacro` / `defpoint-template` / `defcheck` and register
+    /// the definition. Returns `true` if `form` was a macro definition
+    /// (and was consumed), `false` if it was an ordinary form. Used by
+    /// embedders that interleave registration with evaluation form-by-form
+    /// (e.g. `tatara-lisp-eval`'s REPL).
+    pub fn try_register_macro(&mut self, form: &Spanned) -> Result<bool> {
+        if let Some(def) = spanned_macro_def_from(form)? {
+            self.macros.insert(def.name.clone(), def);
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
     /// Expand a program. `defmacro`-family forms register and are consumed;
     /// remaining forms are expanded.
     pub fn expand_program(&mut self, forms: Vec<Spanned>) -> Result<Vec<Spanned>> {
         let mut out = Vec::new();
         for form in forms {
-            if let Some(def) = spanned_macro_def_from(&form)? {
-                self.macros.insert(def.name.clone(), def);
+            if self.try_register_macro(&form)? {
                 continue;
             }
             out.push(self.expand(&form)?);

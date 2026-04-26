@@ -33,4 +33,4 @@ pub use repl::ReplSession;
 pub use value::Value;
 
 // Re-export the tatara-lisp items every embedder will need.
-pub use tatara_lisp::{read, read_spanned, Sexp, Span, Spanned, SpannedForm};
+pub use tatara_lisp::{read, read_spanned, Sexp, Span, Spanned, SpannedExpander, SpannedForm};

@@ -693,7 +693,7 @@
                 ((name (car stage)) (fn (second stage)) (out (fn acc)))
                 (dolist
                   (h hooks)
-                  (when (or (equal? (car h) :*) (equal? (car h) name)) ((second h) name acc out)))
+                  (when (or (equal? (car h) :any-stage) (equal? (car h) name)) ((second h) name acc out)))
                 out))
             (car args)
             stages))
@@ -756,7 +756,7 @@
 ;; (define-record point (x y))
 ;;
 ;; Defines:
-;;   make-point(x y)   → record (a hash-map tagged :__type :point)
+;;   make-point(x y)   → record (a hash-map tagged :tatara-record-type :point)
 ;;   point-x(r)        → field accessor
 ;;   point-y(r)        → field accessor
 ;;   point?(v)         → type predicate
@@ -793,7 +793,7 @@
       (ctor-kvs
         (apply
           append
-          (cons (list :__type type-key) (map (lambda (f) (list (record-keyword f) f)) fields))))
+          (cons (list :tatara-record-type type-key) (map (lambda (f) (list (record-keyword f) f)) fields))))
       (accessor-defs
         (map
           (lambda
@@ -808,7 +808,7 @@
           fields)))
     `(begin
       (define (,make-sym ,@fields) (hash-map ,@ctor-kvs))
-      (define (,pred-sym v) (and (hash-map? v) (equal? (hash-map-get v :__type) ,type-key)))
+      (define (,pred-sym v) (and (hash-map? v) (equal? (hash-map-get v :tatara-record-type) ,type-key)))
       (define (,to-map-sym r) r)
       ,@accessor-defs
       ,@setter-defs)))

@@ -700,7 +700,7 @@ mod tests {
     fn define_record_to_map_returns_underlying() {
         let v = run("(define-record point (x y))
              (define p (make-point 1 2))
-             (hash-map-get (point->map p) :__type)");
+             (hash-map-get (point->map p) :tatara-record-type)");
         assert!(matches!(v, Value::Keyword(s) if &*s == "point"));
     }
 

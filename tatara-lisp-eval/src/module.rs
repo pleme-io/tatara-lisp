@@ -111,6 +111,82 @@ impl Loader for NoLoader {
     }
 }
 
+/// Filesystem-backed loader. Reads a module path string by walking a
+/// base directory (or filesystem-absolute paths). Path-resolution rules
+/// match the documented design:
+///
+/// 1. `path` ending in `.tlisp` or `.lisp` is read as-is.
+/// 2. `path` without an extension tries `<path>.tlisp`, then
+///    `<path>.lisp`, then `<path>/init.tlisp`, then `<path>/init.lisp`.
+/// 3. Relative paths resolve against `base_dir`. Absolute paths are
+///    passed through. The optional `extra_search_paths` list (e.g.
+///    a `$TATARA_PATH`-equivalent) is consulted in order if the
+///    primary lookup fails.
+///
+/// The loader is `Send + Sync` so it can live behind the `Arc<dyn Loader>`
+/// the Interpreter expects.
+#[derive(Debug, Clone)]
+pub struct FilesystemLoader {
+    pub base_dir: std::path::PathBuf,
+    pub extra_search_paths: Vec<std::path::PathBuf>,
+}
+
+impl FilesystemLoader {
+    pub fn new(base_dir: impl Into<std::path::PathBuf>) -> Self {
+        Self {
+            base_dir: base_dir.into(),
+            extra_search_paths: Vec::new(),
+        }
+    }
+
+    pub fn with_search_paths(
+        mut self,
+        paths: impl IntoIterator<Item = std::path::PathBuf>,
+    ) -> Self {
+        self.extra_search_paths.extend(paths);
+        self
+    }
+
+    fn candidates(&self, path: &str) -> Vec<std::path::PathBuf> {
+        let p = std::path::Path::new(path);
+        let has_ext = p
+            .extension()
+            .is_some_and(|e| matches!(e.to_str(), Some("tlisp" | "lisp")));
+        let mut bases: Vec<std::path::PathBuf> = Vec::new();
+        if p.is_absolute() {
+            bases.push(p.to_path_buf());
+        } else {
+            bases.push(self.base_dir.join(p));
+            for extra in &self.extra_search_paths {
+                bases.push(extra.join(p));
+            }
+        }
+        let mut out = Vec::with_capacity(bases.len() * 4);
+        for base in bases {
+            if has_ext {
+                out.push(base);
+            } else {
+                out.push(base.with_extension("tlisp"));
+                out.push(base.with_extension("lisp"));
+                out.push(base.join("init.tlisp"));
+                out.push(base.join("init.lisp"));
+            }
+        }
+        out
+    }
+}
+
+impl Loader for FilesystemLoader {
+    fn load(&self, path: &str) -> Result<String, ModuleError> {
+        for candidate in self.candidates(path) {
+            if let Ok(s) = std::fs::read_to_string(&candidate) {
+                return Ok(s);
+            }
+        }
+        Err(ModuleError::NotFound(path.to_string()))
+    }
+}
+
 /// Errors specific to the module pipeline. Embedders convert these
 /// to user-facing `EvalError::User { value: Value::Error(...) }`.
 #[derive(Debug, Error, Clone)]
@@ -281,6 +357,46 @@ mod tests {
         // Re-loading the same path should now succeed (not cyclic).
         r.begin_load("foo").unwrap();
         r.abort_load("foo");
+    }
+
+    #[test]
+    fn filesystem_loader_resolves_with_extensions() {
+        use std::io::Write;
+        let dir = tempfile_dir();
+        // Drop a "lib/util.tlisp" file.
+        let lib = dir.join("lib");
+        std::fs::create_dir_all(&lib).unwrap();
+        let mut f = std::fs::File::create(lib.join("util.tlisp")).unwrap();
+        writeln!(f, "(define x 42)").unwrap();
+
+        let loader = FilesystemLoader::new(&dir);
+        // Bare name → tries `<base>/lib/util.tlisp`.
+        let src = loader.load("lib/util").unwrap();
+        assert!(src.contains("define x 42"));
+
+        // Explicit extension also works.
+        let src2 = loader.load("lib/util.tlisp").unwrap();
+        assert_eq!(src, src2);
+
+        // Missing path errors clearly.
+        assert!(matches!(
+            loader.load("missing/whatever"),
+            Err(ModuleError::NotFound(_))
+        ));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn tempfile_dir() -> std::path::PathBuf {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let mut tmp = std::env::temp_dir();
+        tmp.push(format!("tatara-loader-test-{nanos}"));
+        std::fs::create_dir_all(&tmp).unwrap();
+        tmp
     }
 
     #[test]

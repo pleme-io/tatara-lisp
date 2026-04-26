@@ -38,7 +38,9 @@ pub use ffi::{Arity, Caller, FromValue, HigherOrderCallable, IntoValue, NativeCa
 pub use hof::install_hof;
 pub use lisp_stdlib::install_lisp_stdlib_with;
 pub use map::install_map;
-pub use module::{Loader, MapLoader, Module, ModuleError, ModuleRegistry, NoLoader};
+pub use module::{
+    FilesystemLoader, Loader, MapLoader, Module, ModuleError, ModuleRegistry, NoLoader,
+};
 pub use primitive::install_primitives;
 pub use repl::ReplSession;
 pub use value::{ErrorObj, MapKey, Value};

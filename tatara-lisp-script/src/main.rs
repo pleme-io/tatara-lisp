@@ -34,7 +34,7 @@
 //! `--repl` drops into an interactive read-eval-print loop using
 //! tatara-lisp-eval's ReplSession shape.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use tatara_lisp::{read_spanned, Spanned, SpannedForm};
@@ -137,6 +137,27 @@ fn dirs_cache_root() -> PathBuf {
     std::env::temp_dir()
 }
 
+/// Configure the interpreter's module loader to read .tlisp files
+/// from the script's directory + any `$TATARA_PATH` entries. Called
+/// from each entry point (run, --test, --repl) so namespaced
+/// `(require "lib/foo" :as f)` works uniformly.
+fn install_canonical_loader(interp: &mut Interpreter<ScriptCtx>, script_path: &Path) {
+    let base = script_path
+        .parent()
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    let mut search_paths: Vec<PathBuf> = Vec::new();
+    if let Ok(extra) = std::env::var("TATARA_PATH") {
+        for s in extra.split(':') {
+            if !s.is_empty() {
+                search_paths.push(PathBuf::from(s));
+            }
+        }
+    }
+    let loader = tatara_lisp_eval::FilesystemLoader::new(base).with_search_paths(search_paths);
+    interp.set_loader(std::sync::Arc::new(loader));
+}
+
 fn run_script(script_path: &str, rest: Vec<String>) -> ExitCode {
     let mut interp: Interpreter<ScriptCtx> = Interpreter::new();
     install_stdlib(&mut interp);
@@ -148,6 +169,8 @@ fn run_script(script_path: &str, rest: Vec<String>) -> ExitCode {
             return ExitCode::from(2);
         }
     };
+
+    install_canonical_loader(&mut interp, &path);
 
     let mut ctx = ScriptCtx::with_argv(rest);
     ctx.current_file = Some(path.clone());
@@ -180,6 +203,8 @@ fn run_test_mode(script_path: &str, rest: Vec<String>) -> ExitCode {
             return ExitCode::from(2);
         }
     };
+
+    install_canonical_loader(&mut interp, &path);
 
     let mut ctx = ScriptCtx::with_argv(rest);
     ctx.current_file = Some(path.clone());
@@ -313,42 +338,20 @@ fn dispatch_top_form(
     form: &Spanned,
     ctx: &mut ScriptCtx,
 ) -> Result<Value, String> {
-    // Peek the head symbol for require / deftest.
+    // (deftest …) is handled here because it's a script-driver
+    // concern (collecting tests for --test mode), not an evaluator
+    // concern. Everything else — including (require) and (provide)
+    // — flows through eval_top_form so the canonical module system
+    // (file=module + qualified names + cycle detection) is what
+    // runs. The FilesystemLoader is wired via install_canonical_loader.
     if let SpannedForm::List(items) = &form.form {
         if let Some(head) = items.first().and_then(Spanned::as_symbol) {
-            match head {
-                "require" => return dispatch_require(interp, items, ctx),
-                "deftest" => return dispatch_deftest(items, ctx),
-                _ => {}
+            if head == "deftest" {
+                return dispatch_deftest(items, ctx);
             }
         }
     }
-    interp.eval_spanned(form, ctx).map_err(|e| e.render(src))
-}
-
-fn dispatch_require(
-    interp: &mut Interpreter<ScriptCtx>,
-    items: &[Spanned],
-    ctx: &mut ScriptCtx,
-) -> Result<Value, String> {
-    if items.len() != 2 {
-        return Err("require: expected (require \"path.tlisp\")".to_string());
-    }
-    let target = match &items[1].form {
-        SpannedForm::Atom(tatara_lisp::Atom::Str(s)) => s.clone(),
-        _ => return Err("require: path must be a string literal".to_string()),
-    };
-    let Some(path) = tatara_lisp_script::stdlib::module::plan_require(ctx, &target)? else {
-        return Ok(Value::Nil); // already required
-    };
-    // Read the required file's source once and feed it through the same
-    // pipeline as the root script — its own spans resolve into its own
-    // src, which is what `e.render(src)` wants.
-    let src =
-        std::fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
-    let forms =
-        tatara_lisp::read_spanned(&src).map_err(|e| format!("parse {}: {e:?}", path.display()))?;
-    eval_forms_with_require(interp, &src, &forms, ctx, &path)
+    interp.eval_top_form(form, ctx).map_err(|e| e.render(src))
 }
 
 fn dispatch_deftest(items: &[Spanned], ctx: &mut ScriptCtx) -> Result<Value, String> {

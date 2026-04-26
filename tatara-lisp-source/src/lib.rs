@@ -29,6 +29,7 @@
 
 #![allow(clippy::module_name_repetitions)]
 
+#[cfg(test)]
 use std::path::PathBuf;
 use std::time::Duration;
 

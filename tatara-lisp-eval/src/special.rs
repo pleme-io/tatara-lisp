@@ -46,6 +46,15 @@ pub enum SpecialForm {
     /// code, typically a quoted list) at top-level, returning the
     /// result. Unlocks runtime metaprogramming.
     Eval,
+    /// `(provide name1 name2 ...)` — declare that the names are
+    /// exported from the current module. Errors at top-level (i.e.
+    /// outside a `(require)` load).
+    Provide,
+    /// `(require "path")` — load and evaluate the module at `path`,
+    /// register it. With `:as alias`, every exported name becomes
+    /// reachable as `alias/name`. With `:refer (a b)`, only the listed
+    /// names are imported as bare unqualified bindings.
+    Require,
 }
 
 impl SpecialForm {
@@ -74,6 +83,8 @@ impl SpecialForm {
             "macroexpand" => Self::MacroexpandAll,
             "delay" => Self::Delay,
             "eval" => Self::Eval,
+            "provide" => Self::Provide,
+            "require" => Self::Require,
             _ => return None,
         })
     }

@@ -17,8 +17,9 @@ use crate::ffi::{
     Arity, Caller, FnEntry, FnImpl, FnRegistry, FromValue, HigherOrderCallable, IntoValue,
     NativeCallable,
 };
+use crate::module::{Loader, Module, ModuleError, ModuleRegistry, NoLoader};
 use crate::special::SpecialForm;
-use crate::value::{Closure, NativeFn, Value};
+use crate::value::{Closure, ErrorObj, NativeFn, Value};
 
 /// An embedded tatara-lisp evaluator, parameterized over the host context
 /// `H` that registered functions read/write.
@@ -30,6 +31,18 @@ pub struct Interpreter<H> {
     /// in subsequent forms are rewritten before evaluation. Persisted across
     /// `eval_program` calls so REPL sessions accumulate macros naturally.
     pub(crate) expander: SpannedExpander,
+    /// Module table — populated as `(require ...)` loads files. Shared
+    /// across all `Interpreter`s that share a registry (cloning an
+    /// `Interpreter` for sub-eval reuses the same registry).
+    pub(crate) modules: ModuleRegistry,
+    /// Source loader for `(require ...)`. Embedders inject filesystem
+    /// access here; the default `NoLoader` rejects every require.
+    pub(crate) loader: Arc<dyn Loader>,
+    /// Path of the module currently being evaluated. `(provide ...)`
+    /// adds names to whichever module owns this path. Top-level eval
+    /// (not inside any `(require)`) uses an empty path which means
+    /// "no current module" — `provide` errors there.
+    pub(crate) current_module: Option<Arc<str>>,
 }
 
 impl<H: 'static> Interpreter<H> {
@@ -38,7 +51,21 @@ impl<H: 'static> Interpreter<H> {
             registry: FnRegistry::new(),
             globals: Env::new(),
             expander: SpannedExpander::new(),
+            modules: ModuleRegistry::new(),
+            loader: Arc::new(NoLoader),
+            current_module: None,
         }
+    }
+
+    /// Replace the source loader. Required for `(require ...)` to do
+    /// anything useful — the default `NoLoader` rejects every require.
+    pub fn set_loader(&mut self, loader: Arc<dyn Loader>) {
+        self.loader = loader;
+    }
+
+    /// Borrow the module registry. Useful for tests + inspection.
+    pub fn modules(&self) -> &ModuleRegistry {
+        &self.modules
     }
 
     /// Register a native Rust function, exposing it to Lisp code under
@@ -118,13 +145,24 @@ impl<H: 'static> Interpreter<H> {
         Ok(last)
     }
 
-    /// Evaluate one top-level form: register macros, expand, then eval.
+    /// Evaluate one top-level form: register macros, handle module-
+    /// system forms (`provide` / `require`), expand, then eval.
     /// Public so embedders that drive the read-eval loop themselves
     /// (REPL, hot-reload watchers) can preserve top-level semantics
     /// without re-implementing the registration handshake.
     pub fn eval_top_form(&mut self, form: &Spanned, host: &mut H) -> Result<Value> {
         if self.expander.try_register_macro(form)? {
             return Ok(Value::Nil);
+        }
+        // Handle module-system forms BEFORE general expansion. They
+        // need `&mut self` access (loader, module registry, current
+        // module) which the generic eval dispatch can't carry.
+        if let Some(head) = head_symbol(form) {
+            match head {
+                "provide" => return self.eval_provide(form, host),
+                "require" => return self.eval_require(form, host),
+                _ => {}
+            }
         }
         let expanded = self.fully_expand(form, host)?;
         eval_in(
@@ -134,6 +172,266 @@ impl<H: 'static> Interpreter<H> {
             &expanded,
             host,
         )
+    }
+
+    /// Top-level `(provide name1 name2 ...)`. Adds each name to the
+    /// current module's export set. Errors if not currently inside a
+    /// module load (i.e. running at the embedder's top level).
+    fn eval_provide(&mut self, form: &Spanned, _host: &mut H) -> Result<Value> {
+        let items = form.as_list().unwrap_or(&[]);
+        let span = form.span;
+        let Some(current) = self.current_module.clone() else {
+            return Err(EvalError::bad_form(
+                "provide",
+                "`provide` only valid at module top level — embedder evaluating top-level code has no current module",
+                span,
+            ));
+        };
+        // Collect names to export.
+        let mut names: Vec<Arc<str>> = Vec::with_capacity(items.len().saturating_sub(1));
+        for item in &items[1..] {
+            let name = item.as_symbol().ok_or_else(|| {
+                EvalError::bad_form(
+                    "provide",
+                    "expected symbol — every arg must name a binding to export",
+                    item.span,
+                )
+            })?;
+            names.push(Arc::<str>::from(name));
+        }
+        // Append to the partially-loaded module's export set. The
+        // module is ALWAYS in the registry's "loading" stack at this
+        // point — loaded into the table on finish_load. We append
+        // exports via a dedicated registry method.
+        {
+            let mut g = self.modules.inner_lock();
+            // The currently-loading module's exports are tracked in a
+            // side staging map keyed by path; finalize_load merges
+            // the staging into the Module before promoting.
+            g.exports_staging
+                .entry(current.to_string())
+                .or_default()
+                .extend(names.iter().cloned());
+        }
+        Ok(Value::Nil)
+    }
+
+    /// Top-level `(require "path" ...)`. Loads the file via the
+    /// configured loader, evaluates its contents in a fresh module
+    /// context, then imports its exports into the calling env.
+    ///
+    /// Forms supported:
+    ///   (require "path")              ; alias = path; binds path/name
+    ///   (require "path" :as alias)    ; binds alias/name
+    ///   (require "path" :refer (...)) ; binds bare names; alias also bound
+    fn eval_require(&mut self, form: &Spanned, host: &mut H) -> Result<Value> {
+        let items = form.as_list().unwrap_or(&[]);
+        let span = form.span;
+        if items.len() < 2 {
+            return Err(EvalError::bad_form(
+                "require",
+                "expected (require \"path\" [:as alias] [:refer (...)])",
+                span,
+            ));
+        }
+        let path: Arc<str> = match items[1].as_string() {
+            Some(s) => Arc::from(s),
+            None => {
+                return Err(EvalError::bad_form(
+                    "require",
+                    "first arg must be a string path",
+                    items[1].span,
+                ))
+            }
+        };
+
+        // Parse optional :as alias / :refer (names) trailing kwargs.
+        let mut alias: Option<Arc<str>> = None;
+        let mut refer: Option<Vec<Arc<str>>> = None;
+        let mut i = 2usize;
+        while i < items.len() {
+            let kw = items[i].as_keyword().ok_or_else(|| {
+                EvalError::bad_form(
+                    "require",
+                    "expected keyword (:as / :refer) after path",
+                    items[i].span,
+                )
+            })?;
+            let val = items.get(i + 1).ok_or_else(|| {
+                EvalError::bad_form("require", "keyword without value", items[i].span)
+            })?;
+            match kw {
+                "as" => {
+                    alias = Some(Arc::from(val.as_symbol().ok_or_else(|| {
+                        EvalError::bad_form("require", ":as needs a symbol alias", val.span)
+                    })?));
+                }
+                "refer" => {
+                    let names_list = val.as_list().ok_or_else(|| {
+                        EvalError::bad_form(
+                            "require",
+                            ":refer needs a parenthesized list of symbols",
+                            val.span,
+                        )
+                    })?;
+                    let mut names = Vec::with_capacity(names_list.len());
+                    for n in names_list {
+                        names.push(Arc::<str>::from(n.as_symbol().ok_or_else(|| {
+                            EvalError::bad_form(
+                                "require",
+                                ":refer list must contain symbols only",
+                                n.span,
+                            )
+                        })?));
+                    }
+                    refer = Some(names);
+                }
+                other => {
+                    return Err(EvalError::bad_form(
+                        "require",
+                        format!("unknown require option :{other}"),
+                        items[i].span,
+                    ));
+                }
+            }
+            i += 2;
+        }
+
+        // Load + evaluate the module if it's not already cached.
+        if !self.modules.has(&path) {
+            self.load_module(&path, span, host)?;
+        }
+        let module = self
+            .modules
+            .get(&path)
+            .ok_or_else(|| EvalError::native_fn("require", "module disappeared after load", span))?;
+
+        // Import bindings into the calling env.
+        let chosen_alias = alias.unwrap_or_else(|| path.clone());
+        for name in &module.exports {
+            let value = module
+                .bindings
+                .get(name)
+                .cloned()
+                .unwrap_or(Value::Nil);
+            let qualified: Arc<str> = Arc::from(format!("{chosen_alias}/{name}"));
+            self.globals.define(qualified, value);
+        }
+        if let Some(names) = refer {
+            for name in names {
+                if let Some(value) = module.bindings.get(&name) {
+                    if module.exports.contains(&name) {
+                        self.globals.define(name.clone(), value.clone());
+                    } else {
+                        return Err(EvalError::User {
+                            value: error_value("not-exported", &format!(
+                                "{path} does not export {name}"
+                            )),
+                            at: span,
+                        });
+                    }
+                } else {
+                    return Err(EvalError::User {
+                        value: error_value("not-defined", &format!(
+                            "{path} does not define {name}"
+                        )),
+                        at: span,
+                    });
+                }
+            }
+        }
+        Ok(Value::Nil)
+    }
+
+    /// Drive the load of a single module: read source via loader,
+    /// register on the load stack (cycle detect), evaluate every form
+    /// against a fresh global env owned by THIS interpreter (so the
+    /// module sees the same primitives + macros), capture the bindings
+    /// that ended up in `globals` after eval, and finalize.
+    fn load_module(&mut self, path: &str, span: Span, host: &mut H) -> Result<()> {
+        // Cycle detect.
+        self.modules
+            .begin_load(path)
+            .map_err(|e| module_error_to_eval(e, span))?;
+
+        // Read source.
+        let source = match self.loader.load(path) {
+            Ok(s) => s,
+            Err(e) => {
+                self.modules.abort_load(path);
+                return Err(module_error_to_eval(e, span));
+            }
+        };
+
+        // Parse.
+        let forms = match tatara_lisp::read_spanned(&source) {
+            Ok(f) => f,
+            Err(e) => {
+                self.modules.abort_load(path);
+                return Err(EvalError::Reader(e));
+            }
+        };
+
+        // Save + swap module-context state. We isolate the module's
+        // bindings by snapshotting the globals env, evaluating into a
+        // FRESH env that inherits the host primitives, then restoring.
+        let saved_globals = std::mem::replace(&mut self.globals, Env::new());
+        // Re-install primitives into the fresh env: every NativeFn
+        // binding from the saved env is copied (the registry behind
+        // them is unchanged).
+        for (name, value) in saved_globals.iter_top_level() {
+            // Only carry NativeFn / Closure bindings forward — these
+            // are the primitive surface. The module's user-defined
+            // values get isolated.
+            if matches!(value, Value::NativeFn(_) | Value::Closure(_)) {
+                self.globals.define(name.clone(), value.clone());
+            }
+        }
+        let saved_current = self.current_module.replace(Arc::from(path));
+
+        // Evaluate every form. On error, restore + propagate.
+        let mut eval_err: Option<EvalError> = None;
+        for f in &forms {
+            // Re-enter eval_top_form so nested defmacro / require
+            // works recursively. (defmacro inside a module is fine;
+            // require chains are how libraries depend on each other.)
+            if let Err(e) = self.eval_top_form(f, host) {
+                eval_err = Some(e);
+                break;
+            }
+        }
+
+        // Snapshot module's bindings + exports BEFORE restoring globals.
+        let module_globals = std::mem::replace(&mut self.globals, saved_globals);
+        self.current_module = saved_current;
+
+        if let Some(e) = eval_err {
+            self.modules.abort_load(path);
+            return Err(e);
+        }
+
+        // Build the Module from the captured env's top-level bindings
+        // + the staged export set.
+        let mut module = Module::new(path);
+        for (name, value) in module_globals.iter_top_level() {
+            // Skip primitives that we re-inherited. We want only the
+            // module's OWN definitions.
+            if !matches!(value, Value::NativeFn(_)) {
+                module.define(name.clone(), value.clone());
+            }
+        }
+        // Apply staged exports.
+        let staged = {
+            let mut g = self.modules.inner_lock();
+            g.exports_staging
+                .remove(path)
+                .unwrap_or_default()
+        };
+        for n in staged {
+            module.add_export(n);
+        }
+        self.modules.finish_load(module);
+        Ok(())
     }
 
     /// Fully expand a form: walk the tree; whenever the head of a list
@@ -1045,6 +1343,45 @@ fn eval_special<H: 'static>(
         }
         SpecialForm::Delay => sf_delay(items, call_span, env),
         SpecialForm::Eval => sf_eval(items, call_span, env, registry, expander, host),
+        SpecialForm::Provide | SpecialForm::Require => Err(EvalError::bad_form(
+            if matches!(sf, SpecialForm::Provide) { "provide" } else { "require" },
+            "module-system forms are only valid at top level — wrap your call in (eval (quote ...)) if you really need it dynamic",
+            call_span,
+        )),
+    }
+}
+
+/// Extract the head-symbol of a list form, or `None` if `form` isn't a
+/// list whose head is a symbol. Used by the top-level dispatcher to
+/// recognize module-system forms before macroexpansion.
+fn head_symbol(form: &Spanned) -> Option<&str> {
+    let SpannedForm::List(items) = &form.form else {
+        return None;
+    };
+    items.first().and_then(Spanned::as_symbol)
+}
+
+/// Build a `Value::Error` with the given tag + message.
+fn error_value(tag: &str, message: &str) -> Value {
+    Value::Error(Arc::new(ErrorObj {
+        tag: Arc::from(tag),
+        message: Arc::from(message),
+        data: Vec::new(),
+    }))
+}
+
+/// Convert a `ModuleError` to the `EvalError::User` carrying a
+/// `Value::Error`. This way module-system failures can be `(catch ...)`-ed
+/// like any other thrown error.
+fn module_error_to_eval(e: ModuleError, span: Span) -> EvalError {
+    let (tag, message) = match &e {
+        ModuleError::NotFound(_) => ("module-not-found", e.to_string()),
+        ModuleError::Circular { .. } => ("circular-require", e.to_string()),
+        ModuleError::NotExported(_, _) => ("not-exported", e.to_string()),
+    };
+    EvalError::User {
+        value: error_value(tag, &message),
+        at: span,
     }
 }
 
@@ -3027,5 +3364,196 @@ mod tests {
         );
         // Full expansion expands inner: (list (* 3 2))
         assert_eq!(format!("{v}"), "(list (* 3 2))");
+    }
+
+    // ── Module system: provide / require / qualified names ────────
+
+    fn run_with_modules(modules: &[(&str, &str)], src: &str) -> Value {
+        use crate::module::MapLoader;
+        let mut i: Interpreter<NoHost> = Interpreter::new();
+        install_full_stdlib_with(&mut i, &mut NoHost);
+        let mut loader = MapLoader::new();
+        for (path, source) in modules {
+            loader.insert(*path, *source);
+        }
+        i.set_loader(Arc::new(loader));
+        let forms = read_spanned(src).unwrap();
+        i.eval_program(&forms, &mut NoHost).unwrap()
+    }
+
+    fn run_with_modules_err(modules: &[(&str, &str)], src: &str) -> EvalError {
+        use crate::module::MapLoader;
+        let mut i: Interpreter<NoHost> = Interpreter::new();
+        install_full_stdlib_with(&mut i, &mut NoHost);
+        let mut loader = MapLoader::new();
+        for (path, source) in modules {
+            loader.insert(*path, *source);
+        }
+        i.set_loader(Arc::new(loader));
+        let forms = read_spanned(src).unwrap();
+        i.eval_program(&forms, &mut NoHost).unwrap_err()
+    }
+
+    #[test]
+    fn require_with_explicit_alias_imports_qualified_names() {
+        let v = run_with_modules(
+            &[(
+                "lib/math",
+                "(define square (lambda (x) (* x x)))
+                 (define cube (lambda (x) (* x x x)))
+                 (provide square cube)",
+            )],
+            "(require \"lib/math\" :as math)
+             (math/square 7)",
+        );
+        assert!(matches!(v, Value::Int(49)));
+    }
+
+    #[test]
+    fn require_uses_path_as_default_alias() {
+        let v = run_with_modules(
+            &[("lib/math", "(define double (lambda (x) (* x 2))) (provide double)")],
+            "(require \"lib/math\")
+             (lib/math/double 21)",
+        );
+        // No explicit :as alias → bound under the path itself, so
+        // `lib/math/double` is the qualified name.
+        assert!(matches!(v, Value::Int(42)));
+    }
+
+    #[test]
+    fn require_refer_imports_unqualified_names() {
+        let v = run_with_modules(
+            &[(
+                "lib/math",
+                "(define square (lambda (x) (* x x)))
+                 (define cube (lambda (x) (* x x x)))
+                 (provide square cube)",
+            )],
+            "(require \"lib/math\" :refer (square))
+             (square 6)",
+        );
+        assert!(matches!(v, Value::Int(36)));
+    }
+
+    #[test]
+    fn require_does_not_import_non_provided() {
+        // `private` is defined but NOT provided — should not be
+        // accessible from the importing module.
+        let err = run_with_modules_err(
+            &[(
+                "lib/secret",
+                "(define public 1)
+                 (define private 2)
+                 (provide public)",
+            )],
+            "(require \"lib/secret\" :as s)
+             s/private",
+        );
+        match err {
+            EvalError::UnboundSymbol { name, .. } => assert_eq!(&*name, "s/private"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn require_chain_a_imports_b() {
+        let v = run_with_modules(
+            &[
+                (
+                    "lib/util",
+                    "(define inc1 (lambda (n) (+ n 1)))
+                     (provide inc1)",
+                ),
+                (
+                    "lib/wrapper",
+                    "(require \"lib/util\" :as u)
+                     (define inc2 (lambda (n) (u/inc1 (u/inc1 n))))
+                     (provide inc2)",
+                ),
+            ],
+            "(require \"lib/wrapper\" :as w)
+             (w/inc2 10)",
+        );
+        assert!(matches!(v, Value::Int(12)));
+    }
+
+    #[test]
+    fn require_module_not_found() {
+        let err = run_with_modules_err(&[], "(require \"missing/module\")");
+        // Surfaces as a Value::Error inside EvalError::User.
+        match err {
+            EvalError::User { value, .. } => match value {
+                Value::Error(e) => {
+                    assert_eq!(&*e.tag, "module-not-found");
+                    assert!(e.message.contains("missing/module"));
+                }
+                other => panic!("{other:?}"),
+            },
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn circular_require_detected() {
+        let err = run_with_modules_err(
+            &[
+                ("a", "(require \"b\") (provide x) (define x 1)"),
+                ("b", "(require \"a\") (provide y) (define y 2)"),
+            ],
+            "(require \"a\")",
+        );
+        match err {
+            EvalError::User { value, .. } => match value {
+                Value::Error(e) => assert_eq!(&*e.tag, "circular-require"),
+                other => panic!("{other:?}"),
+            },
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn provide_at_top_level_errors() {
+        // Without being inside a require, (provide ...) is meaningless.
+        let mut i: Interpreter<NoHost> = Interpreter::new();
+        install_full_stdlib_with(&mut i, &mut NoHost);
+        let forms = read_spanned("(provide x)").unwrap();
+        let err = i.eval_program(&forms, &mut NoHost).unwrap_err();
+        assert!(matches!(err, EvalError::BadSpecialForm { form, .. } if &*form == "provide"));
+    }
+
+    #[test]
+    fn require_refer_unknown_name_errors() {
+        let err = run_with_modules_err(
+            &[(
+                "lib/math",
+                "(define square (lambda (x) (* x x))) (provide square)",
+            )],
+            "(require \"lib/math\" :refer (square cube))",
+        );
+        match err {
+            EvalError::User { value, .. } => match value {
+                Value::Error(e) => {
+                    assert!(matches!(&*e.tag, "not-defined" | "not-exported"));
+                }
+                other => panic!("{other:?}"),
+            },
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn require_caches_module_load_once() {
+        let v = run_with_modules(
+            &[(
+                "lib/foo",
+                "(define x 42) (provide x)",
+            )],
+            "(require \"lib/foo\" :as a)
+             (require \"lib/foo\" :as b)
+             (+ a/x b/x)",
+        );
+        // Both alias to the same cached module.
+        assert!(matches!(v, Value::Int(84)));
     }
 }

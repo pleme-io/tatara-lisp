@@ -103,6 +103,22 @@ impl Env {
     pub fn frame_depth(&self) -> usize {
         self.frames.len()
     }
+
+    /// Iterate every binding in the OUTERMOST (root) frame as
+    /// `(name, value)` pairs. Useful for module loaders that need to
+    /// snapshot the top-level definitions a module evaluated to.
+    /// Bindings in inner frames (let / lambda body) are excluded.
+    pub fn iter_top_level(&self) -> Vec<(Arc<str>, Value)> {
+        if let Some(root) = self.frames.first() {
+            root.bindings
+                .borrow()
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect()
+        } else {
+            Vec::new()
+        }
+    }
 }
 
 #[cfg(test)]

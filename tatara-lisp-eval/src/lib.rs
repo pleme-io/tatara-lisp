@@ -22,6 +22,7 @@ pub mod env;
 pub mod error;
 pub mod eval;
 pub mod ffi;
+pub mod fiber;
 pub mod hof;
 pub mod lisp_stdlib;
 pub mod map;
@@ -62,6 +63,7 @@ pub fn install_full_stdlib_with<H: 'static>(interp: &mut Interpreter<H>, host: &
     install_hof(interp);
     install_map(interp);
     channel::install_channels(interp);
+    fiber::install_fibers(interp);
     type_check::install_type_check(interp);
     install_lisp_stdlib_with(interp, host);
 }

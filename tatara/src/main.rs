@@ -136,6 +136,13 @@ enum Cmd {
         /// useful for diffing against existing generated output.
         #[arg(long)]
         dry_run: bool,
+        /// Emit a Cargo.toml that inherits version / edition / etc.
+        /// from the parent workspace and uses path-deps for the
+        /// tatara-lisp{,-derive} crates. Use when generating a
+        /// crate as a new member of an existing Cargo workspace
+        /// (vs a standalone repo).
+        #[arg(long)]
+        workspace_member: bool,
     },
 }
 
@@ -184,7 +191,8 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
             name,
             output,
             dry_run,
-        } => forge_domain(&input, &name, &output, dry_run),
+            workspace_member,
+        } => forge_domain(&input, &name, &output, dry_run, workspace_member),
     }
 }
 
@@ -195,10 +203,15 @@ fn forge_domain(
     name: &str,
     output: &std::path::Path,
     dry_run: bool,
+    workspace_member: bool,
 ) -> Result<ExitCode> {
     let domain = tatara_domain_forge::from_crd_yaml(input, name)
         .with_context(|| format!("parsing CRD input {}", input.display()))?;
-    let opts = tatara_domain_forge::EmitOptions::default();
+    let opts = if workspace_member {
+        tatara_domain_forge::EmitOptions::workspace_member()
+    } else {
+        tatara_domain_forge::EmitOptions::default()
+    };
     let cargo = tatara_domain_forge::emit_cargo_toml(&domain, &opts);
     let lib = tatara_domain_forge::emit_lib_rs(&domain);
     let readme = tatara_domain_forge::emit_readme(&domain);

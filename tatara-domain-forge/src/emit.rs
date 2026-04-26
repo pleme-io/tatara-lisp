@@ -15,9 +15,7 @@ use crate::ir::{Domain, DomainKind, Field, FieldType, Resource};
 use std::fmt::Write;
 
 /// Knobs that don't fit naturally on the `Domain` IR — author /
-/// version metadata, or a flag to skip `register()` (useful when
-/// the consumer wants to register manually with a custom
-/// `Interpreter<H>`).
+/// version metadata, dependency override, workspace integration.
 #[derive(Debug, Clone)]
 pub struct EmitOptions {
     pub author: String,
@@ -29,6 +27,14 @@ pub struct EmitOptions {
     /// Path to the `tatara-lisp` dependency (provides the
     /// `TataraDomain` trait + helpers).
     pub tatara_lisp_dep: String,
+    /// When `true`, emit a Cargo.toml that inherits `version` /
+    /// `edition` / `authors` / `license` / `repository` /
+    /// `homepage` from the parent workspace, sets
+    /// `[lints] workspace = true`, and assumes path-deps for
+    /// `tatara-lisp{,-derive}`. Use when generating a crate as a
+    /// new member of an existing workspace (vs a standalone
+    /// repo) — the generated crate just slots in.
+    pub workspace_member: bool,
 }
 
 impl Default for EmitOptions {
@@ -38,6 +44,21 @@ impl Default for EmitOptions {
             version: "0.1.0".into(),
             tatara_lisp_derive_dep: "{ version = \"0.2\" }".into(),
             tatara_lisp_dep: "{ version = \"0.2\" }".into(),
+            workspace_member: false,
+        }
+    }
+}
+
+impl EmitOptions {
+    /// Preset for "this crate joins the tatara-lisp workspace as a
+    /// member". Switches to path-deps and workspace-inheritance.
+    #[must_use]
+    pub fn workspace_member() -> Self {
+        Self {
+            workspace_member: true,
+            tatara_lisp_derive_dep: "{ path = \"../tatara-lisp-derive\" }".into(),
+            tatara_lisp_dep: "{ path = \"../tatara-lisp\" }".into(),
+            ..Default::default()
         }
     }
 }
@@ -49,10 +70,22 @@ pub fn emit_cargo_toml(domain: &Domain, opts: &EmitOptions) -> String {
     let _ = writeln!(out, "[package]");
     let _ = writeln!(out, "name = \"{}\"", domain.name);
     let _ = writeln!(out, "description = \"{}\"", escape_toml(&domain.description));
-    let _ = writeln!(out, "version = \"{}\"", opts.version);
-    let _ = writeln!(out, "edition = \"2021\"");
-    let _ = writeln!(out, "authors = [\"{}\"]", opts.author);
-    let _ = writeln!(out, "license = \"MIT\"");
+    if opts.workspace_member {
+        let _ = writeln!(out, "version.workspace = true");
+        let _ = writeln!(out, "edition.workspace = true");
+        let _ = writeln!(out, "authors.workspace = true");
+        let _ = writeln!(out, "license.workspace = true");
+        let _ = writeln!(out, "repository.workspace = true");
+        let _ = writeln!(out, "homepage.workspace = true");
+        let _ = writeln!(out);
+        let _ = writeln!(out, "[lints]");
+        let _ = writeln!(out, "workspace = true");
+    } else {
+        let _ = writeln!(out, "version = \"{}\"", opts.version);
+        let _ = writeln!(out, "edition = \"2021\"");
+        let _ = writeln!(out, "authors = [\"{}\"]", opts.author);
+        let _ = writeln!(out, "license = \"MIT\"");
+    }
     let _ = writeln!(out);
     let _ = writeln!(out, "[dependencies]");
     let _ = writeln!(

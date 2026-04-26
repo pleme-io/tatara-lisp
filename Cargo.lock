@@ -1005,6 +1005,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tatara-gateway-api"
+version = "0.2.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tatara-lisp",
+ "tatara-lisp-derive",
+]
+
+[[package]]
 name = "tatara-lisp"
 version = "0.2.0"
 dependencies = [

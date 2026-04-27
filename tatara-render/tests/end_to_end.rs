@@ -64,10 +64,11 @@ fn full_pipeline_declare_validate_render() {
     // ConfigMap for the bpf-map, one ConfigMap for the bpf-program).
     assert_eq!(manifests.len(), 3, "got {} manifests", manifests.len());
 
-    // Spot-check the gateway manifest.
+    // Spot-check the gateway manifest. Path is `gateway/<name>.yaml`
+    // (kind.to_lowercase()) per the generic registry-driven path.
     let gw = manifests
         .iter()
-        .find(|m| m.path.starts_with("gateways/"))
+        .find(|m| m.path.starts_with("gateway/"))
         .expect("gateway manifest present");
     assert!(gw.content.contains("apiVersion: gateway.networking.k8s.io/v1"));
     assert!(gw.content.contains("kind: Gateway"));
@@ -111,6 +112,30 @@ fn render_fails_softly_on_unsupported_keyword() {
         .render(&env)
         .expect_err("unsupported keyword errors");
     assert!(format!("{err}").contains("deftotallyfake"));
+}
+
+#[test]
+fn forge_generated_domains_auto_render_via_registry() {
+    // The compounding claim made testable. Registering a new
+    // forge-generated domain produces working YAML on the next
+    // render(), with zero edits to tatara-render.
+    register_all();
+    let kws = tatara_lisp::domain::registered_render_keywords();
+    // Both `defgateway` (forge-generated, has CRD apiVersion +
+    // kind) AND no `defbpf-*` (hand-written, intentionally no
+    // RenderableDomain because BPF resources don't have a single
+    // CR shape).
+    assert!(kws.contains(&"defgateway"), "defgateway has render metadata");
+    assert!(
+        !kws.contains(&"defbpf-program"),
+        "defbpf-program intentionally omitted from render registry"
+    );
+    // Every forge-generated render registration carries the
+    // upstream apiVersion + kind verbatim — proving the metadata
+    // round-trips from CRD YAML through forge's emit pass.
+    let gw_meta = tatara_lisp::domain::lookup_render("defgateway").unwrap();
+    assert_eq!(gw_meta.api_version, "gateway.networking.k8s.io/v1");
+    assert_eq!(gw_meta.kind, "Gateway");
 }
 
 #[test]

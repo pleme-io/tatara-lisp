@@ -204,6 +204,77 @@ pub fn registered_keywords() -> Vec<&'static str> {
     registry().lock().unwrap().keys().copied().collect()
 }
 
+// ── Capability registries — compounding metadata layer ────────────
+//
+// Each registered domain can ALSO carry capability metadata —
+// orthogonal concerns the rest of the platform needs to ask about
+// the type without importing it. Today: `RenderMetadata` (used by
+// tatara-render to emit Kubernetes CR YAML without a hard-coded
+// match). Future: `ComplianceMetadata`, `DocumentationMetadata`,
+// `AttestationMetadata` — same shape, additional concerns.
+//
+// Each metadata kind has its own static registry parallel to
+// `REGISTRY` (the handler registry). Domain crates call
+// `register_render::<T>()` alongside `register::<T>()` during
+// boot; consumers like `tatara-render` look up by keyword.
+
+/// Type that knows its Kubernetes-CR rendering metadata. Tiny —
+/// just constants. Implementing crates derive nothing; they
+/// `impl RenderableDomain for FooSpec { … }` with three lines.
+pub trait RenderableDomain {
+    /// Kubernetes apiVersion the resource lives under
+    /// (`gateway.networking.k8s.io/v1`, `cilium.io/v2`, etc.).
+    const API_VERSION: &'static str;
+    /// Kubernetes kind (`Gateway`, `CiliumNetworkPolicy`).
+    const KIND: &'static str;
+    /// Field name (in the typed JSON) that supplies the CR's
+    /// `metadata.name`. Most domains use `name`; gateway-api
+    /// uses `gateway_class_name`. Defaults via `Default` impl.
+    const NAME_FIELD: &'static str = "name";
+}
+
+/// Erased render metadata — what `tatara-render` consumes.
+#[derive(Clone, Copy, Debug)]
+pub struct RenderHandler {
+    pub keyword: &'static str,
+    pub api_version: &'static str,
+    pub kind: &'static str,
+    pub name_field: &'static str,
+}
+
+static RENDER_REGISTRY: OnceLock<Mutex<HashMap<&'static str, RenderHandler>>> = OnceLock::new();
+
+fn render_registry() -> &'static Mutex<HashMap<&'static str, RenderHandler>> {
+    RENDER_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Register a `RenderableDomain`'s metadata. Idempotent.
+/// Domain crates call this once at boot, alongside `register::<T>()`.
+pub fn register_render<T>()
+where
+    T: TataraDomain + RenderableDomain,
+{
+    let handler = RenderHandler {
+        keyword: T::KEYWORD,
+        api_version: T::API_VERSION,
+        kind: T::KIND,
+        name_field: T::NAME_FIELD,
+    };
+    render_registry().lock().unwrap().insert(T::KEYWORD, handler);
+}
+
+/// Look up render metadata by keyword.
+#[must_use]
+pub fn lookup_render(keyword: &str) -> Option<RenderHandler> {
+    render_registry().lock().unwrap().get(keyword).copied()
+}
+
+/// List every keyword that has render metadata registered.
+#[must_use]
+pub fn registered_render_keywords() -> Vec<&'static str> {
+    render_registry().lock().unwrap().keys().copied().collect()
+}
+
 // ── Sexp ↔ serde_json bridge (universal type support) ──────────────
 //
 // Lets the derive macro fall through to `serde_json::from_value` for any

@@ -64,6 +64,11 @@ fn looks_like_crd(v: &serde_yaml_ng::Value) -> bool {
 }
 
 fn crd_to_resource(v: &serde_yaml_ng::Value) -> Result<Resource, FromCrdError> {
+    let group = v
+        .get("spec")
+        .and_then(|s| s.get("group"))
+        .and_then(|g| g.as_str())
+        .ok_or(FromCrdError::MissingKind)?;
     let names = v
         .get("spec")
         .and_then(|s| s.get("names"))
@@ -80,13 +85,15 @@ fn crd_to_resource(v: &serde_yaml_ng::Value) -> Result<Resource, FromCrdError> {
         .and_then(|s| s.get("versions"))
         .and_then(|x| x.as_sequence())
         .ok_or(FromCrdError::MissingSchema)?;
-    let schema = versions
+    let (version_name, schema) = versions
         .iter()
         .find_map(|ver| {
-            ver.get("schema")
-                .and_then(|s| s.get("openAPIV3Schema"))
+            let n = ver.get("name").and_then(|v| v.as_str())?;
+            let s = ver.get("schema").and_then(|s| s.get("openAPIV3Schema"))?;
+            Some((n.to_string(), s))
         })
         .ok_or(FromCrdError::MissingSchema)?;
+    let api_version = format!("{group}/{version_name}");
     // The K8s CRD root schema typically has a `spec` sub-property —
     // that's the user-facing payload. We forge the Rust struct from
     // it. If the CRD has no `.spec` (rare), fall back to the root.
@@ -101,11 +108,29 @@ fn crd_to_resource(v: &serde_yaml_ng::Value) -> Result<Resource, FromCrdError> {
         .get("description")
         .and_then(|d| d.as_str())
         .map(str::to_string);
+    // Auto-detect the metadata.name source field. Most CRDs put
+    // `name` directly under spec; some (gateway-api) use a
+    // domain-specific field like `gatewayClassName`. We pick `name`
+    // when present, otherwise the first required string field, else
+    // None (the emitter falls back to `"name"`).
+    let name_field = if fields.contains_key("name") {
+        Some("name".to_string())
+    } else {
+        fields
+            .iter()
+            .find(|(_, f)| {
+                f.required && matches!(f.ty, crate::ir::FieldType::Scalar(crate::ir::ScalarType::String))
+            })
+            .map(|(k, _)| k.clone())
+    };
     Ok(Resource {
         struct_name,
         keyword,
         doc,
         fields,
+        api_version: Some(api_version),
+        kind: Some(kind.to_string()),
+        name_field,
     })
 }
 

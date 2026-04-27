@@ -142,8 +142,35 @@ pub fn emit_lib_rs(domain: &Domain) -> String {
         out.push_str(&body);
     }
 
+    // Emit `impl RenderableDomain` for every resource that has
+    // K8s metadata available — drives the auto-render path in
+    // `tatara-render::KubernetesYaml::render_via_registry`.
+    let any_renderable = domain
+        .resources
+        .iter()
+        .any(|r| r.api_version.is_some() && r.kind.is_some());
+    if any_renderable {
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "// ── Render metadata (consumed by tatara-render) ──────────"
+        );
+        for r in &domain.resources {
+            if let (Some(api), Some(kind)) = (&r.api_version, &r.kind) {
+                let name_field = r.name_field.as_deref().unwrap_or("name");
+                let _ = writeln!(out);
+                let _ = writeln!(out, "impl tatara_lisp::RenderableDomain for {} {{", r.struct_name);
+                let _ = writeln!(out, "    const API_VERSION: &'static str = {api:?};");
+                let _ = writeln!(out, "    const KIND: &'static str = {kind:?};");
+                let _ = writeln!(out, "    const NAME_FIELD: &'static str = {name_field:?};");
+                let _ = writeln!(out, "}}");
+            }
+        }
+    }
+
     // Emit register fn — wires every Resource's keyword form into
-    // an `Interpreter<H>`'s domain registry.
+    // an `Interpreter<H>`'s domain registry. When render metadata
+    // is available, also wires the render handler.
     let _ = writeln!(out);
     let _ = writeln!(
         out,
@@ -160,6 +187,13 @@ pub fn emit_lib_rs(domain: &Domain) -> String {
             "    tatara_lisp::domain::register::<{}>();",
             r.struct_name
         );
+        if r.api_version.is_some() && r.kind.is_some() {
+            let _ = writeln!(
+                out,
+                "    tatara_lisp::domain::register_render::<{}>();",
+                r.struct_name
+            );
+        }
     }
     let _ = writeln!(out, "}}");
     out

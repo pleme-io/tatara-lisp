@@ -63,6 +63,24 @@ pub struct Resource {
     /// Fields, in declaration order. `IndexMap` preserves stable
     /// emission ordering across runs.
     pub fields: IndexMap<String, Field>,
+    /// Kubernetes apiVersion, e.g. `gateway.networking.k8s.io/v1`.
+    /// Lifted from the CRD's `spec.group` + the served version's
+    /// `name`. None for non-CRD sources (OpenAPI, hand-authored
+    /// TOML); the emitter skips the `RenderableDomain` impl when
+    /// metadata isn't available.
+    #[serde(default)]
+    pub api_version: Option<String>,
+    /// Kubernetes kind, e.g. `Gateway`. Lifted from the CRD's
+    /// `spec.names.kind`.
+    #[serde(default)]
+    pub kind: Option<String>,
+    /// Field name (in the generated struct, snake_case) that
+    /// supplies the CR's `metadata.name`. Most domains use
+    /// `name`; gateway-api uses `gateway_class_name`. The forge
+    /// auto-detects by looking at the CRD's required-fields list
+    /// and falling back to `"name"` if a `name` field exists.
+    #[serde(default)]
+    pub name_field: Option<String>,
 }
 
 /// One typed field of a resource.

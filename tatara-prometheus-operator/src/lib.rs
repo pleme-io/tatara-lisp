@@ -1038,8 +1038,17 @@ pub enum PodMonitorSelectorMechanismKind {
 }
 
 
+// ── Render metadata (consumed by tatara-render) ──────────
+
+impl tatara_lisp::RenderableDomain for PodMonitorSpec {
+    const API_VERSION: &'static str = "monitoring.coreos.com/v1";
+    const KIND: &'static str = "PodMonitor";
+    const NAME_FIELD: &'static str = "name";
+}
+
 /// Register every keyword form this domain exposes onto the host
 /// interpreter. Embedders call this once during boot.
 pub fn register() {
     tatara_lisp::domain::register::<PodMonitorSpec>();
+    tatara_lisp::domain::register_render::<PodMonitorSpec>();
 }

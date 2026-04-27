@@ -1754,8 +1754,17 @@ pub struct CiliumNetworkPolicyNodeSelector {
 }
 
 
+// ── Render metadata (consumed by tatara-render) ──────────
+
+impl tatara_lisp::RenderableDomain for CiliumNetworkPolicySpec {
+    const API_VERSION: &'static str = "cilium.io/v2";
+    const KIND: &'static str = "CiliumNetworkPolicy";
+    const NAME_FIELD: &'static str = "name";
+}
+
 /// Register every keyword form this domain exposes onto the host
 /// interpreter. Embedders call this once during boot.
 pub fn register() {
     tatara_lisp::domain::register::<CiliumNetworkPolicySpec>();
+    tatara_lisp::domain::register_render::<CiliumNetworkPolicySpec>();
 }

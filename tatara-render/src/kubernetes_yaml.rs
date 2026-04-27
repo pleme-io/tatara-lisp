@@ -49,19 +49,25 @@ impl Backend for KubernetesYaml {
     fn render(&self, env: &Env) -> Result<Vec<Manifest>, RenderError> {
         let mut out = Vec::new();
         for r in &env.resources {
+            // Per-keyword overrides for kinds that need special
+            // shaping (BPF resources don't map to a single CR;
+            // they emit ConfigMaps + the substrate-built object
+            // is loaded by a sibling DaemonSet).
             let m = match r.keyword.as_str() {
-                "defgateway" => self.render_gateway(env, r)?,
-                "defciliumnetworkpolicy" => self.render_cilium_netpol(env, r)?,
-                "defpodmonitor" => self.render_podmonitor(env, r)?,
-                // BPF resources don't map directly to a single CR —
-                // they're emitted as ConfigMaps holding the spec
-                // metadata; the actual loader is a separate
-                // DaemonSet/Job outside this backend's scope.
                 "defbpf-program" | "defbpf-map" | "defbpf-policy" => {
                     self.render_bpf_configmap(env, r)?
                 }
-                other => {
-                    return Err(RenderError::Unsupported(other.to_string()));
+                _ => {
+                    // Generic path — every domain that registers a
+                    // `RenderableDomain` impl gets this for free.
+                    // Adding a new CRD to the catalog now produces
+                    // working YAML the moment the generated crate's
+                    // `register()` is called.
+                    if let Some(meta) = tatara_lisp::domain::lookup_render(&r.keyword) {
+                        self.render_via_registry(env, r, &meta)?
+                    } else {
+                        return Err(RenderError::Unsupported(r.keyword.clone()));
+                    }
                 }
             };
             out.push(m);
@@ -91,65 +97,44 @@ impl KubernetesYaml {
         })
     }
 
-    fn render_gateway(&self, env: &Env, r: &Resource) -> Result<Manifest, RenderError> {
-        let value = &r.value;
-        // The Gateway's identifier comes from `gateway_class_name`
-        // (it's how the upstream CRD names them). We don't use it
-        // here beyond validating presence — the env-derived name
-        // overrides it for K8s metadata.name. Refusing to render
-        // when it's missing keeps the output strictly conformant
-        // with the CRD's required-fields contract.
-        let _class_name = string_field(value, "gateway_class_name").ok_or_else(|| {
-            RenderError::Resource {
-                keyword: r.keyword.clone(),
-                name: "<unnamed>".into(),
-                message: "missing gateway_class_name".into(),
-            }
-        })?;
-        // Gateway names are typically derived from the env. The
-        // upstream Gateway CRD spec is very large; we round-trip
-        // the typed JSON value as the `spec` payload and trust
-        // the field names match (the forge-generated structs use
-        // the same names as the upstream schema).
+    /// Generic registry-driven render path. Works for any domain
+    /// that registered itself via
+    /// `tatara_lisp::domain::register_render::<T>()`. The caller
+    /// has already looked up the metadata; we just compose the
+    /// envelope.
+    ///
+    /// This is the **compounding seam**: every new CRD-shaped
+    /// domain crate auto-renders the moment its `register()` is
+    /// called. No edits to this file. No special-cased match arms.
+    fn render_via_registry(
+        &self,
+        env: &Env,
+        r: &Resource,
+        meta: &tatara_lisp::RenderHandler,
+    ) -> Result<Manifest, RenderError> {
+        // Pick the resource's name. Order:
+        //   1. the registered NAME_FIELD on the typed value
+        //   2. fallback to `name` if NAME_FIELD missing
+        //   3. fallback to env-derived `<env-name>-<kind>`
+        let name = string_field(&r.value, meta.name_field)
+            .or_else(|| string_field(&r.value, "name"))
+            .map(str::to_string)
+            .unwrap_or_else(|| {
+                format!("{}-{}", env.spec.name, meta.kind.to_lowercase())
+            });
         let manifest = json!({
-            "apiVersion": "gateway.networking.k8s.io/v1",
-            "kind": "Gateway",
-            "metadata": self.metadata(env, &format!("{}-gateway", env.spec.name)),
-            "spec": value,
-        });
-        Ok(Manifest {
-            kind: "yaml".into(),
-            path: format!("gateways/{}-gateway.yaml", env.spec.name),
-            content: yaml_string(&manifest)?,
-        })
-    }
-
-    fn render_cilium_netpol(&self, env: &Env, r: &Resource) -> Result<Manifest, RenderError> {
-        let name = string_field(&r.value, "name").unwrap_or("policy");
-        let manifest = json!({
-            "apiVersion": "cilium.io/v2",
-            "kind": "CiliumNetworkPolicy",
-            "metadata": self.metadata(env, name),
+            "apiVersion": meta.api_version,
+            "kind": meta.kind,
+            "metadata": self.metadata(env, &name),
             "spec": &r.value,
         });
+        // Filesystem layout: one directory per kind, lower-case.
+        // Stable + grep-friendly + Kustomize-friendly.
+        let dir = meta.kind.to_lowercase();
+        let path = format!("{dir}/{name}.yaml");
         Ok(Manifest {
             kind: "yaml".into(),
-            path: format!("network-policies/{name}.yaml"),
-            content: yaml_string(&manifest)?,
-        })
-    }
-
-    fn render_podmonitor(&self, env: &Env, r: &Resource) -> Result<Manifest, RenderError> {
-        let name = string_field(&r.value, "name").unwrap_or("podmonitor");
-        let manifest = json!({
-            "apiVersion": "monitoring.coreos.com/v1",
-            "kind": "PodMonitor",
-            "metadata": self.metadata(env, name),
-            "spec": &r.value,
-        });
-        Ok(Manifest {
-            kind: "yaml".into(),
-            path: format!("monitoring/{name}.yaml"),
+            path,
             content: yaml_string(&manifest)?,
         })
     }

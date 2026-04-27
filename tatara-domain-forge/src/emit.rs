@@ -199,6 +199,25 @@ pub fn emit_lib_rs(domain: &Domain) -> String {
         let _ = writeln!(out, "}}");
     }
 
+    // Emit `impl LifecycleProtocol` — eighth capability layer.
+    // Default `Immediate` for CRD-shaped resources (most CRDs are
+    // configuration objects whose state changes apply at once).
+    // Service-shaped or stateful CRDs override after generation.
+    let _ = writeln!(out);
+    let _ = writeln!(
+        out,
+        "// ── Lifecycle metadata (rollout strategy per domain) ──────"
+    );
+    for r in &domain.resources {
+        let _ = writeln!(out);
+        let _ = writeln!(out, "impl tatara_lisp::LifecycleProtocol for {} {{", r.struct_name);
+        let _ = writeln!(
+            out,
+            "    const STRATEGY: tatara_lisp::RolloutStrategy = tatara_lisp::RolloutStrategy::Immediate;"
+        );
+        let _ = writeln!(out, "}}");
+    }
+
     // Emit `impl ValidatedDomain` — seventh capability layer.
     // Default impl (validate_value returns Ok) for forge-
     // generated domains since CRDs don't ship semantic rules
@@ -336,6 +355,11 @@ pub fn emit_lib_rs(domain: &Domain) -> String {
         let _ = writeln!(
             out,
             "    tatara_lisp::domain::register_validate::<{}>();",
+            r.struct_name
+        );
+        let _ = writeln!(
+            out,
+            "    tatara_lisp::domain::register_lifecycle::<{}>();",
             r.struct_name
         );
     }

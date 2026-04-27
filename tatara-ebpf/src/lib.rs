@@ -178,6 +178,28 @@ fn is_gpl_compatible(license: &str) -> bool {
 impl tatara_lisp::ValidatedDomain for BpfMapSpec {}
 impl tatara_lisp::ValidatedDomain for BpfPolicySpec {}
 
+// Lifecycle layer — kernel-attached programs need BlueGreen.
+// The verifier rejects half-loaded state; the only safe shape
+// is "load new program in parallel, atomically replace the
+// attach point, unload the old one." Maps follow the same
+// pattern when their key/value sizes change. Policies compose
+// programs + maps so they inherit BlueGreen too.
+impl tatara_lisp::LifecycleProtocol for BpfProgramSpec {
+    const STRATEGY: tatara_lisp::RolloutStrategy = tatara_lisp::RolloutStrategy::BlueGreen;
+    const DRAIN_SECONDS: u32 = 5;
+}
+impl tatara_lisp::LifecycleProtocol for BpfMapSpec {
+    // Maps are state — recreating loses the contents. When the
+    // shape changes we still need Recreate (no in-place resize),
+    // but the drain is shorter since maps don't run code.
+    const STRATEGY: tatara_lisp::RolloutStrategy = tatara_lisp::RolloutStrategy::Recreate;
+    const DRAIN_SECONDS: u32 = 1;
+}
+impl tatara_lisp::LifecycleProtocol for BpfPolicySpec {
+    const STRATEGY: tatara_lisp::RolloutStrategy = tatara_lisp::RolloutStrategy::BlueGreen;
+    const DRAIN_SECONDS: u32 = 5;
+}
+
 /// Register every keyword form this domain exposes onto the host
 /// interpreter, plus its non-compile capability metadata. Embedders
 /// call this once during boot.
@@ -201,4 +223,8 @@ pub fn register() {
     tatara_lisp::domain::register_validate::<BpfProgramSpec>();
     tatara_lisp::domain::register_validate::<BpfMapSpec>();
     tatara_lisp::domain::register_validate::<BpfPolicySpec>();
+    // Lifecycle layer — rollout strategy per resource kind.
+    tatara_lisp::domain::register_lifecycle::<BpfProgramSpec>();
+    tatara_lisp::domain::register_lifecycle::<BpfMapSpec>();
+    tatara_lisp::domain::register_lifecycle::<BpfPolicySpec>();
 }

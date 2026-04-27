@@ -229,6 +229,27 @@ fn fingerprints_are_namespaced_per_attestation_layer() {
 }
 
 #[test]
+fn layer_8_lifecycle_strategy_is_per_keyword() {
+    // Layer 8 proof. tatara-ebpf overrides the default
+    // (Immediate) for its three keywords: programs + policies
+    // need BlueGreen (kernel verifier won't accept partial
+    // load), maps need Recreate (no in-place size resize).
+    // Forge-generated catalog domains keep the Immediate default.
+    register_all();
+    let prog = tatara_lisp::domain::lookup_lifecycle("defbpf-program").unwrap();
+    assert_eq!(prog.strategy, tatara_lisp::RolloutStrategy::BlueGreen);
+    let map = tatara_lisp::domain::lookup_lifecycle("defbpf-map").unwrap();
+    assert_eq!(map.strategy, tatara_lisp::RolloutStrategy::Recreate);
+    let policy = tatara_lisp::domain::lookup_lifecycle("defbpf-policy").unwrap();
+    assert_eq!(policy.strategy, tatara_lisp::RolloutStrategy::BlueGreen);
+    let gw = tatara_lisp::domain::lookup_lifecycle("defgateway").unwrap();
+    assert_eq!(gw.strategy, tatara_lisp::RolloutStrategy::Immediate);
+    // BPF programs drain in 5s (faster than the 30s default —
+    // they detach atomically at the kernel level).
+    assert_eq!(prog.drain_seconds, 5);
+}
+
+#[test]
 fn iter_actionable_orders_removes_then_adds_then_changes() {
     register_all();
     let v1 = compile_into_env(&read(ENV_V1).unwrap()).unwrap();

@@ -515,6 +515,12 @@ impl tatara_lisp::DocumentedDomain for GatewaySpec {
     ];
 }
 
+// ── Lifecycle metadata (rollout strategy per domain) ──────
+
+impl tatara_lisp::LifecycleProtocol for GatewaySpec {
+    const STRATEGY: tatara_lisp::RolloutStrategy = tatara_lisp::RolloutStrategy::Immediate;
+}
+
 // ── Validation metadata (per-domain semantic checks) ──────
 
 impl tatara_lisp::ValidatedDomain for GatewaySpec {}
@@ -547,4 +553,5 @@ pub fn register() {
     tatara_lisp::domain::register_schema::<GatewaySpec>();
     tatara_lisp::domain::register_attest::<GatewaySpec>();
     tatara_lisp::domain::register_validate::<GatewaySpec>();
+    tatara_lisp::domain::register_lifecycle::<GatewaySpec>();
 }

@@ -587,6 +587,88 @@ pub fn registered_validate_keywords() -> Vec<&'static str> {
     validate_registry().lock().unwrap().keys().copied().collect()
 }
 
+// ── Lifecycle capability ──────────────────────────────────────────
+//
+// Eighth capability layer: per-domain rollout strategy. Where
+// Layer 4 (DependentDomain) declares **apply X before Y**, Layer
+// 8 declares **when X changes, here's how to swap it**.
+//
+// Different shapes need different protocols:
+//   - service-shaped CRs (Gateway, Service): RollingUpdate
+//   - stateful resources (ConfigMaps owned by stateful sets):
+//     Recreate
+//   - kernel-attached programs (eBPF): BlueGreen — load new
+//     before unloading old, atomic-swap (the verifier rejects
+//     half-loaded state, so blue/green is the only safe shape)
+//   - config CRs (most CRD-shaped resources): Immediate
+//
+// `tatara-rollout` (and future `tatara-deploy`) consult this
+// per Change to pick the right swap protocol for each resource.
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum RolloutStrategy {
+    /// Apply once, no transition. Most config-shaped CRDs.
+    Immediate,
+    /// Tear down, then create. Stateful resources where in-place
+    /// updates aren't safe.
+    Recreate,
+    /// Standard rolling update — replace pod-by-pod with health
+    /// probes between. Service-shaped CRs.
+    RollingUpdate,
+    /// Install new alongside old, switch traffic, drain old.
+    /// Kernel-attached programs (eBPF) — the verifier won't
+    /// accept half-loaded state, so blue/green is the only
+    /// safe shape.
+    BlueGreen,
+    /// Percentage traffic shift over time. Service mesh primary
+    /// pattern.
+    Canary,
+}
+
+pub trait LifecycleProtocol {
+    /// How changes to this domain's resources roll out.
+    const STRATEGY: RolloutStrategy;
+    /// Seconds to wait for graceful termination before force-kill.
+    /// 30s default matches K8s pod terminationGracePeriodSeconds.
+    const DRAIN_SECONDS: u32 = 30;
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct LifecycleHandler {
+    pub keyword: &'static str,
+    pub strategy: RolloutStrategy,
+    pub drain_seconds: u32,
+}
+
+static LIFECYCLE_REGISTRY: OnceLock<Mutex<HashMap<&'static str, LifecycleHandler>>> =
+    OnceLock::new();
+
+fn lifecycle_registry() -> &'static Mutex<HashMap<&'static str, LifecycleHandler>> {
+    LIFECYCLE_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+pub fn register_lifecycle<T>()
+where
+    T: TataraDomain + LifecycleProtocol,
+{
+    let handler = LifecycleHandler {
+        keyword: T::KEYWORD,
+        strategy: T::STRATEGY,
+        drain_seconds: T::DRAIN_SECONDS,
+    };
+    lifecycle_registry().lock().unwrap().insert(T::KEYWORD, handler);
+}
+
+#[must_use]
+pub fn lookup_lifecycle(keyword: &str) -> Option<LifecycleHandler> {
+    lifecycle_registry().lock().unwrap().get(keyword).copied()
+}
+
+#[must_use]
+pub fn registered_lifecycle_keywords() -> Vec<&'static str> {
+    lifecycle_registry().lock().unwrap().keys().copied().collect()
+}
+
 // ── Sexp ↔ serde_json bridge (universal type support) ──────────────
 //
 // Lets the derive macro fall through to `serde_json::from_value` for any

@@ -1074,6 +1074,12 @@ impl tatara_lisp::DocumentedDomain for PodMonitorSpec {
     ];
 }
 
+// ── Lifecycle metadata (rollout strategy per domain) ──────
+
+impl tatara_lisp::LifecycleProtocol for PodMonitorSpec {
+    const STRATEGY: tatara_lisp::RolloutStrategy = tatara_lisp::RolloutStrategy::Immediate;
+}
+
 // ── Validation metadata (per-domain semantic checks) ──────
 
 impl tatara_lisp::ValidatedDomain for PodMonitorSpec {}
@@ -1106,4 +1112,5 @@ pub fn register() {
     tatara_lisp::domain::register_schema::<PodMonitorSpec>();
     tatara_lisp::domain::register_attest::<PodMonitorSpec>();
     tatara_lisp::domain::register_validate::<PodMonitorSpec>();
+    tatara_lisp::domain::register_lifecycle::<PodMonitorSpec>();
 }

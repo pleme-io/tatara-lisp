@@ -395,6 +395,58 @@ pub fn registered_deps_keywords() -> Vec<&'static str> {
     deps_registry().lock().unwrap().keys().copied().collect()
 }
 
+// ── Schematic capability ──────────────────────────────────────────
+//
+// Fifth capability layer: per-domain JSON Schema export. Forge-
+// generated domains preserve the source CRD's openAPIV3Schema
+// verbatim; hand-written domains can either skip the layer or
+// hand-curate a schema. Consumers: IDE hover-help, web
+// validators, openapi exporters, admin-UI form generators —
+// everyone who wants the typed shape without depending on the
+// Rust struct directly.
+
+pub trait SchematicDomain {
+    /// JSON Schema source for this type. Preserved verbatim from
+    /// the CRD's openAPIV3Schema for forge-generated domains;
+    /// hand-curated for non-CRD domains. Consumers parse this on
+    /// demand — keeping it as a static string avoids paying
+    /// serde_json::Value at startup for every domain.
+    const SCHEMA_JSON: &'static str;
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct SchemaHandler {
+    pub keyword: &'static str,
+    pub schema_json: &'static str,
+}
+
+static SCHEMA_REGISTRY: OnceLock<Mutex<HashMap<&'static str, SchemaHandler>>> = OnceLock::new();
+
+fn schema_registry() -> &'static Mutex<HashMap<&'static str, SchemaHandler>> {
+    SCHEMA_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+pub fn register_schema<T>()
+where
+    T: TataraDomain + SchematicDomain,
+{
+    let handler = SchemaHandler {
+        keyword: T::KEYWORD,
+        schema_json: T::SCHEMA_JSON,
+    };
+    schema_registry().lock().unwrap().insert(T::KEYWORD, handler);
+}
+
+#[must_use]
+pub fn lookup_schema(keyword: &str) -> Option<SchemaHandler> {
+    schema_registry().lock().unwrap().get(keyword).copied()
+}
+
+#[must_use]
+pub fn registered_schema_keywords() -> Vec<&'static str> {
+    schema_registry().lock().unwrap().keys().copied().collect()
+}
+
 // ── Sexp ↔ serde_json bridge (universal type support) ──────────────
 //
 // Lets the derive macro fall through to `serde_json::from_value` for any

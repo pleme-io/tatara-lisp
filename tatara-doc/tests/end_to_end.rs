@@ -46,6 +46,29 @@ fn fully_registered_keywords_lists_only_compile_render_doc_complete() {
 }
 
 #[test]
+fn forge_generated_domains_expose_their_source_schema() {
+    // Layer 5 proof. Forge-generated crates carry their CRD's
+    // openAPIV3Schema verbatim through SchematicDomain. Useful
+    // for IDE autocomplete, web validators, openapi exporters.
+    register_all();
+    let kws = tatara_lisp::domain::registered_schema_keywords();
+    assert!(kws.contains(&"defgateway"));
+    let gw = tatara_lisp::domain::lookup_schema("defgateway").unwrap();
+    // Schema is a non-empty JSON string; it parses; it has a
+    // top-level type or properties (the OpenAPI v3 shape).
+    let parsed: serde_json::Value =
+        serde_json::from_str(gw.schema_json).expect("schema parses");
+    let obj = parsed.as_object().expect("schema is an object");
+    assert!(
+        obj.contains_key("type") || obj.contains_key("properties"),
+        "schema looks like OpenAPI v3 — has `type` or `properties`"
+    );
+    // Hand-written ebpf domains don't expose schema metadata
+    // (intentional — no upstream CRD to lift from).
+    assert!(!kws.contains(&"defbpf-program"));
+}
+
+#[test]
 fn catalog_is_kebab_case_for_lisp_authoring() {
     register_all();
     let md = render_catalog();

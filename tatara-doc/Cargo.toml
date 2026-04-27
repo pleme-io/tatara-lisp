@@ -17,3 +17,4 @@ tatara-lisp = { path = "../tatara-lisp" }
 [dev-dependencies]
 tatara-ebpf = { path = "../tatara-ebpf" }
 tatara-gateway-api = { path = "../tatara-gateway-api" }
+serde_json = "1"

@@ -123,6 +123,11 @@ fn crd_to_resource(v: &serde_yaml_ng::Value) -> Result<Resource, FromCrdError> {
             })
             .map(|(k, _)| k.clone())
     };
+    // Convert the YAML schema to JSON for the SchematicDomain
+    // capability. Fall through any conversion error to None so a
+    // weird-shaped schema doesn't fail the whole forge run; the
+    // domain just won't expose a SchemaMetadata impl.
+    let raw_schema = serde_json::to_value(schema).ok();
     Ok(Resource {
         struct_name,
         keyword,
@@ -131,6 +136,7 @@ fn crd_to_resource(v: &serde_yaml_ng::Value) -> Result<Resource, FromCrdError> {
         api_version: Some(api_version),
         kind: Some(kind.to_string()),
         name_field,
+        raw_schema,
     })
 }
 

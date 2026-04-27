@@ -3321,6 +3321,10 @@ rec {
         ];
         devDependencies = [
           {
+            name = "serde_json";
+            packageId = "serde_json";
+          }
+          {
             name = "tatara-ebpf";
             packageId = "tatara-ebpf";
           }

@@ -199,6 +199,31 @@ pub fn emit_lib_rs(domain: &Domain) -> String {
         let _ = writeln!(out, "}}");
     }
 
+    // Emit `impl SchematicDomain` — fifth capability layer.
+    // Carries the source CRD's openAPIV3Schema verbatim so IDE
+    // hover-help, web validators, openapi exporters and admin
+    // form generators read the typed shape without depending
+    // on the Rust struct directly.
+    let any_schema = domain.resources.iter().any(|r| r.raw_schema.is_some());
+    if any_schema {
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "// ── Schema metadata (consumed by IDEs / openapi exporters) ──"
+        );
+        for r in &domain.resources {
+            if let Some(schema) = &r.raw_schema {
+                let json = serde_json::to_string(schema)
+                    .unwrap_or_else(|_| "{}".to_string());
+                let escaped = escape_rust_str(&json);
+                let _ = writeln!(out);
+                let _ = writeln!(out, "impl tatara_lisp::SchematicDomain for {} {{", r.struct_name);
+                let _ = writeln!(out, "    const SCHEMA_JSON: &'static str = \"{escaped}\";");
+                let _ = writeln!(out, "}}");
+            }
+        }
+    }
+
     // Emit `impl DependentDomain` — fourth capability layer.
     // CRDs don't generally declare type-level deps, so the
     // forge-generated default is empty. Users who want
@@ -256,6 +281,13 @@ pub fn emit_lib_rs(domain: &Domain) -> String {
             "    tatara_lisp::domain::register_deps::<{}>();",
             r.struct_name
         );
+        if r.raw_schema.is_some() {
+            let _ = writeln!(
+                out,
+                "    tatara_lisp::domain::register_schema::<{}>();",
+                r.struct_name
+            );
+        }
     }
     let _ = writeln!(out, "}}");
     out

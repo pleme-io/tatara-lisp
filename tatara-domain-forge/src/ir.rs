@@ -81,6 +81,13 @@ pub struct Resource {
     /// and falling back to `"name"` if a `name` field exists.
     #[serde(default)]
     pub name_field: Option<String>,
+    /// Source JSON Schema preserved verbatim — the CRD's
+    /// `spec.versions[*].schema.openAPIV3Schema`, normalized to
+    /// JSON. Embedded as `SchematicDomain::SCHEMA_JSON` in the
+    /// emitted impl. None for non-CRD sources where no schema
+    /// exists at ingestion time.
+    #[serde(default)]
+    pub raw_schema: Option<serde_json::Value>,
 }
 
 /// One typed field of a resource.

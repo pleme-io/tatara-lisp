@@ -163,6 +163,16 @@ rec {
       # File a bug if you depend on any for non-debug work!
       debug = internal.debugCrate { inherit packageId; };
     };
+    "tatara-render" = rec {
+      packageId = "tatara-render";
+      build = internal.buildRustCrateWithFeatures {
+        packageId = "tatara-render";
+      };
+
+      # Debug support which might change between releases.
+      # File a bug if you depend on any for non-debug work!
+      debug = internal.debugCrate { inherit packageId; };
+    };
     "tatara-rollout" = rec {
       packageId = "tatara-rollout";
       build = internal.buildRustCrateWithFeatures {
@@ -3702,6 +3712,59 @@ rec {
           {
             name = "tatara-lisp-derive";
             packageId = "tatara-lisp-derive";
+          }
+        ];
+
+      };
+      "tatara-render" = rec {
+        crateName = "tatara-render";
+        version = "0.2.0";
+        edition = "2021";
+        src = lib.cleanSourceWith { filter = sourceFilter;  src = ./tatara-render; };
+        libName = "tatara_render";
+        authors = [
+          "Pleme.io <engineering@pleme.io>"
+        ];
+        dependencies = [
+          {
+            name = "indexmap";
+            packageId = "indexmap";
+            features = [ "serde" ];
+          }
+          {
+            name = "serde";
+            packageId = "serde";
+            features = [ "derive" ];
+          }
+          {
+            name = "serde_json";
+            packageId = "serde_json";
+          }
+          {
+            name = "serde_yaml_ng";
+            packageId = "serde_yaml_ng";
+          }
+          {
+            name = "tatara-env";
+            packageId = "tatara-env";
+          }
+          {
+            name = "thiserror";
+            packageId = "thiserror 2.0.18";
+          }
+        ];
+        devDependencies = [
+          {
+            name = "tatara-ebpf";
+            packageId = "tatara-ebpf";
+          }
+          {
+            name = "tatara-gateway-api";
+            packageId = "tatara-gateway-api";
+          }
+          {
+            name = "tatara-lisp";
+            packageId = "tatara-lisp";
           }
         ];
 

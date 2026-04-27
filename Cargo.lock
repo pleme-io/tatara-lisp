@@ -1125,6 +1125,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "tatara-render"
+version = "0.2.0"
+dependencies = [
+ "indexmap",
+ "serde",
+ "serde_json",
+ "serde_yaml_ng",
+ "tatara-ebpf",
+ "tatara-env",
+ "tatara-gateway-api",
+ "tatara-lisp",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "tatara-rollout"
 version = "0.2.0"
 dependencies = [

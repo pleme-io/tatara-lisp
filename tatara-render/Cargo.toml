@@ -1,0 +1,25 @@
+[package]
+name = "tatara-render"
+description = "Env → IaC-platform-shaped manifests. The RENDER phase (THEORY §IV.3) of the eight-phase convergence loop. Each `Backend` impl is a morphism from the typescape (typed Rust resources in `tatara-env::Env`) to a target's native shape (Kubernetes CR YAML, Helm template, Terraform JSON, Pangea Ruby DSL). Adding a backend inherits every existing proof — proofs attach to the typescape types, not to the rendering code (THEORY §III.2)."
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+tatara-env = { path = "../tatara-env" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml_ng = "0.10"
+indexmap = { version = "2", features = ["serde"] }
+thiserror = "2"
+
+[dev-dependencies]
+tatara-ebpf = { path = "../tatara-ebpf" }
+tatara-gateway-api = { path = "../tatara-gateway-api" }
+tatara-lisp = { path = "../tatara-lisp" }

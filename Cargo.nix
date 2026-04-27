@@ -3266,8 +3266,20 @@ rec {
             packageId = "serde_yaml";
           }
           {
+            name = "tatara-cilium";
+            packageId = "tatara-cilium";
+          }
+          {
             name = "tatara-domain-forge";
             packageId = "tatara-domain-forge";
+          }
+          {
+            name = "tatara-ebpf";
+            packageId = "tatara-ebpf";
+          }
+          {
+            name = "tatara-gateway-api";
+            packageId = "tatara-gateway-api";
           }
           {
             name = "tatara-lisp";
@@ -3280,6 +3292,14 @@ rec {
           {
             name = "tatara-lisp-source";
             packageId = "tatara-lisp-source";
+          }
+          {
+            name = "tatara-platform-checks";
+            packageId = "tatara-platform-checks";
+          }
+          {
+            name = "tatara-prometheus-operator";
+            packageId = "tatara-prometheus-operator";
           }
         ];
 

@@ -985,10 +985,15 @@ dependencies = [
  "clap",
  "serde",
  "serde_yaml",
+ "tatara-cilium",
  "tatara-domain-forge",
+ "tatara-ebpf",
+ "tatara-gateway-api",
  "tatara-lisp",
  "tatara-lisp-eval",
  "tatara-lisp-source",
+ "tatara-platform-checks",
+ "tatara-prometheus-operator",
 ]
 
 [[package]]

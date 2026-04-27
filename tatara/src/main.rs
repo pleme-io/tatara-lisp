@@ -116,6 +116,17 @@ enum Cmd {
         namespace: String,
     },
 
+    /// Run platform-wide invariant checks against the registered
+    /// tatara catalog. Useful in CI gates and as a pre-flight
+    /// before promoting a build to a `:tier "prod"` env. Exit
+    /// code is non-zero when any invariant fails; the output
+    /// names every (invariant, keyword, reason) triple.
+    Checks {
+        /// Print the full report even when every invariant passes.
+        #[arg(long)]
+        verbose: bool,
+    },
+
     /// Generate a tatara-lisp domain crate from a typed input
     /// (currently: K8s CRD YAML — single doc or multi-doc bundle).
     /// The generated crate ships #[derive(TataraDomain)] structs +
@@ -193,6 +204,46 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
             dry_run,
             workspace_member,
         } => forge_domain(&input, &name, &output, dry_run, workspace_member),
+        Cmd::Checks { verbose } => run_platform_checks(verbose),
+    }
+}
+
+// ── platform checks ──────────────────────────────────────────────
+
+fn run_platform_checks(verbose: bool) -> Result<ExitCode> {
+    // Register every catalog crate the CLI knows about so the
+    // global registries are populated before the invariants walk.
+    // New catalog crates added: include them here. (A future
+    // `tatara-platform-registry` crate could collapse this list
+    // into a single `register_all()` for further compounding.)
+    tatara_gateway_api::register();
+    tatara_cilium::register();
+    tatara_prometheus_operator::register();
+    tatara_ebpf::register();
+
+    let invariants = tatara_platform_checks::default_invariants();
+    let run = tatara_platform_checks::run_all(&invariants);
+    let fails = run.fail_count();
+
+    if verbose || fails > 0 {
+        eprintln!("{}", run.report());
+    }
+
+    let kw_count = tatara_lisp::domain::registered_keywords().len();
+    eprintln!(
+        "tatara checks: {} invariant(s) over {} keyword(s) — {} failure(s)",
+        invariants.len(),
+        kw_count,
+        fails,
+    );
+
+    if fails == 0 {
+        Ok(ExitCode::SUCCESS)
+    } else {
+        for (inv, kw, msg) in run.failures() {
+            eprintln!("  FAIL  [{inv}] {kw}: {msg}");
+        }
+        Ok(ExitCode::from(1))
     }
 }
 

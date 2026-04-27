@@ -200,6 +200,69 @@ impl tatara_lisp::CompliantDomain for BpfPolicySpec {
     ];
 }
 
+// Observability — BPF programs emit per-CPU counter samples
+// scraped via the userspace exporter. Maps are storage, not
+// metric sources directly. Policies inherit from their programs.
+impl tatara_lisp::ObservableDomain for BpfMapSpec {
+    const METRIC_PREFIX: &'static str = "";
+    const LOG_LABELS: &'static [&'static str] = &[];
+}
+impl tatara_lisp::ObservableDomain for BpfProgramSpec {
+    const METRIC_PREFIX: &'static str = "tatara_ebpf_program";
+    const LOG_LABELS: &'static [&'static str] = &["program", "kind", "interface"];
+}
+impl tatara_lisp::ObservableDomain for BpfPolicySpec {
+    const METRIC_PREFIX: &'static str = "tatara_ebpf_policy";
+    const LOG_LABELS: &'static [&'static str] = &["policy"];
+}
+
+// Help — mnemonic + a working example each.
+impl tatara_lisp::HelpDomain for BpfMapSpec {
+    const MNEMONIC: &'static str = "kernel-↔-userspace data plane";
+    const EXAMPLES: &'static [&'static str] = &[concat!(
+        "(defbpf-map\n",
+        "  :name \"syn-counter\"\n",
+        "  :kind :per-cpu-array\n",
+        "  :key-size 4 :value-size 8 :max-entries 1)"
+    )];
+}
+impl tatara_lisp::HelpDomain for BpfProgramSpec {
+    const MNEMONIC: &'static str = "one BPF program (XDP/TC/kprobe/...)";
+    const EXAMPLES: &'static [&'static str] = &[concat!(
+        "(defbpf-program\n",
+        "  :name \"drop-syn-flood\"\n",
+        "  :kind :xdp\n",
+        "  :attach (:target \"eth0\")\n",
+        "  :source \"bpf/drop_syn.rs\"\n",
+        "  :license \"GPL\")"
+    )];
+}
+impl tatara_lisp::HelpDomain for BpfPolicySpec {
+    const MNEMONIC: &'static str = "composition of programs + maps as one IaC unit";
+    const EXAMPLES: &'static [&'static str] = &[concat!(
+        "(defbpf-policy\n",
+        "  :name \"edge-protection\"\n",
+        "  :description \"L4 SYN-flood mitigation\"\n",
+        "  :programs (\"drop_syn_flood\")\n",
+        "  :maps (\"syn_counter\"))"
+    )];
+}
+
+// Stability — the bpf surface is stable but young; programs +
+// policies are 0.2 (post-MVP), maps are 0.1 (just landed).
+impl tatara_lisp::StableDomain for BpfMapSpec {
+    const STABILITY: &'static str = "stable";
+    const SINCE_VERSION: &'static str = "0.1.0";
+}
+impl tatara_lisp::StableDomain for BpfProgramSpec {
+    const STABILITY: &'static str = "stable";
+    const SINCE_VERSION: &'static str = "0.2.0";
+}
+impl tatara_lisp::StableDomain for BpfPolicySpec {
+    const STABILITY: &'static str = "stable";
+    const SINCE_VERSION: &'static str = "0.2.0";
+}
+
 // Lifecycle layer — kernel-attached programs need BlueGreen.
 // The verifier rejects half-loaded state; the only safe shape
 // is "load new program in parallel, atomically replace the
@@ -253,4 +316,16 @@ pub fn register() {
     tatara_lisp::domain::register_compliance::<BpfProgramSpec>();
     tatara_lisp::domain::register_compliance::<BpfMapSpec>();
     tatara_lisp::domain::register_compliance::<BpfPolicySpec>();
+    // Observability — metric prefix + log labels.
+    tatara_lisp::domain::register_observability::<BpfProgramSpec>();
+    tatara_lisp::domain::register_observability::<BpfMapSpec>();
+    tatara_lisp::domain::register_observability::<BpfPolicySpec>();
+    // Help — examples + mnemonics.
+    tatara_lisp::domain::register_help::<BpfProgramSpec>();
+    tatara_lisp::domain::register_help::<BpfMapSpec>();
+    tatara_lisp::domain::register_help::<BpfPolicySpec>();
+    // Stability — since-version + posture.
+    tatara_lisp::domain::register_stability::<BpfProgramSpec>();
+    tatara_lisp::domain::register_stability::<BpfMapSpec>();
+    tatara_lisp::domain::register_stability::<BpfPolicySpec>();
 }

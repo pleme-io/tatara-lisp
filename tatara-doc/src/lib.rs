@@ -19,7 +19,9 @@
 
 use std::fmt::Write;
 use tatara_lisp::domain::{
-    lookup_doc, lookup_render, registered_doc_keywords, registered_keywords,
+    lookup_compliance, lookup_deps, lookup_doc, lookup_help, lookup_lifecycle,
+    lookup_observability, lookup_render, lookup_stability, registered_doc_keywords,
+    registered_keywords,
 };
 
 /// Render every registered domain into one Markdown index page.
@@ -90,41 +92,115 @@ pub fn list_keywords() -> Vec<&'static str> {
 fn render_section(out: &mut String, kw: &str) {
     let _ = writeln!(out, "## `{kw}` <a id=\"{anchor}\"></a>", anchor = anchor(kw));
     let _ = writeln!(out);
-    if let Some(rmeta) = lookup_render(kw) {
+
+    // Layer 12 — Stability decoration up top.
+    if let Some(s) = lookup_stability(kw) {
         let _ = writeln!(
             out,
-            "**Renders to**: `{}` / `{}` (Kubernetes CR)",
-            rmeta.api_version, rmeta.kind
+            "_{} since {}_",
+            s.stability, s.since_version
         );
         let _ = writeln!(out);
     }
-    if let Some(dmeta) = lookup_doc(kw) {
-        if !dmeta.docstring.is_empty() {
-            let _ = writeln!(out, "{}", dmeta.docstring);
+
+    // Layer 2 — Render target.
+    if let Some(r) = lookup_render(kw) {
+        let _ = writeln!(
+            out,
+            "**Renders to**: `{}` / `{}` (Kubernetes CR)",
+            r.api_version, r.kind
+        );
+        let _ = writeln!(out);
+    }
+
+    // Layer 8 — Lifecycle.
+    if let Some(l) = lookup_lifecycle(kw) {
+        let _ = writeln!(
+            out,
+            "**Rollout**: `{:?}`, drain {}s",
+            l.strategy, l.drain_seconds
+        );
+        let _ = writeln!(out);
+    }
+
+    // Layer 3 — Documented (docstring + field table).
+    if let Some(d) = lookup_doc(kw) {
+        if !d.docstring.is_empty() {
+            let _ = writeln!(out, "{}", d.docstring);
             let _ = writeln!(out);
         }
-        if !dmeta.field_docs.is_empty() {
+        if !d.field_docs.is_empty() {
             let _ = writeln!(out, "### Fields");
             let _ = writeln!(out);
             let _ = writeln!(out, "| Field | Description |");
             let _ = writeln!(out, "|---|---|");
-            for (name, doc) in dmeta.field_docs {
+            for (name, doc) in d.field_docs {
                 let kebab = snake_to_kebab(name);
-                let _ = writeln!(
-                    out,
-                    "| `:{kebab}` | {} |",
-                    doc.replace('|', "\\|")
-                );
+                let _ = writeln!(out, "| `:{kebab}` | {} |", doc.replace('|', "\\|"));
             }
             let _ = writeln!(out);
         }
-    } else {
-        let _ = writeln!(
-            out,
-            "_No doc metadata registered. Author docstrings or \
-             regenerate from a CRD with descriptions._"
-        );
-        let _ = writeln!(out);
+    }
+
+    // Layer 4 — Dependencies (when present).
+    if let Some(dp) = lookup_deps(kw) {
+        if !dp.depends_on.is_empty() {
+            let deps: Vec<String> = dp.depends_on.iter().map(|k| format!("`{k}`")).collect();
+            let _ = writeln!(out, "**Depends on**: {}", deps.join(", "));
+            let _ = writeln!(out);
+        }
+    }
+
+    // Layer 9 — Compliance posture (when claimed).
+    if let Some(c) = lookup_compliance(kw) {
+        if !c.frameworks.is_empty() || !c.controls.is_empty() {
+            let _ = writeln!(out, "### Compliance");
+            let _ = writeln!(out);
+            if !c.frameworks.is_empty() {
+                let fws: Vec<String> = c.frameworks.iter().map(|f| format!("`{f}`")).collect();
+                let _ = writeln!(out, "- Frameworks: {}", fws.join(", "));
+            }
+            if !c.controls.is_empty() {
+                let cs: Vec<String> = c.controls.iter().map(|c| format!("`{c}`")).collect();
+                let _ = writeln!(out, "- Controls: {}", cs.join(", "));
+            }
+            let _ = writeln!(out);
+        }
+    }
+
+    // Layer 10 — Observability (when emitted).
+    if let Some(o) = lookup_observability(kw) {
+        if !o.metric_prefix.is_empty() || !o.log_labels.is_empty() {
+            let _ = writeln!(out, "### Observability");
+            let _ = writeln!(out);
+            if !o.metric_prefix.is_empty() {
+                let _ = writeln!(out, "- Metric prefix: `{}`", o.metric_prefix);
+            }
+            if !o.log_labels.is_empty() {
+                let labels: Vec<String> =
+                    o.log_labels.iter().map(|l| format!("`{l}`")).collect();
+                let _ = writeln!(out, "- Log labels: {}", labels.join(", "));
+            }
+            let _ = writeln!(out);
+        }
+    }
+
+    // Layer 11 — Help / mnemonic + examples.
+    if let Some(h) = lookup_help(kw) {
+        if !h.mnemonic.is_empty() {
+            let _ = writeln!(out, "_{}_", h.mnemonic);
+            let _ = writeln!(out);
+        }
+        if !h.examples.is_empty() {
+            let _ = writeln!(out, "### Examples");
+            let _ = writeln!(out);
+            for ex in h.examples {
+                let _ = writeln!(out, "```lisp");
+                let _ = writeln!(out, "{ex}");
+                let _ = writeln!(out, "```");
+                let _ = writeln!(out);
+            }
+        }
     }
 }
 

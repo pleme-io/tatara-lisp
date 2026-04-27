@@ -45,6 +45,57 @@ fn fully_registered_keywords_lists_only_compile_render_doc_complete() {
     assert!(!full.contains(&"defbpf-policy"));
 }
 
+/// THE PLATFORM INVARIANT: every registered keyword must have
+/// all nine always-required capability layers wired. A new
+/// domain that registers compile (Layer 1) but forgets one of
+/// the others is a defect — this test catches it. Conditional
+/// layers (Render / Schema / Attest — only present when CRD
+/// metadata supports them) are deliberately excluded.
+#[test]
+fn every_registered_keyword_has_all_required_layers() {
+    register_all();
+    let keywords = tatara_lisp::domain::registered_keywords();
+    assert!(!keywords.is_empty(), "register_all() actually registered domains");
+
+    let mut missing: Vec<(String, &'static str)> = Vec::new();
+    for kw in keywords {
+        if tatara_lisp::domain::lookup_doc(kw).is_none() {
+            missing.push((kw.to_string(), "Doc (L3)"));
+        }
+        if tatara_lisp::domain::lookup_deps(kw).is_none() {
+            missing.push((kw.to_string(), "Deps (L4)"));
+        }
+        if tatara_lisp::domain::lookup_validate(kw).is_none() {
+            missing.push((kw.to_string(), "Validate (L7)"));
+        }
+        if tatara_lisp::domain::lookup_lifecycle(kw).is_none() {
+            missing.push((kw.to_string(), "Lifecycle (L8)"));
+        }
+        if tatara_lisp::domain::lookup_compliance(kw).is_none() {
+            missing.push((kw.to_string(), "Compliance (L9)"));
+        }
+        if tatara_lisp::domain::lookup_observability(kw).is_none() {
+            missing.push((kw.to_string(), "Observability (L10)"));
+        }
+        if tatara_lisp::domain::lookup_help(kw).is_none() {
+            missing.push((kw.to_string(), "Help (L11)"));
+        }
+        if tatara_lisp::domain::lookup_stability(kw).is_none() {
+            missing.push((kw.to_string(), "Stability (L12)"));
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "{} layer(s) missing across registered domains:\n{}",
+        missing.len(),
+        missing
+            .iter()
+            .map(|(k, l)| format!("  {k} → {l}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+}
+
 /// THE PROOF: every layer the platform claims, mechanically
 /// asserted on a single forge-generated domain. If any of these
 /// nine assertions fails, the "compounding systems on top of

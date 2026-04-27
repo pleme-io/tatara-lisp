@@ -50,10 +50,81 @@ pub use spec::{
     BpfAttachPoint, BpfMapKind, BpfMapSpec, BpfPolicySpec, BpfProgramKind, BpfProgramSpec,
 };
 
+// ── Capability registrations beyond the typed compile path ────────
+//
+// Hand-written domains declare their non-render capability metadata
+// inline (the forge populates the trait impls for forge-generated
+// domains; we do it ourselves here).
+
+impl tatara_lisp::DocumentedDomain for BpfProgramSpec {
+    const DOCSTRING: &'static str =
+        "One BPF program — kind (XDP/TC/kprobe/...), attach point, source, license. \
+         Loaded via aya at runtime; built hermetically through substrate's ebpf.nix.";
+    const FIELD_DOCS: &'static [(&'static str, &'static str)] = &[
+        ("name", "Program name — the symbol exported in the BPF object."),
+        ("kind", "BPF program kind. Drives the aya `#[xdp]` etc. attribute."),
+        ("attach", "Where the program attaches (interface, kernel symbol, cgroup, ...)"),
+        ("source", "Path to the program body — `*.rs`, `*.bpf.o`, or `*.tlisp:fn`."),
+        ("license", "SPDX license string. GPL required for most helpers."),
+        ("pin_path", "Optional bpffs pin path so the program survives the loader."),
+        ("uses_maps", "BPF maps this program reads or writes."),
+    ];
+}
+
+impl tatara_lisp::DocumentedDomain for BpfMapSpec {
+    const DOCSTRING: &'static str =
+        "One BPF map — hash / array / per-cpu / ring-buf / etc. \
+         The kernel-↔-userspace data plane for BPF programs.";
+    const FIELD_DOCS: &'static [(&'static str, &'static str)] = &[
+        ("name", "Map name."),
+        ("kind", "Map kind — drives access pattern (hash/array/perf-event/...)"),
+        ("key_size", "Key size in bytes (0 for keyless maps like RingBuf)."),
+        ("value_size", "Value size in bytes."),
+        ("max_entries", "Capacity. For RingBuf, total bytes (page-rounded)."),
+        ("pin_path", "Optional bpffs pin path."),
+    ];
+}
+
+impl tatara_lisp::DocumentedDomain for BpfPolicySpec {
+    const DOCSTRING: &'static str =
+        "Composition of programs + maps applied as one unit. The IaC-shape \
+         arch-synthesizer + FluxCD consume.";
+    const FIELD_DOCS: &'static [(&'static str, &'static str)] = &[
+        ("name", "Policy name."),
+        ("description", "Human-readable description."),
+        ("programs", "Names of `defbpf-program`s composed in this policy."),
+        ("maps", "Names of `defbpf-map`s composed in this policy."),
+    ];
+}
+
+// Dependency layer — real edges this time. A policy is meaningful
+// only when its constituent programs + maps are already declared,
+// so it depends on both keywords. Programs depend on the maps they
+// reference (captured per-instance via `uses_maps`; type-level
+// they just depend on `defbpf-map`).
+impl tatara_lisp::DependentDomain for BpfMapSpec {
+    const DEPENDS_ON: &'static [&'static str] = &[];
+}
+impl tatara_lisp::DependentDomain for BpfProgramSpec {
+    const DEPENDS_ON: &'static [&'static str] = &["defbpf-map"];
+}
+impl tatara_lisp::DependentDomain for BpfPolicySpec {
+    const DEPENDS_ON: &'static [&'static str] = &["defbpf-program", "defbpf-map"];
+}
+
 /// Register every keyword form this domain exposes onto the host
-/// interpreter. Embedders call this once during boot.
+/// interpreter, plus its non-compile capability metadata. Embedders
+/// call this once during boot.
 pub fn register() {
     tatara_lisp::domain::register::<BpfProgramSpec>();
     tatara_lisp::domain::register::<BpfMapSpec>();
     tatara_lisp::domain::register::<BpfPolicySpec>();
+    // Doc layer — markdown hover help / catalog browser.
+    tatara_lisp::domain::register_doc::<BpfProgramSpec>();
+    tatara_lisp::domain::register_doc::<BpfMapSpec>();
+    tatara_lisp::domain::register_doc::<BpfPolicySpec>();
+    // Deps layer — typed topo-sort over the rollout plan.
+    tatara_lisp::domain::register_deps::<BpfProgramSpec>();
+    tatara_lisp::domain::register_deps::<BpfMapSpec>();
+    tatara_lisp::domain::register_deps::<BpfPolicySpec>();
 }

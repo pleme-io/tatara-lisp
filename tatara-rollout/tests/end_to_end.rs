@@ -2,7 +2,7 @@
 
 use tatara_env::{compile_into_env, register as register_env};
 use tatara_lisp::read;
-use tatara_rollout::{diff_envs, Change};
+use tatara_rollout::{diff_envs, ordered_apply, Change};
 
 fn register_all() {
     register_env();
@@ -113,6 +113,92 @@ fn removed_resource_appears_in_removes_only() {
     assert!(plan.changes.is_empty());
     assert_eq!(plan.removes.len(), 1);
     assert_eq!(plan.removes[0].id().name, "syn_counter");
+}
+
+#[test]
+fn ordered_apply_respects_typed_dependencies() {
+    // The compounding test for Layer 4. tatara-ebpf declares:
+    //   defbpf-policy   depends on defbpf-program + defbpf-map
+    //   defbpf-program  depends on defbpf-map
+    //   defbpf-map      depends on (nothing)
+    //
+    // In an env that adds all three, ordered_apply must sort
+    // them so dependencies land before dependents.
+    register_all();
+    let v0 = compile_into_env(
+        &read(r#"(defenv :name "v0" :description "x" :imports ("tatara-ebpf"))"#).unwrap(),
+    )
+    .unwrap();
+    let v1 = compile_into_env(
+        &read(
+            r#"
+        (defenv :name "v1" :description "x" :imports ("tatara-ebpf"))
+        (defbpf-policy :name "p" :description "x" :programs ("prog") :maps ("m"))
+        (defbpf-program :name "prog" :kind :xdp :attach (:target "eth0")
+            :source "bpf/x.rs" :license "GPL" :uses-maps ("m"))
+        (defbpf-map :name "m" :kind :array :value-size 8 :max-entries 1)
+        "#,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let plan = diff_envs(&v0, &v1);
+    assert_eq!(plan.adds.len(), 3, "all three resources are adds");
+
+    let ordered = ordered_apply(&plan).expect("toposort succeeds");
+    let keywords: Vec<&str> = ordered.iter().map(|c| c.id().keyword.as_str()).collect();
+    let pos = |kw: &str| keywords.iter().position(|k| *k == kw).unwrap();
+    // defbpf-map (no deps) → first
+    // defbpf-program (depends on defbpf-map) → after map
+    // defbpf-policy (depends on both) → last
+    assert!(
+        pos("defbpf-map") < pos("defbpf-program"),
+        "map before program: {keywords:?}"
+    );
+    assert!(
+        pos("defbpf-program") < pos("defbpf-policy"),
+        "program before policy: {keywords:?}"
+    );
+}
+
+#[test]
+fn ordered_apply_reverses_removes_so_dependents_torn_down_first() {
+    // Drift the same env back to empty — every resource is a
+    // remove. Removes must go in REVERSE topo order: dependents
+    // first (defbpf-policy), dependencies last (defbpf-map).
+    register_all();
+    let v0 = compile_into_env(
+        &read(
+            r#"
+        (defenv :name "v0" :description "x" :imports ("tatara-ebpf"))
+        (defbpf-policy :name "p" :description "x" :programs ("prog") :maps ("m"))
+        (defbpf-program :name "prog" :kind :xdp :attach (:target "eth0")
+            :source "bpf/x.rs" :license "GPL" :uses-maps ("m"))
+        (defbpf-map :name "m" :kind :array :value-size 8 :max-entries 1)
+        "#,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let v1 = compile_into_env(
+        &read(r#"(defenv :name "v1" :description "x" :imports ("tatara-ebpf"))"#).unwrap(),
+    )
+    .unwrap();
+    let plan = diff_envs(&v0, &v1);
+    assert_eq!(plan.removes.len(), 3);
+
+    let ordered = ordered_apply(&plan).unwrap();
+    let keywords: Vec<&str> = ordered.iter().map(|c| c.id().keyword.as_str()).collect();
+    let pos = |kw: &str| keywords.iter().position(|k| *k == kw).unwrap();
+    // Removes go in REVERSE topo: policy first, map last.
+    assert!(
+        pos("defbpf-policy") < pos("defbpf-program"),
+        "policy removed before program: {keywords:?}"
+    );
+    assert!(
+        pos("defbpf-program") < pos("defbpf-map"),
+        "program removed before map: {keywords:?}"
+    );
 }
 
 #[test]

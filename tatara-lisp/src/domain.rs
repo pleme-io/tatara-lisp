@@ -335,6 +335,66 @@ pub fn registered_doc_keywords() -> Vec<&'static str> {
     doc_registry().lock().unwrap().keys().copied().collect()
 }
 
+// ── Dependent capability ──────────────────────────────────────────
+//
+// Fourth capability layer (compile / render / doc / deps). Each
+// domain can declare which OTHER keywords its instances logically
+// depend on. The rollout pipeline consumes this to topo-sort the
+// `Plan` so deploys land in the right order — apply
+// `defservice` before `defpodmonitor` before `defciliumnetworkpolicy`,
+// drain in reverse.
+
+/// Type-level dependency declarations. The strings are keywords
+/// of OTHER domains this one expects to be present (e.g. a
+/// `defciliumnetworkpolicy` depends on a `defservice` whose pods
+/// it selects). The dependency relation is type-to-type, not
+/// instance-to-instance — finer-grained refs live on the typed
+/// resource value itself.
+pub trait DependentDomain {
+    /// Keywords this domain logically depends on. Empty by
+    /// default for forge-generated domains since CRDs don't
+    /// generally declare deps; hand-written domains override
+    /// to capture real ordering constraints.
+    const DEPENDS_ON: &'static [&'static str];
+}
+
+/// Erased dep handle — what the topo-sort consumer reads.
+#[derive(Clone, Copy, Debug)]
+pub struct DepsHandler {
+    pub keyword: &'static str,
+    pub depends_on: &'static [&'static str],
+}
+
+static DEPS_REGISTRY: OnceLock<Mutex<HashMap<&'static str, DepsHandler>>> = OnceLock::new();
+
+fn deps_registry() -> &'static Mutex<HashMap<&'static str, DepsHandler>> {
+    DEPS_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Register a `DependentDomain`'s deps. Idempotent.
+pub fn register_deps<T>()
+where
+    T: TataraDomain + DependentDomain,
+{
+    let handler = DepsHandler {
+        keyword: T::KEYWORD,
+        depends_on: T::DEPENDS_ON,
+    };
+    deps_registry().lock().unwrap().insert(T::KEYWORD, handler);
+}
+
+/// Look up dep metadata by keyword.
+#[must_use]
+pub fn lookup_deps(keyword: &str) -> Option<DepsHandler> {
+    deps_registry().lock().unwrap().get(keyword).copied()
+}
+
+/// List every keyword that has dep metadata registered.
+#[must_use]
+pub fn registered_deps_keywords() -> Vec<&'static str> {
+    deps_registry().lock().unwrap().keys().copied().collect()
+}
+
 // ── Sexp ↔ serde_json bridge (universal type support) ──────────────
 //
 // Lets the derive macro fall through to `serde_json::from_value` for any

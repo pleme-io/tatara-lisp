@@ -42,7 +42,9 @@
 pub mod diff;
 pub mod fingerprint;
 pub mod plan;
+pub mod toposort;
 
 pub use diff::diff_envs;
 pub use fingerprint::{fingerprint_env, fingerprint_resource, ResourceFingerprint};
 pub use plan::{Change, Plan, ResourceId};
+pub use toposort::{ordered_apply, ToposortError};

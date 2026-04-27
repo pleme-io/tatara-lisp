@@ -1160,6 +1160,7 @@ dependencies = [
  "tatara-env",
  "tatara-gateway-api",
  "tatara-lisp",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

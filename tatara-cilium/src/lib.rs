@@ -1779,10 +1779,17 @@ impl tatara_lisp::DocumentedDomain for CiliumNetworkPolicySpec {
     ];
 }
 
+// ── Dependency metadata (consumed by tatara-rollout topo-sort) ──
+
+impl tatara_lisp::DependentDomain for CiliumNetworkPolicySpec {
+    const DEPENDS_ON: &'static [&'static str] = &[];
+}
+
 /// Register every keyword form this domain exposes onto the host
 /// interpreter. Embedders call this once during boot.
 pub fn register() {
     tatara_lisp::domain::register::<CiliumNetworkPolicySpec>();
     tatara_lisp::domain::register_render::<CiliumNetworkPolicySpec>();
     tatara_lisp::domain::register_doc::<CiliumNetworkPolicySpec>();
+    tatara_lisp::domain::register_deps::<CiliumNetworkPolicySpec>();
 }

@@ -1074,10 +1074,17 @@ impl tatara_lisp::DocumentedDomain for PodMonitorSpec {
     ];
 }
 
+// ── Dependency metadata (consumed by tatara-rollout topo-sort) ──
+
+impl tatara_lisp::DependentDomain for PodMonitorSpec {
+    const DEPENDS_ON: &'static [&'static str] = &[];
+}
+
 /// Register every keyword form this domain exposes onto the host
 /// interpreter. Embedders call this once during boot.
 pub fn register() {
     tatara_lisp::domain::register::<PodMonitorSpec>();
     tatara_lisp::domain::register_render::<PodMonitorSpec>();
     tatara_lisp::domain::register_doc::<PodMonitorSpec>();
+    tatara_lisp::domain::register_deps::<PodMonitorSpec>();
 }

@@ -43,7 +43,8 @@ pub use compiler_spec::{
     load_from_disk, realize_in_memory, realize_to_disk, CompilerSpec, RealizedCompiler,
 };
 pub use domain::{
-    DocHandler, DocumentedDomain, DomainHandler, RenderHandler, RenderableDomain, TataraDomain,
+    DepsHandler, DependentDomain, DocHandler, DocumentedDomain, DomainHandler, RenderHandler,
+    RenderableDomain, TataraDomain,
 };
 // Derive macro — same name as the trait, different namespace (procedural
 // macros vs. types), so they coexist cleanly under one import.

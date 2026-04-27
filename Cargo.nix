@@ -3842,6 +3842,14 @@ rec {
             name = "tatara-env";
             packageId = "tatara-env";
           }
+          {
+            name = "tatara-lisp";
+            packageId = "tatara-lisp";
+          }
+          {
+            name = "thiserror";
+            packageId = "thiserror 2.0.18";
+          }
         ];
         devDependencies = [
           {

@@ -199,6 +199,27 @@ pub fn emit_lib_rs(domain: &Domain) -> String {
         let _ = writeln!(out, "}}");
     }
 
+    // Emit `impl DependentDomain` — fourth capability layer.
+    // CRDs don't generally declare type-level deps, so the
+    // forge-generated default is empty. Users who want
+    // dep-aware rollout ordering hand-edit the resulting crate
+    // (or supply a `tatara-deps.toml` companion in a future
+    // forge phase). Hand-written domains can override directly.
+    let _ = writeln!(out);
+    let _ = writeln!(
+        out,
+        "// ── Dependency metadata (consumed by tatara-rollout topo-sort) ──"
+    );
+    for r in &domain.resources {
+        let _ = writeln!(out);
+        let _ = writeln!(out, "impl tatara_lisp::DependentDomain for {} {{", r.struct_name);
+        let _ = writeln!(
+            out,
+            "    const DEPENDS_ON: &'static [&'static str] = &[];"
+        );
+        let _ = writeln!(out, "}}");
+    }
+
     // Emit register fn — wires every Resource's keyword form into
     // an `Interpreter<H>`'s domain registry. When render metadata
     // is available, also wires the render handler.
@@ -228,6 +249,11 @@ pub fn emit_lib_rs(domain: &Domain) -> String {
         let _ = writeln!(
             out,
             "    tatara_lisp::domain::register_doc::<{}>();",
+            r.struct_name
+        );
+        let _ = writeln!(
+            out,
+            "    tatara_lisp::domain::register_deps::<{}>();",
             r.struct_name
         );
     }

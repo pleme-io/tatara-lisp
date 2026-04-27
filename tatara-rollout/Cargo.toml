@@ -13,10 +13,12 @@ workspace = true
 
 [dependencies]
 tatara-env = { path = "../tatara-env" }
+tatara-lisp = { path = "../tatara-lisp" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 blake3 = "1"
 indexmap = { version = "2", features = ["serde"] }
+thiserror = "2"
 
 [dev-dependencies]
 tatara-ebpf = { path = "../tatara-ebpf" }

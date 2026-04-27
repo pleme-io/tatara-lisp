@@ -515,10 +515,17 @@ impl tatara_lisp::DocumentedDomain for GatewaySpec {
     ];
 }
 
+// ── Dependency metadata (consumed by tatara-rollout topo-sort) ──
+
+impl tatara_lisp::DependentDomain for GatewaySpec {
+    const DEPENDS_ON: &'static [&'static str] = &[];
+}
+
 /// Register every keyword form this domain exposes onto the host
 /// interpreter. Embedders call this once during boot.
 pub fn register() {
     tatara_lisp::domain::register::<GatewaySpec>();
     tatara_lisp::domain::register_render::<GatewaySpec>();
     tatara_lisp::domain::register_doc::<GatewaySpec>();
+    tatara_lisp::domain::register_deps::<GatewaySpec>();
 }

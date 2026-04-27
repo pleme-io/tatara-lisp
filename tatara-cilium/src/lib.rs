@@ -1779,6 +1779,12 @@ impl tatara_lisp::DocumentedDomain for CiliumNetworkPolicySpec {
     ];
 }
 
+// ── Attestation metadata (consumed by tameshi BLAKE3 chain) ──
+
+impl tatara_lisp::AttestableDomain for CiliumNetworkPolicySpec {
+    const ATTESTATION_NAMESPACE: &'static str = "cilium.io";
+}
+
 // ── Schema metadata (consumed by IDEs / openapi exporters) ──
 
 impl tatara_lisp::SchematicDomain for CiliumNetworkPolicySpec {
@@ -1799,4 +1805,5 @@ pub fn register() {
     tatara_lisp::domain::register_doc::<CiliumNetworkPolicySpec>();
     tatara_lisp::domain::register_deps::<CiliumNetworkPolicySpec>();
     tatara_lisp::domain::register_schema::<CiliumNetworkPolicySpec>();
+    tatara_lisp::domain::register_attest::<CiliumNetworkPolicySpec>();
 }

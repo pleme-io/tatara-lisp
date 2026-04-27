@@ -1074,6 +1074,12 @@ impl tatara_lisp::DocumentedDomain for PodMonitorSpec {
     ];
 }
 
+// ── Attestation metadata (consumed by tameshi BLAKE3 chain) ──
+
+impl tatara_lisp::AttestableDomain for PodMonitorSpec {
+    const ATTESTATION_NAMESPACE: &'static str = "monitoring.coreos.com";
+}
+
 // ── Schema metadata (consumed by IDEs / openapi exporters) ──
 
 impl tatara_lisp::SchematicDomain for PodMonitorSpec {
@@ -1094,4 +1100,5 @@ pub fn register() {
     tatara_lisp::domain::register_doc::<PodMonitorSpec>();
     tatara_lisp::domain::register_deps::<PodMonitorSpec>();
     tatara_lisp::domain::register_schema::<PodMonitorSpec>();
+    tatara_lisp::domain::register_attest::<PodMonitorSpec>();
 }

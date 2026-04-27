@@ -515,6 +515,12 @@ impl tatara_lisp::DocumentedDomain for GatewaySpec {
     ];
 }
 
+// ── Attestation metadata (consumed by tameshi BLAKE3 chain) ──
+
+impl tatara_lisp::AttestableDomain for GatewaySpec {
+    const ATTESTATION_NAMESPACE: &'static str = "gateway.networking.k8s.io";
+}
+
 // ── Schema metadata (consumed by IDEs / openapi exporters) ──
 
 impl tatara_lisp::SchematicDomain for GatewaySpec {
@@ -535,4 +541,5 @@ pub fn register() {
     tatara_lisp::domain::register_doc::<GatewaySpec>();
     tatara_lisp::domain::register_deps::<GatewaySpec>();
     tatara_lisp::domain::register_schema::<GatewaySpec>();
+    tatara_lisp::domain::register_attest::<GatewaySpec>();
 }

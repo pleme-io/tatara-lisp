@@ -29,15 +29,27 @@ pub struct ResourceFingerprint {
     pub blake3: String,
 }
 
-/// Compute the fingerprint for one resource. Pure: no I/O, no
-/// global state, no allocator dependence.
+/// Compute the fingerprint for one resource.
+///
+/// Namespaced via the registered `AttestableDomain` namespace
+/// when present (Layer 6). Falls back to a non-namespaced BLAKE3
+/// if no attestation metadata is registered — the diff still
+/// works correctly within a single domain, but cross-domain
+/// equality of identical JSON shapes is possible only in the
+/// fallback path. Forge-generated + hand-curated domains all
+/// register attestation namespaces, so the fallback is rare.
 #[must_use]
 pub fn fingerprint_resource(r: &Resource) -> ResourceFingerprint {
-    let json = serde_json::to_string(&r.value).unwrap_or_else(|_| "<unserializable>".into());
-    let hash = blake3::hash(json.as_bytes());
+    let blake3 = match tatara_lisp::domain::lookup_attest(&r.keyword) {
+        Some(meta) => tatara_lisp::domain::attest_value(meta.namespace, &r.value),
+        None => {
+            let json = serde_json::to_string(&r.value).unwrap_or_else(|_| "<unserializable>".into());
+            blake3::hash(json.as_bytes()).to_hex().to_string()
+        }
+    };
     ResourceFingerprint {
         id: ResourceId::from_resource(r),
-        blake3: hash.to_hex().to_string(),
+        blake3,
     }
 }
 

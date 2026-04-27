@@ -202,6 +202,33 @@ fn ordered_apply_reverses_removes_so_dependents_torn_down_first() {
 }
 
 #[test]
+fn fingerprints_are_namespaced_per_attestation_layer() {
+    // Layer 6 proof. Two resources with byte-identical JSON
+    // payloads but different domain semantics produce different
+    // fingerprints because their AttestableDomain namespaces
+    // differ. Cross-domain hash collisions in the tameshi tree
+    // are mechanically impossible.
+    register_all();
+    use serde_json::json;
+    use tatara_env::compile::Resource;
+    use tatara_rollout::fingerprint_resource;
+    let r_bpf = Resource {
+        keyword: "defbpf-map".into(),
+        value: json!({"name": "shared", "value_size": 8}),
+    };
+    let r_gw = Resource {
+        keyword: "defgateway".into(),
+        value: json!({"name": "shared", "value_size": 8}),
+    };
+    let fp_bpf = fingerprint_resource(&r_bpf);
+    let fp_gw = fingerprint_resource(&r_gw);
+    assert_ne!(
+        fp_bpf.blake3, fp_gw.blake3,
+        "different namespaces → different fingerprints (layer 6)"
+    );
+}
+
+#[test]
 fn iter_actionable_orders_removes_then_adds_then_changes() {
     register_all();
     let v1 = compile_into_env(&read(ENV_V1).unwrap()).unwrap();

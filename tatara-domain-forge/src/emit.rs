@@ -199,6 +199,30 @@ pub fn emit_lib_rs(domain: &Domain) -> String {
         let _ = writeln!(out, "}}");
     }
 
+    // Emit `impl AttestableDomain` — sixth capability layer.
+    // The CRD's group becomes the attestation namespace —
+    // e.g. `gateway.networking.k8s.io`. Different domains
+    // hash to different buckets in the tameshi BLAKE3 chain
+    // even when their JSON payloads happen to coincide.
+    if domain.kind == DomainKind::Kubernetes {
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "// ── Attestation metadata (consumed by tameshi BLAKE3 chain) ──"
+        );
+        for r in &domain.resources {
+            // Namespace = group portion of api_version
+            // (`gateway.networking.k8s.io/v1` → `gateway.networking.k8s.io`).
+            if let Some(api) = &r.api_version {
+                let namespace = api.split('/').next().unwrap_or(api);
+                let _ = writeln!(out);
+                let _ = writeln!(out, "impl tatara_lisp::AttestableDomain for {} {{", r.struct_name);
+                let _ = writeln!(out, "    const ATTESTATION_NAMESPACE: &'static str = {namespace:?};");
+                let _ = writeln!(out, "}}");
+            }
+        }
+    }
+
     // Emit `impl SchematicDomain` — fifth capability layer.
     // Carries the source CRD's openAPIV3Schema verbatim so IDE
     // hover-help, web validators, openapi exporters and admin
@@ -285,6 +309,13 @@ pub fn emit_lib_rs(domain: &Domain) -> String {
             let _ = writeln!(
                 out,
                 "    tatara_lisp::domain::register_schema::<{}>();",
+                r.struct_name
+            );
+        }
+        if r.api_version.is_some() {
+            let _ = writeln!(
+                out,
+                "    tatara_lisp::domain::register_attest::<{}>();",
                 r.struct_name
             );
         }

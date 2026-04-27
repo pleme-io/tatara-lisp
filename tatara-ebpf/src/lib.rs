@@ -112,6 +112,20 @@ impl tatara_lisp::DependentDomain for BpfPolicySpec {
     const DEPENDS_ON: &'static [&'static str] = &["defbpf-program", "defbpf-map"];
 }
 
+// Attestation layer — same namespace for all three bpf domains.
+// The pleme.io group prefix prevents collision with the CNCF
+// k8s.io namespace tree even if a future CRD picks the same
+// keyword by accident.
+impl tatara_lisp::AttestableDomain for BpfMapSpec {
+    const ATTESTATION_NAMESPACE: &'static str = "pleme.io/ebpf";
+}
+impl tatara_lisp::AttestableDomain for BpfProgramSpec {
+    const ATTESTATION_NAMESPACE: &'static str = "pleme.io/ebpf";
+}
+impl tatara_lisp::AttestableDomain for BpfPolicySpec {
+    const ATTESTATION_NAMESPACE: &'static str = "pleme.io/ebpf";
+}
+
 /// Register every keyword form this domain exposes onto the host
 /// interpreter, plus its non-compile capability metadata. Embedders
 /// call this once during boot.
@@ -127,4 +141,8 @@ pub fn register() {
     tatara_lisp::domain::register_deps::<BpfProgramSpec>();
     tatara_lisp::domain::register_deps::<BpfMapSpec>();
     tatara_lisp::domain::register_deps::<BpfPolicySpec>();
+    // Attestation layer — namespaced BLAKE3 for tameshi.
+    tatara_lisp::domain::register_attest::<BpfProgramSpec>();
+    tatara_lisp::domain::register_attest::<BpfMapSpec>();
+    tatara_lisp::domain::register_attest::<BpfPolicySpec>();
 }

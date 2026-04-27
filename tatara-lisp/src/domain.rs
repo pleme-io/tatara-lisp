@@ -447,6 +447,79 @@ pub fn registered_schema_keywords() -> Vec<&'static str> {
     schema_registry().lock().unwrap().keys().copied().collect()
 }
 
+// ── Attestable capability ─────────────────────────────────────────
+//
+// Sixth capability layer: each domain declares its **attestation
+// namespace** — the bucket the tameshi BLAKE3 chain groups its
+// resources under. The canonical hash itself is namespace-aware
+// (`blake3(namespace || canonical_json(value))`) so two resources
+// with identical content but different domains never collide in
+// the attestation tree. Closes the trust loop in the rollout
+// pipeline.
+
+pub trait AttestableDomain {
+    /// Bucket name for the tameshi attestation chain. Forge-
+    /// generated CRD domains use the CRD's group (e.g.
+    /// `gateway.networking.k8s.io`); hand-written domains pick
+    /// a stable namespace (e.g. `pleme.io/ebpf`). The namespace
+    /// is hashed into the resource's BLAKE3 so cross-domain
+    /// collisions are impossible.
+    const ATTESTATION_NAMESPACE: &'static str;
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct AttestHandler {
+    pub keyword: &'static str,
+    pub namespace: &'static str,
+}
+
+static ATTEST_REGISTRY: OnceLock<Mutex<HashMap<&'static str, AttestHandler>>> = OnceLock::new();
+
+fn attest_registry() -> &'static Mutex<HashMap<&'static str, AttestHandler>> {
+    ATTEST_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+pub fn register_attest<T>()
+where
+    T: TataraDomain + AttestableDomain,
+{
+    let handler = AttestHandler {
+        keyword: T::KEYWORD,
+        namespace: T::ATTESTATION_NAMESPACE,
+    };
+    attest_registry().lock().unwrap().insert(T::KEYWORD, handler);
+}
+
+#[must_use]
+pub fn lookup_attest(keyword: &str) -> Option<AttestHandler> {
+    attest_registry().lock().unwrap().get(keyword).copied()
+}
+
+#[must_use]
+pub fn registered_attest_keywords() -> Vec<&'static str> {
+    attest_registry().lock().unwrap().keys().copied().collect()
+}
+
+/// Compute a namespaced BLAKE3 attestation for a typed value.
+///
+/// `BLAKE3(ATTESTATION_NAMESPACE || ":" || canonical_json(value))`
+///
+/// The namespace prefix prevents cross-domain hash collisions in
+/// the tameshi attestation tree — two resources with identical
+/// JSON but different domain semantics produce different hashes.
+/// The canonical-JSON serialization is what `serde_json::to_string`
+/// produces; consumers can rely on the hash being stable across
+/// processes given the same input value.
+#[must_use]
+pub fn attest_value(namespace: &str, value: &serde_json::Value) -> String {
+    let canonical = serde_json::to_string(value).unwrap_or_default();
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(namespace.as_bytes());
+    hasher.update(b":");
+    hasher.update(canonical.as_bytes());
+    hasher.finalize().to_hex().to_string()
+}
+
 // ── Sexp ↔ serde_json bridge (universal type support) ──────────────
 //
 // Lets the derive macro fall through to `serde_json::from_value` for any

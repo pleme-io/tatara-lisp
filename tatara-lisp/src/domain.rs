@@ -520,6 +520,73 @@ pub fn attest_value(namespace: &str, value: &serde_json::Value) -> String {
     hasher.finalize().to_hex().to_string()
 }
 
+// ── Validated capability ──────────────────────────────────────────
+//
+// Seventh capability layer: per-domain semantic validators. The
+// first capability with **executable behavior** (not just static
+// metadata) — the registry stores function pointers, not
+// constants. Each domain plugs in its own logic; the env-level
+// validator dispatches.
+
+/// Type that carries a semantic validator for its typed values.
+/// Default impl returns `Ok(())` — so domains opt in, never
+/// out. The validator runs AFTER `compile_from_args` succeeds —
+/// it's a chance to enforce cross-field invariants the type
+/// system alone can't catch (e.g. "if `kind = :xdp`, `attach`
+/// must include an interface").
+pub trait ValidatedDomain {
+    /// Validate the typed JSON form of a domain instance. The
+    /// default returns Ok — domains override to add real checks.
+    /// Errors carry a human-readable message naming the
+    /// offending field + constraint.
+    fn validate_value(_value: &serde_json::Value) -> std::result::Result<(), String> {
+        Ok(())
+    }
+}
+
+/// Erased validator handle — function pointer, no captured state.
+#[derive(Clone, Copy)]
+pub struct ValidateHandler {
+    pub keyword: &'static str,
+    pub validate: fn(&serde_json::Value) -> std::result::Result<(), String>,
+}
+
+impl std::fmt::Debug for ValidateHandler {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ValidateHandler")
+            .field("keyword", &self.keyword)
+            .field("validate", &"<fn>")
+            .finish()
+    }
+}
+
+static VALIDATE_REGISTRY: OnceLock<Mutex<HashMap<&'static str, ValidateHandler>>> = OnceLock::new();
+
+fn validate_registry() -> &'static Mutex<HashMap<&'static str, ValidateHandler>> {
+    VALIDATE_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+pub fn register_validate<T>()
+where
+    T: TataraDomain + ValidatedDomain,
+{
+    let handler = ValidateHandler {
+        keyword: T::KEYWORD,
+        validate: <T as ValidatedDomain>::validate_value,
+    };
+    validate_registry().lock().unwrap().insert(T::KEYWORD, handler);
+}
+
+#[must_use]
+pub fn lookup_validate(keyword: &str) -> Option<ValidateHandler> {
+    validate_registry().lock().unwrap().get(keyword).copied()
+}
+
+#[must_use]
+pub fn registered_validate_keywords() -> Vec<&'static str> {
+    validate_registry().lock().unwrap().keys().copied().collect()
+}
+
 // ── Sexp ↔ serde_json bridge (universal type support) ──────────────
 //
 // Lets the derive macro fall through to `serde_json::from_value` for any

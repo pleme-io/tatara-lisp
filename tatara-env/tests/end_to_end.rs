@@ -158,6 +158,65 @@ fn validate_flags_duplicate_resource_id() {
 }
 
 #[test]
+fn layer_7_validator_catches_proprietary_license_with_maps() {
+    // Layer 7 proof. The hand-written ebpf validator rejects a
+    // program that calls map helpers under a non-GPL license —
+    // the kernel verifier would reject at load time anyway, but
+    // catching here is far friendlier.
+    register_test_domains();
+    let bad = r#"
+        (defenv :name "x" :description "x" :imports ("tatara-ebpf"))
+        (defbpf-program :name "p" :kind :xdp :attach (:target "eth0")
+            :source "bpf/p.rs" :license "Proprietary"
+            :uses-maps ("counter"))
+    "#;
+    let forms = read(bad).unwrap();
+    let env = compile_into_env(&forms).unwrap();
+    let errors = validate(&env).unwrap_err();
+    assert!(
+        errors.iter().any(|e| {
+            let msg = format!("{e}");
+            msg.contains("license") && msg.contains("Proprietary")
+        }),
+        "expected layer-7 license violation, got {errors:?}"
+    );
+}
+
+#[test]
+fn layer_7_validator_catches_xdp_without_iface() {
+    // XDP and TC programs need an interface in the attach
+    // target — empty target is rejected by the layer-7 validator.
+    register_test_domains();
+    let bad = r#"
+        (defenv :name "x" :description "x" :imports ("tatara-ebpf"))
+        (defbpf-program :name "p" :kind :xdp :attach (:target "")
+            :source "bpf/p.rs" :license "GPL")
+    "#;
+    let forms = read(bad).unwrap();
+    let env = compile_into_env(&forms).unwrap();
+    let errors = validate(&env).unwrap_err();
+    assert!(
+        errors.iter().any(|e| format!("{e}").contains("requires `:attach")),
+        "expected layer-7 missing-iface error, got {errors:?}"
+    );
+}
+
+#[test]
+fn layer_7_passes_on_well_formed_bpf_program() {
+    register_test_domains();
+    let good = r#"
+        (defenv :name "x" :description "x" :imports ("tatara-ebpf"))
+        (defbpf-map :name "counter" :kind :array :value-size 8 :max-entries 1)
+        (defbpf-program :name "p" :kind :xdp :attach (:target "eth0")
+            :source "bpf/p.rs" :license "Dual MIT/GPL"
+            :uses-maps ("counter"))
+    "#;
+    let forms = read(good).unwrap();
+    let env = compile_into_env(&forms).unwrap();
+    validate(&env).expect("dual-licensed program with maps + iface validates clean");
+}
+
+#[test]
 fn missing_defenv_errors() {
     register_test_domains();
     // Just resource forms, no `(defenv …)`.

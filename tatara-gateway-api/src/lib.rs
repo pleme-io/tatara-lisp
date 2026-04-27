@@ -515,6 +515,10 @@ impl tatara_lisp::DocumentedDomain for GatewaySpec {
     ];
 }
 
+// ── Validation metadata (per-domain semantic checks) ──────
+
+impl tatara_lisp::ValidatedDomain for GatewaySpec {}
+
 // ── Attestation metadata (consumed by tameshi BLAKE3 chain) ──
 
 impl tatara_lisp::AttestableDomain for GatewaySpec {
@@ -542,4 +546,5 @@ pub fn register() {
     tatara_lisp::domain::register_deps::<GatewaySpec>();
     tatara_lisp::domain::register_schema::<GatewaySpec>();
     tatara_lisp::domain::register_attest::<GatewaySpec>();
+    tatara_lisp::domain::register_validate::<GatewaySpec>();
 }

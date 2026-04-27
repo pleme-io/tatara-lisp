@@ -126,6 +126,58 @@ impl tatara_lisp::AttestableDomain for BpfPolicySpec {
     const ATTESTATION_NAMESPACE: &'static str = "pleme.io/ebpf";
 }
 
+// Validation layer — semantic checks the type system can't
+// catch. The kernel verifier rejects programs that call GPL-only
+// helpers without a GPL-compatible license; surfacing that at
+// compile time is far friendlier than a runtime ENOPKG. We're
+// conservative: any program that touches a map demands a
+// GPL-compatible license, since `bpf_map_lookup_elem` is GPL.
+impl tatara_lisp::ValidatedDomain for BpfProgramSpec {
+    fn validate_value(value: &serde_json::Value) -> std::result::Result<(), String> {
+        let obj = value
+            .as_object()
+            .ok_or_else(|| "expected JSON object".to_string())?;
+        let license = obj
+            .get("license")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let uses_maps = obj
+            .get("uses_maps")
+            .and_then(|v| v.as_array())
+            .map(|a| !a.is_empty())
+            .unwrap_or(false);
+        if uses_maps && !is_gpl_compatible(license) {
+            return Err(format!(
+                "BPF program declares `:uses-maps` but `:license` `{license}` \
+                 is not GPL-compatible — kernel verifier will reject \
+                 calls to bpf_map_lookup_elem etc."
+            ));
+        }
+        // Per-kind sanity: XDP / TC need an interface in attach.target.
+        if let Some(kind) = obj.get("kind").and_then(|v| v.as_str()) {
+            let attach_target = obj
+                .get("attach")
+                .and_then(|a| a.get("target"))
+                .and_then(|t| t.as_str())
+                .unwrap_or("");
+            let needs_iface = matches!(kind, ":xdp" | ":tc");
+            if needs_iface && attach_target.is_empty() {
+                return Err(format!(
+                    "BPF program kind `{kind}` requires `:attach (:target \"<iface>\")` — got empty target"
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+fn is_gpl_compatible(license: &str) -> bool {
+    matches!(license, "GPL" | "GPL v2" | "Dual MIT/GPL" | "Dual BSD/GPL")
+}
+
+impl tatara_lisp::ValidatedDomain for BpfMapSpec {}
+impl tatara_lisp::ValidatedDomain for BpfPolicySpec {}
+
 /// Register every keyword form this domain exposes onto the host
 /// interpreter, plus its non-compile capability metadata. Embedders
 /// call this once during boot.
@@ -145,4 +197,8 @@ pub fn register() {
     tatara_lisp::domain::register_attest::<BpfProgramSpec>();
     tatara_lisp::domain::register_attest::<BpfMapSpec>();
     tatara_lisp::domain::register_attest::<BpfPolicySpec>();
+    // Validation layer — semantic checks (license / attach target).
+    tatara_lisp::domain::register_validate::<BpfProgramSpec>();
+    tatara_lisp::domain::register_validate::<BpfMapSpec>();
+    tatara_lisp::domain::register_validate::<BpfPolicySpec>();
 }

@@ -45,6 +45,7 @@ pub use compiler_spec::{
 pub use domain::{
     AttestHandler, AttestableDomain, DependentDomain, DepsHandler, DocHandler, DocumentedDomain,
     DomainHandler, RenderHandler, RenderableDomain, SchemaHandler, SchematicDomain, TataraDomain,
+    ValidateHandler, ValidatedDomain,
 };
 // Derive macro — same name as the trait, different namespace (procedural
 // macros vs. types), so they coexist cleanly under one import.

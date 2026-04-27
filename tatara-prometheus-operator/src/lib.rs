@@ -1074,6 +1074,10 @@ impl tatara_lisp::DocumentedDomain for PodMonitorSpec {
     ];
 }
 
+// ── Validation metadata (per-domain semantic checks) ──────
+
+impl tatara_lisp::ValidatedDomain for PodMonitorSpec {}
+
 // ── Attestation metadata (consumed by tameshi BLAKE3 chain) ──
 
 impl tatara_lisp::AttestableDomain for PodMonitorSpec {
@@ -1101,4 +1105,5 @@ pub fn register() {
     tatara_lisp::domain::register_deps::<PodMonitorSpec>();
     tatara_lisp::domain::register_schema::<PodMonitorSpec>();
     tatara_lisp::domain::register_attest::<PodMonitorSpec>();
+    tatara_lisp::domain::register_validate::<PodMonitorSpec>();
 }

@@ -1779,6 +1779,10 @@ impl tatara_lisp::DocumentedDomain for CiliumNetworkPolicySpec {
     ];
 }
 
+// ── Validation metadata (per-domain semantic checks) ──────
+
+impl tatara_lisp::ValidatedDomain for CiliumNetworkPolicySpec {}
+
 // ── Attestation metadata (consumed by tameshi BLAKE3 chain) ──
 
 impl tatara_lisp::AttestableDomain for CiliumNetworkPolicySpec {
@@ -1806,4 +1810,5 @@ pub fn register() {
     tatara_lisp::domain::register_deps::<CiliumNetworkPolicySpec>();
     tatara_lisp::domain::register_schema::<CiliumNetworkPolicySpec>();
     tatara_lisp::domain::register_attest::<CiliumNetworkPolicySpec>();
+    tatara_lisp::domain::register_validate::<CiliumNetworkPolicySpec>();
 }

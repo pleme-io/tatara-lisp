@@ -199,6 +199,20 @@ pub fn emit_lib_rs(domain: &Domain) -> String {
         let _ = writeln!(out, "}}");
     }
 
+    // Emit `impl ValidatedDomain` — seventh capability layer.
+    // Default impl (validate_value returns Ok) for forge-
+    // generated domains since CRDs don't ship semantic rules
+    // outside the type system. Hand-written domains override.
+    let _ = writeln!(out);
+    let _ = writeln!(
+        out,
+        "// ── Validation metadata (per-domain semantic checks) ──────"
+    );
+    for r in &domain.resources {
+        let _ = writeln!(out);
+        let _ = writeln!(out, "impl tatara_lisp::ValidatedDomain for {} {{}}", r.struct_name);
+    }
+
     // Emit `impl AttestableDomain` — sixth capability layer.
     // The CRD's group becomes the attestation namespace —
     // e.g. `gateway.networking.k8s.io`. Different domains
@@ -319,6 +333,11 @@ pub fn emit_lib_rs(domain: &Domain) -> String {
                 r.struct_name
             );
         }
+        let _ = writeln!(
+            out,
+            "    tatara_lisp::domain::register_validate::<{}>();",
+            r.struct_name
+        );
     }
     let _ = writeln!(out, "}}");
     out

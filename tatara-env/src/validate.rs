@@ -131,6 +131,22 @@ pub fn validate(env: &Env) -> Result<(), Vec<ValidationError>> {
         }
     }
 
+    // Layer 7 dispatch: per-resource semantic validators registered
+    // via `tatara_lisp::domain::register_validate`. Each domain
+    // can enforce cross-field invariants the type system alone
+    // can't catch (BPF license × uses-maps coherence; gateway
+    // listener uniqueness; policy reference resolution; …).
+    for r in &env.resources {
+        if let Some(handler) = tatara_lisp::domain::lookup_validate(&r.keyword) {
+            if let Err(msg) = (handler.validate)(&r.value) {
+                errors.push(ValidationError::Custom(format!(
+                    "{}: {msg}",
+                    r.keyword
+                )));
+            }
+        }
+    }
+
     if errors.is_empty() {
         Ok(())
     } else {

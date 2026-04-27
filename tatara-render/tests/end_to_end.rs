@@ -115,6 +115,41 @@ fn render_fails_softly_on_unsupported_keyword() {
 }
 
 #[test]
+fn forge_generated_domains_auto_document_via_registry() {
+    // Third capability layer test. After register_all(), each
+    // forge-generated domain has DOCSTRING + FIELD_DOCS visible
+    // through `lookup_doc`. The values come from the upstream
+    // CRD's `description` fields, captured by the forge IR.
+    register_all();
+    let kws = tatara_lisp::domain::registered_doc_keywords();
+    assert!(kws.contains(&"defgateway"));
+    let gw = tatara_lisp::domain::lookup_doc("defgateway").unwrap();
+    // The Gateway CRD has a real upstream docstring describing
+    // what it represents — assert SOMETHING came through (not
+    // just the empty-doc fallback).
+    assert!(
+        !gw.docstring.is_empty(),
+        "Gateway CRD docstring should round-trip through forge"
+    );
+    // Per-field docs come from the CRD's nested `description`s.
+    // Gateway has many fields; assert at least one made it.
+    assert!(
+        !gw.field_docs.is_empty(),
+        "Gateway field docs should round-trip through forge"
+    );
+    // Docs are useful for the catalog browser — sanity-check one
+    // known field.
+    let class_doc = gw
+        .field_docs
+        .iter()
+        .find(|(k, _)| *k == "gateway_class_name");
+    assert!(
+        class_doc.is_some(),
+        "gateway_class_name field doc should be registered"
+    );
+}
+
+#[test]
 fn forge_generated_domains_auto_render_via_registry() {
     // The compounding claim made testable. Registering a new
     // forge-generated domain produces working YAML on the next

@@ -63,6 +63,16 @@ rec {
       # File a bug if you depend on any for non-debug work!
       debug = internal.debugCrate { inherit packageId; };
     };
+    "tatara-doc" = rec {
+      packageId = "tatara-doc";
+      build = internal.buildRustCrateWithFeatures {
+        packageId = "tatara-doc";
+      };
+
+      # Debug support which might change between releases.
+      # File a bug if you depend on any for non-debug work!
+      debug = internal.debugCrate { inherit packageId; };
+    };
     "tatara-domain-forge" = rec {
       packageId = "tatara-domain-forge";
       build = internal.buildRustCrateWithFeatures {
@@ -3290,6 +3300,33 @@ rec {
           {
             name = "tatara-lisp-derive";
             packageId = "tatara-lisp-derive";
+          }
+        ];
+
+      };
+      "tatara-doc" = rec {
+        crateName = "tatara-doc";
+        version = "0.2.0";
+        edition = "2021";
+        src = lib.cleanSourceWith { filter = sourceFilter;  src = ./tatara-doc; };
+        libName = "tatara_doc";
+        authors = [
+          "Pleme.io <engineering@pleme.io>"
+        ];
+        dependencies = [
+          {
+            name = "tatara-lisp";
+            packageId = "tatara-lisp";
+          }
+        ];
+        devDependencies = [
+          {
+            name = "tatara-ebpf";
+            packageId = "tatara-ebpf";
+          }
+          {
+            name = "tatara-gateway-api";
+            packageId = "tatara-gateway-api";
           }
         ];
 

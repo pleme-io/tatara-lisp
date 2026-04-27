@@ -168,6 +168,37 @@ pub fn emit_lib_rs(domain: &Domain) -> String {
         }
     }
 
+    // Emit `impl DocumentedDomain` — third capability layer.
+    // Carries the type's CRD description + per-field descriptions
+    // for catalog browsers + the `tatara doc` CLI.
+    let _ = writeln!(out);
+    let _ = writeln!(
+        out,
+        "// ── Documentation metadata (consumed by tatara-doc / IDE) ──"
+    );
+    for r in &domain.resources {
+        let docstring = r
+            .doc
+            .as_deref()
+            .map(|s| escape_rust_str(&one_line(s)))
+            .unwrap_or_default();
+        let _ = writeln!(out);
+        let _ = writeln!(out, "impl tatara_lisp::DocumentedDomain for {} {{", r.struct_name);
+        let _ = writeln!(out, "    const DOCSTRING: &'static str = \"{docstring}\";");
+        let _ = writeln!(
+            out,
+            "    const FIELD_DOCS: &'static [(&'static str, &'static str)] = &["
+        );
+        for (rust_name, field) in &r.fields {
+            if let Some(d) = &field.doc {
+                let escaped = escape_rust_str(&one_line(d));
+                let _ = writeln!(out, "        ({rust_name:?}, \"{escaped}\"),");
+            }
+        }
+        let _ = writeln!(out, "    ];");
+        let _ = writeln!(out, "}}");
+    }
+
     // Emit register fn — wires every Resource's keyword form into
     // an `Interpreter<H>`'s domain registry. When render metadata
     // is available, also wires the render handler.
@@ -194,9 +225,27 @@ pub fn emit_lib_rs(domain: &Domain) -> String {
                 r.struct_name
             );
         }
+        let _ = writeln!(
+            out,
+            "    tatara_lisp::domain::register_doc::<{}>();",
+            r.struct_name
+        );
     }
     let _ = writeln!(out, "}}");
     out
+}
+
+/// Collapse a multi-line CRD description to a single line so it
+/// fits in a Rust string literal cleanly. Newlines become spaces;
+/// runs of whitespace collapse.
+fn one_line(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Escape a string for inclusion in `"…"` Rust source — escape
+/// backslash + quote. Newlines already gone via `one_line`.
+fn escape_rust_str(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 fn emit_resource_struct(

@@ -1002,6 +1002,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "tatara-doc"
+version = "0.2.0"
+dependencies = [
+ "tatara-ebpf",
+ "tatara-gateway-api",
+ "tatara-lisp",
+]
+
+[[package]]
 name = "tatara-domain-forge"
 version = "0.2.0"
 dependencies = [

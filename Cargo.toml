@@ -2,6 +2,7 @@
 members = [
     "tatara",
     "tatara-cilium",
+    "tatara-doc",
     "tatara-domain-forge",
     "tatara-ebpf",
     "tatara-env",

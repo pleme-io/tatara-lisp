@@ -275,6 +275,66 @@ pub fn registered_render_keywords() -> Vec<&'static str> {
     render_registry().lock().unwrap().keys().copied().collect()
 }
 
+// ── Documented capability ─────────────────────────────────────────
+//
+// Third capability layer (compile / render / doc). Each domain
+// can carry its struct-level + field-level documentation strings
+// for catalog browsers, IDE hover-help, and the `tatara doc`
+// CLI to consult uniformly.
+
+/// Type that knows its human-readable documentation. Tiny: one
+/// `&'static str` for the type-level summary, plus an array of
+/// (field, doc) pairs.
+pub trait DocumentedDomain {
+    /// Top-level docstring for the type — what an embedder sees
+    /// when hovering the keyword in a catalog browser.
+    const DOCSTRING: &'static str;
+    /// Per-field docstrings, in declaration order. Empty when no
+    /// docs were captured upstream (typical for hand-written
+    /// domains until they fill them in). Forge-generated domains
+    /// populate this from CRD `description` fields.
+    const FIELD_DOCS: &'static [(&'static str, &'static str)];
+}
+
+/// Erased doc handle.
+#[derive(Clone, Copy, Debug)]
+pub struct DocHandler {
+    pub keyword: &'static str,
+    pub docstring: &'static str,
+    pub field_docs: &'static [(&'static str, &'static str)],
+}
+
+static DOC_REGISTRY: OnceLock<Mutex<HashMap<&'static str, DocHandler>>> = OnceLock::new();
+
+fn doc_registry() -> &'static Mutex<HashMap<&'static str, DocHandler>> {
+    DOC_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Register a `DocumentedDomain`'s metadata. Idempotent.
+pub fn register_doc<T>()
+where
+    T: TataraDomain + DocumentedDomain,
+{
+    let handler = DocHandler {
+        keyword: T::KEYWORD,
+        docstring: T::DOCSTRING,
+        field_docs: T::FIELD_DOCS,
+    };
+    doc_registry().lock().unwrap().insert(T::KEYWORD, handler);
+}
+
+/// Look up doc metadata by keyword.
+#[must_use]
+pub fn lookup_doc(keyword: &str) -> Option<DocHandler> {
+    doc_registry().lock().unwrap().get(keyword).copied()
+}
+
+/// List every keyword that has doc metadata registered.
+#[must_use]
+pub fn registered_doc_keywords() -> Vec<&'static str> {
+    doc_registry().lock().unwrap().keys().copied().collect()
+}
+
 // ── Sexp ↔ serde_json bridge (universal type support) ──────────────
 //
 // Lets the derive macro fall through to `serde_json::from_value` for any

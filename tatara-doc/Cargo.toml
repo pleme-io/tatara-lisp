@@ -1,0 +1,19 @@
+[package]
+name = "tatara-doc"
+description = "Catalog browser — turn the registered tatara domains' compile + render + doc metadata into a stable Markdown index. The IDE / web view / `tatara doc` CLI all consume the same shape."
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+tatara-lisp = { path = "../tatara-lisp" }
+
+[dev-dependencies]
+tatara-ebpf = { path = "../tatara-ebpf" }
+tatara-gateway-api = { path = "../tatara-gateway-api" }

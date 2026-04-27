@@ -1762,9 +1762,27 @@ impl tatara_lisp::RenderableDomain for CiliumNetworkPolicySpec {
     const NAME_FIELD: &'static str = "name";
 }
 
+// ── Documentation metadata (consumed by tatara-doc / IDE) ──
+
+impl tatara_lisp::DocumentedDomain for CiliumNetworkPolicySpec {
+    const DOCSTRING: &'static str = "CiliumNetworkPolicy is a Kubernetes third-party resource with an extended version of NetworkPolicy.";
+    const FIELD_DOCS: &'static [(&'static str, &'static str)] = &[
+        ("description", "Description is a free form string, it can be used by the creator of the rule to store human readable explanation of the purpose of this rule. Rules cannot be identified by comment."),
+        ("egress", "Egress is a list of EgressRule which are enforced at egress. If omitted or empty, this rule does not apply at egress."),
+        ("egress_deny", "EgressDeny is a list of EgressDenyRule which are enforced at egress. Any rule inserted here will be denied regardless of the allowed egress rules in the 'egress' field. If omitted or empty, this rule does not apply at egress."),
+        ("enable_default_deny", "EnableDefaultDeny determines whether this policy configures the subject endpoint(s) to have a default deny mode. If enabled, this causes all traffic not explicitly allowed by a network policy to be dropped. If not specified, the default is true for each traffic direction that has rules, and false otherwise. For example, if a policy only has Ingress or IngressDeny rules, then the default for ingress is true and egress is false. If multiple policies apply to an endpoint, that endpoint's default deny will be enabled if any policy requests it. This is useful for creating broad-based network policies that will not cause endpoints to enter default-deny mode."),
+        ("endpoint_selector", "EndpointSelector selects all endpoints which should be subject to this rule. EndpointSelector and NodeSelector cannot be both empty and are mutually exclusive."),
+        ("ingress", "Ingress is a list of IngressRule which are enforced at ingress. If omitted or empty, this rule does not apply at ingress."),
+        ("ingress_deny", "IngressDeny is a list of IngressDenyRule which are enforced at ingress. Any rule inserted here will be denied regardless of the allowed ingress rules in the 'ingress' field. If omitted or empty, this rule does not apply at ingress."),
+        ("labels", "Labels is a list of optional strings which can be used to re-identify the rule or to store metadata. It is possible to lookup or delete strings based on labels. Labels are not required to be unique, multiple rules can have overlapping or identical labels."),
+        ("node_selector", "NodeSelector selects all nodes which should be subject to this rule. EndpointSelector and NodeSelector cannot be both empty and are mutually exclusive. Can only be used in CiliumClusterwideNetworkPolicies."),
+    ];
+}
+
 /// Register every keyword form this domain exposes onto the host
 /// interpreter. Embedders call this once during boot.
 pub fn register() {
     tatara_lisp::domain::register::<CiliumNetworkPolicySpec>();
     tatara_lisp::domain::register_render::<CiliumNetworkPolicySpec>();
+    tatara_lisp::domain::register_doc::<CiliumNetworkPolicySpec>();
 }

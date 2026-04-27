@@ -1046,9 +1046,38 @@ impl tatara_lisp::RenderableDomain for PodMonitorSpec {
     const NAME_FIELD: &'static str = "name";
 }
 
+// ── Documentation metadata (consumed by tatara-doc / IDE) ──
+
+impl tatara_lisp::DocumentedDomain for PodMonitorSpec {
+    const DOCSTRING: &'static str = "The `PodMonitor` custom resource definition (CRD) defines how `Prometheus` and `PrometheusAgent` can scrape metrics from a group of pods. Among other things, it allows to specify: * The pods to scrape via label selectors. * The container ports to scrape. * Authentication credentials to use. * Target and metric relabeling. `Prometheus` and `PrometheusAgent` objects select `PodMonitor` objects using label and namespace selectors.";
+    const FIELD_DOCS: &'static [(&'static str, &'static str)] = &[
+        ("attach_metadata", "`attachMetadata` defines additional metadata which is added to the discovered targets. It requires Prometheus >= v2.35.0."),
+        ("body_size_limit", "When defined, bodySizeLimit specifies a job level limit on the size of uncompressed response body that will be accepted by Prometheus. It requires Prometheus >= v2.28.0."),
+        ("fallback_scrape_protocol", "The protocol to use if a scrape returns blank, unparseable, or otherwise invalid Content-Type. It requires Prometheus >= v3.0.0."),
+        ("job_label", "The label to use to retrieve the job name from. `jobLabel` selects the label from the associated Kubernetes `Pod` object which will be used as the `job` label for all metrics. For example if `jobLabel` is set to `foo` and the Kubernetes `Pod` object is labeled with `foo: bar`, then Prometheus adds the `job=\"bar\"` label to all ingested metrics. If the value of this field is empty, the `job` label of the metrics defaults to the namespace and name of the PodMonitor object (e.g. `<namespace>/<name>`)."),
+        ("keep_dropped_targets", "Per-scrape limit on the number of targets dropped by relabeling that will be kept in memory. 0 means no limit. It requires Prometheus >= v2.47.0."),
+        ("label_limit", "Per-scrape limit on number of labels that will be accepted for a sample. It requires Prometheus >= v2.27.0."),
+        ("label_name_length_limit", "Per-scrape limit on length of labels name that will be accepted for a sample. It requires Prometheus >= v2.27.0."),
+        ("label_value_length_limit", "Per-scrape limit on length of labels value that will be accepted for a sample. It requires Prometheus >= v2.27.0."),
+        ("namespace_selector", "`namespaceSelector` defines in which namespace(s) Prometheus should discover the pods. By default, the pods are discovered in the same namespace as the `PodMonitor` object but it is possible to select pods across different/all namespaces."),
+        ("native_histogram_bucket_limit", "If there are more than this many buckets in a native histogram, buckets will be merged to stay within the limit. It requires Prometheus >= v2.45.0."),
+        ("native_histogram_min_bucket_factor", "If the growth factor of one bucket to the next is smaller than this, buckets will be merged to increase the factor sufficiently. It requires Prometheus >= v2.50.0."),
+        ("pod_metrics_endpoints", "Defines how to scrape metrics from the selected pods."),
+        ("pod_target_labels", "`podTargetLabels` defines the labels which are transferred from the associated Kubernetes `Pod` object onto the ingested metrics."),
+        ("sample_limit", "`sampleLimit` defines a per-scrape limit on the number of scraped samples that will be accepted."),
+        ("scrape_class", "The scrape class to apply."),
+        ("scrape_classic_histograms", "Whether to scrape a classic histogram that is also exposed as a native histogram. It requires Prometheus >= v2.45.0."),
+        ("scrape_protocols", "`scrapeProtocols` defines the protocols to negotiate during a scrape. It tells clients the protocols supported by Prometheus in order of preference (from most to least preferred). If unset, Prometheus uses its default value. It requires Prometheus >= v2.49.0."),
+        ("selector", "Label selector to select the Kubernetes `Pod` objects to scrape metrics from."),
+        ("selector_mechanism", "Mechanism used to select the endpoints to scrape. By default, the selection process relies on relabel configurations to filter the discovered targets. Alternatively, you can opt in for role selectors, which may offer better efficiency in large clusters. Which strategy is best for your use case needs to be carefully evaluated. It requires Prometheus >= v2.17.0."),
+        ("target_limit", "`targetLimit` defines a limit on the number of scraped targets that will be accepted."),
+    ];
+}
+
 /// Register every keyword form this domain exposes onto the host
 /// interpreter. Embedders call this once during boot.
 pub fn register() {
     tatara_lisp::domain::register::<PodMonitorSpec>();
     tatara_lisp::domain::register_render::<PodMonitorSpec>();
+    tatara_lisp::domain::register_doc::<PodMonitorSpec>();
 }

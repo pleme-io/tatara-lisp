@@ -58,10 +58,12 @@
 //! produces.
 
 pub mod compile;
+pub mod lattice;
 pub mod spec;
 pub mod validate;
 
 pub use compile::{compile_into_env, CompileError, Resource};
+pub use lattice::ResourceKey;
 pub use spec::EnvSpec;
 pub use validate::{validate, ValidationError};
 

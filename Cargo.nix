@@ -163,6 +163,16 @@ rec {
       # File a bug if you depend on any for non-debug work!
       debug = internal.debugCrate { inherit packageId; };
     };
+    "tatara-rollout" = rec {
+      packageId = "tatara-rollout";
+      build = internal.buildRustCrateWithFeatures {
+        packageId = "tatara-rollout";
+      };
+
+      # Debug support which might change between releases.
+      # File a bug if you depend on any for non-debug work!
+      debug = internal.debugCrate { inherit packageId; };
+    };
   };
 
 
@@ -3692,6 +3702,55 @@ rec {
           {
             name = "tatara-lisp-derive";
             packageId = "tatara-lisp-derive";
+          }
+        ];
+
+      };
+      "tatara-rollout" = rec {
+        crateName = "tatara-rollout";
+        version = "0.2.0";
+        edition = "2021";
+        src = lib.cleanSourceWith { filter = sourceFilter;  src = ./tatara-rollout; };
+        libName = "tatara_rollout";
+        authors = [
+          "Pleme.io <engineering@pleme.io>"
+        ];
+        dependencies = [
+          {
+            name = "blake3";
+            packageId = "blake3";
+          }
+          {
+            name = "indexmap";
+            packageId = "indexmap";
+            features = [ "serde" ];
+          }
+          {
+            name = "serde";
+            packageId = "serde";
+            features = [ "derive" ];
+          }
+          {
+            name = "serde_json";
+            packageId = "serde_json";
+          }
+          {
+            name = "tatara-env";
+            packageId = "tatara-env";
+          }
+        ];
+        devDependencies = [
+          {
+            name = "tatara-ebpf";
+            packageId = "tatara-ebpf";
+          }
+          {
+            name = "tatara-gateway-api";
+            packageId = "tatara-gateway-api";
+          }
+          {
+            name = "tatara-lisp";
+            packageId = "tatara-lisp";
           }
         ];
 

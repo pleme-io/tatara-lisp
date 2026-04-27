@@ -1125,6 +1125,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "tatara-rollout"
+version = "0.2.0"
+dependencies = [
+ "blake3",
+ "indexmap",
+ "serde",
+ "serde_json",
+ "tatara-ebpf",
+ "tatara-env",
+ "tatara-gateway-api",
+ "tatara-lisp",
+]
+
+[[package]]
 name = "tempfile"
 version = "3.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

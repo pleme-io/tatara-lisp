@@ -12,6 +12,7 @@ members = [
     "tatara-lisp-script",
     "tatara-lisp-source",
     "tatara-prometheus-operator",
+    "tatara-rollout",
 ]
 resolver = "2"
 

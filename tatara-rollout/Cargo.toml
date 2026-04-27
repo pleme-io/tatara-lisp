@@ -1,0 +1,24 @@
+[package]
+name = "tatara-rollout"
+description = "Edge-of-differences rollout planner. Diff two `tatara-env::Env` snapshots into a typed plan describing exactly what's added / removed / changed / unchanged. The synthesizer + FluxCD apply only the delta — no churn for resources that didn't move, no unnecessary restarts, no reapply storms."
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+tatara-env = { path = "../tatara-env" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+blake3 = "1"
+indexmap = { version = "2", features = ["serde"] }
+
+[dev-dependencies]
+tatara-ebpf = { path = "../tatara-ebpf" }
+tatara-gateway-api = { path = "../tatara-gateway-api" }
+tatara-lisp = { path = "../tatara-lisp" }

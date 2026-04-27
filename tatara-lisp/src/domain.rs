@@ -669,6 +669,268 @@ pub fn registered_lifecycle_keywords() -> Vec<&'static str> {
     lifecycle_registry().lock().unwrap().keys().copied().collect()
 }
 
+// ── Meta-compounder: capability_layer! macro ──────────────────────
+//
+// Layers 1–8 above each take ~50 lines of boilerplate (trait +
+// handler struct + registry + 3 fns). The macro below collapses
+// every static-data capability layer to ~10 lines of declaration.
+// First-class compounding the compounding: each new layer is now
+// shorter to author than its predecessors.
+//
+// Use the macro for layers whose trait holds only `const` items
+// (and whose handler is a flat struct of those values). Layers
+// with executable behavior (Validated, layer 7) keep the
+// hand-written form because the trait carries a method, not
+// constants — `fn validate_value(&Value) -> Result<…>` doesn't
+// fit a `const` slot.
+//
+// Shape:
+//
+//   capability_layer! {
+//       trait $Trait,                     // pub trait + name
+//       handler $Handler,                 // erased Handler struct
+//       static $REGISTRY,                 // backing OnceLock
+//       registry_fn $internal_fn,         // private accessor
+//       register $register_fn,            // pub register::<T>()
+//       lookup $lookup_fn,                // pub lookup(kw) -> Option<Handler>
+//       list $list_fn,                    // pub list registered keywords
+//       consts {
+//           const NAME: ty => field name,  // trait const → handler field
+//           ...
+//       }
+//   }
+
+#[macro_export]
+macro_rules! capability_layer {
+    (
+        trait $Trait:ident,
+        handler $Handler:ident,
+        static $REGISTRY:ident,
+        registry_fn $registry_fn:ident,
+        register $register:ident,
+        lookup $lookup:ident,
+        list $list:ident,
+        consts {
+            $(const $CONST:ident: $ty:ty => field $field:ident),* $(,)?
+        } $(,)?
+    ) => {
+        pub trait $Trait {
+            $(const $CONST: $ty;)*
+        }
+
+        #[derive(Clone, Copy, Debug)]
+        pub struct $Handler {
+            pub keyword: &'static str,
+            $(pub $field: $ty,)*
+        }
+
+        static $REGISTRY: ::std::sync::OnceLock<
+            ::std::sync::Mutex<::std::collections::HashMap<&'static str, $Handler>>
+        > = ::std::sync::OnceLock::new();
+
+        fn $registry_fn() -> &'static ::std::sync::Mutex<
+            ::std::collections::HashMap<&'static str, $Handler>
+        > {
+            $REGISTRY.get_or_init(|| {
+                ::std::sync::Mutex::new(::std::collections::HashMap::new())
+            })
+        }
+
+        pub fn $register<T>()
+        where
+            T: $crate::domain::TataraDomain + $Trait,
+        {
+            let handler = $Handler {
+                keyword: T::KEYWORD,
+                $($field: T::$CONST,)*
+            };
+            $registry_fn().lock().unwrap().insert(T::KEYWORD, handler);
+        }
+
+        #[must_use]
+        pub fn $lookup(keyword: &str) -> Option<$Handler> {
+            $registry_fn().lock().unwrap().get(keyword).copied()
+        }
+
+        #[must_use]
+        pub fn $list() -> Vec<&'static str> {
+            $registry_fn().lock().unwrap().keys().copied().collect()
+        }
+    };
+}
+
+// ── Layer 9: Compliant capability (via the macro) ─────────────────
+//
+// First layer authored with the meta-compounder. Compounding the
+// compounding made operational. Per-domain compliance posture —
+// which baselines the resource satisfies (NIST 800-53, CIS,
+// FedRAMP, PCI DSS, SOC 2). Consumers: kensa (compliance engine),
+// sekiban (admission webhook), tameshi (heartbeat chain).
+
+capability_layer! {
+    trait CompliantDomain,
+    handler ComplianceHandler,
+    static COMPLIANCE_REGISTRY,
+    registry_fn compliance_registry,
+    register register_compliance,
+    lookup lookup_compliance,
+    list registered_compliance_keywords,
+    consts {
+        const FRAMEWORKS: &'static [&'static str] => field frameworks,
+        const CONTROLS: &'static [&'static str] => field controls,
+    }
+}
+
+// ── Layer 10: Observable capability (via the macro) ───────────────
+//
+// Per-domain Prometheus metric prefix + log label names.
+// Consumers: arch-synthesizer (auto-generates ServiceMonitor +
+// PodMonitor specs that scrape the right prefixes) and the
+// Loki query layer (knows which labels each domain emits).
+
+capability_layer! {
+    trait ObservableDomain,
+    handler ObservabilityHandler,
+    static OBSERVABILITY_REGISTRY,
+    registry_fn observability_registry,
+    register register_observability,
+    lookup lookup_observability,
+    list registered_observability_keywords,
+    consts {
+        const METRIC_PREFIX: &'static str => field metric_prefix,
+        const LOG_LABELS: &'static [&'static str] => field log_labels,
+    }
+}
+
+// ── Layer 11: Authoring help capability (via the macro) ───────────
+//
+// Per-domain authoring examples + a one-liner mnemonic for the
+// catalog browser. Consumers: tatara-doc (renders examples in
+// the catalog), IDE hover-help, the future `tatara init` CLI
+// that scaffolds new programs from examples.
+
+capability_layer! {
+    trait HelpDomain,
+    handler HelpHandler,
+    static HELP_REGISTRY,
+    registry_fn help_registry,
+    register register_help,
+    lookup lookup_help,
+    list registered_help_keywords,
+    consts {
+        const MNEMONIC: &'static str => field mnemonic,
+        const EXAMPLES: &'static [&'static str] => field examples,
+    }
+}
+
+// ── Layer 12: Stable capability (via the macro) ───────────────────
+//
+// Per-domain stability signal. Consumers: caixa-lint (warns on
+// unstable usages), tatara-doc (decorates the catalog), CI
+// gates (blocks promotion to prod when an unstable resource
+// crosses a `:tier "prod"` env boundary).
+
+capability_layer! {
+    trait StableDomain,
+    handler StabilityHandler,
+    static STABILITY_REGISTRY,
+    registry_fn stability_registry,
+    register register_stability,
+    lookup lookup_stability,
+    list registered_stability_keywords,
+    consts {
+        const STABILITY: &'static str => field stability,
+        const SINCE_VERSION: &'static str => field since_version,
+    }
+}
+
+// ── Meta-meta-compounder: impl_default_capabilities! ──────────────
+//
+// Forge-generated domains plug into the platform with a single
+// macro call:
+//
+//   impl_default_capabilities!(MyDomainSpec);
+//
+// Expands to default `impl` blocks for every static-data
+// capability layer that *has* a meaningful default. Layers
+// without a sensible default (Render, Validated — Render needs
+// real api_version+kind, Validated has its trait-default
+// `validate_value`) are skipped here; the forge emits those
+// separately when CRD metadata is available.
+//
+// **Why this matters**: previously, adding a new capability
+// layer required editing both `tatara-lisp::domain` (define the
+// layer) AND `tatara-domain-forge::emit` (emit per-layer impl
+// blocks). Now the forge's emit is a single line; new layers
+// land in this macro alone. Compounding the compounding the
+// compounding — three orders deep.
+
+#[macro_export]
+macro_rules! impl_default_capabilities {
+    ($Spec:ty) => {
+        // NOTE: Layer 3 (Documented) is intentionally NOT here.
+        // Forge-generated domains emit it explicitly with real
+        // docs from CRD descriptions; hand-written domains
+        // override directly. The macro covering it would create
+        // a double-impl conflict in both cases.
+        //
+        // Layer 4 — Dependent (forge default empty).
+        impl $crate::domain::DependentDomain for $Spec {
+            const DEPENDS_ON: &'static [&'static str] = &[];
+        }
+        // Layer 7 — Validated (uses the trait's default fn).
+        impl $crate::domain::ValidatedDomain for $Spec {}
+        // Layer 8 — Lifecycle (Immediate is the safe CRD default).
+        impl $crate::domain::LifecycleProtocol for $Spec {
+            const STRATEGY: $crate::domain::RolloutStrategy =
+                $crate::domain::RolloutStrategy::Immediate;
+        }
+        // Layer 9 — Compliance (claims none by default).
+        impl $crate::domain::CompliantDomain for $Spec {
+            const FRAMEWORKS: &'static [&'static str] = &[];
+            const CONTROLS: &'static [&'static str] = &[];
+        }
+        // Layer 10 — Observable (no metrics by default).
+        impl $crate::domain::ObservableDomain for $Spec {
+            const METRIC_PREFIX: &'static str = "";
+            const LOG_LABELS: &'static [&'static str] = &[];
+        }
+        // Layer 11 — Authoring help.
+        impl $crate::domain::HelpDomain for $Spec {
+            const MNEMONIC: &'static str = "";
+            const EXAMPLES: &'static [&'static str] = &[];
+        }
+        // Layer 12 — Stability (assume stable + 0.1.0 unless
+        // overridden; loud-failure beats silent missing field).
+        impl $crate::domain::StableDomain for $Spec {
+            const STABILITY: &'static str = "stable";
+            const SINCE_VERSION: &'static str = "0.1.0";
+        }
+    };
+}
+
+/// Companion to `impl_default_capabilities!` — registers every
+/// layer's handler in one call. Domains that have explicit
+/// Render + Schema + Attest metadata also call those register
+/// fns separately (they're not part of this macro because not
+/// every domain has them — hand-written ebpf doesn't have render
+/// metadata). Adding a new always-present layer means updating
+/// this macro and `impl_default_capabilities!` once.
+#[macro_export]
+macro_rules! register_all_capabilities {
+    ($Spec:ty) => {
+        $crate::domain::register::<$Spec>();
+        $crate::domain::register_doc::<$Spec>();
+        $crate::domain::register_deps::<$Spec>();
+        $crate::domain::register_validate::<$Spec>();
+        $crate::domain::register_lifecycle::<$Spec>();
+        $crate::domain::register_compliance::<$Spec>();
+        $crate::domain::register_observability::<$Spec>();
+        $crate::domain::register_help::<$Spec>();
+        $crate::domain::register_stability::<$Spec>();
+    };
+}
+
 // ── Sexp ↔ serde_json bridge (universal type support) ──────────────
 //
 // Lets the derive macro fall through to `serde_json::from_value` for any

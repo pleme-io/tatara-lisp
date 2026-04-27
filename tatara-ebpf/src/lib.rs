@@ -178,6 +178,28 @@ fn is_gpl_compatible(license: &str) -> bool {
 impl tatara_lisp::ValidatedDomain for BpfMapSpec {}
 impl tatara_lisp::ValidatedDomain for BpfPolicySpec {}
 
+// Compliance layer — BPF programs at the kernel boundary
+// participate in NIST SC-7 (boundary protection) and CIS 5.1
+// (network controls) when they enforce L4 policy. Programs
+// alone don't satisfy a control; the policy DOES (it's the
+// auditable unit). Maps are pure data, claim no controls.
+impl tatara_lisp::CompliantDomain for BpfMapSpec {
+    const FRAMEWORKS: &'static [&'static str] = &[];
+    const CONTROLS: &'static [&'static str] = &[];
+}
+impl tatara_lisp::CompliantDomain for BpfProgramSpec {
+    const FRAMEWORKS: &'static [&'static str] = &[];
+    const CONTROLS: &'static [&'static str] = &[];
+}
+impl tatara_lisp::CompliantDomain for BpfPolicySpec {
+    const FRAMEWORKS: &'static [&'static str] = &["NIST 800-53", "CIS"];
+    const CONTROLS: &'static [&'static str] = &[
+        "NIST SC-7",   // boundary protection
+        "NIST SI-3",   // malicious code protection (when used as filter)
+        "CIS 5.1",     // network access controls
+    ];
+}
+
 // Lifecycle layer — kernel-attached programs need BlueGreen.
 // The verifier rejects half-loaded state; the only safe shape
 // is "load new program in parallel, atomically replace the
@@ -227,4 +249,8 @@ pub fn register() {
     tatara_lisp::domain::register_lifecycle::<BpfProgramSpec>();
     tatara_lisp::domain::register_lifecycle::<BpfMapSpec>();
     tatara_lisp::domain::register_lifecycle::<BpfPolicySpec>();
+    // Compliance layer — frameworks + controls per kind.
+    tatara_lisp::domain::register_compliance::<BpfProgramSpec>();
+    tatara_lisp::domain::register_compliance::<BpfMapSpec>();
+    tatara_lisp::domain::register_compliance::<BpfPolicySpec>();
 }

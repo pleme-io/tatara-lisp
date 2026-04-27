@@ -199,37 +199,29 @@ pub fn emit_lib_rs(domain: &Domain) -> String {
         let _ = writeln!(out, "}}");
     }
 
-    // Emit `impl LifecycleProtocol` — eighth capability layer.
-    // Default `Immediate` for CRD-shaped resources (most CRDs are
-    // configuration objects whose state changes apply at once).
-    // Service-shaped or stateful CRDs override after generation.
+    // ── DEFAULT CAPABILITIES — ONE MACRO PER RESOURCE ─────────
+    //
+    // Layers 3, 4, 7, 8, 9, 10, 11, 12 (Doc, Deps, Validated,
+    // Lifecycle, Compliance, Observable, Help, Stability) all
+    // get sensible defaults via `impl_default_capabilities!`.
+    // Adding a new default-able capability means updating the
+    // macro in `tatara-lisp::domain` — no edit to forge needed.
+    //
+    // Layers 1, 2, 5, 6 (Compile, Render, Schema, Attest) are
+    // emitted explicitly above because their values come from
+    // CRD metadata that the forge has in hand.
     let _ = writeln!(out);
     let _ = writeln!(
         out,
-        "// ── Lifecycle metadata (rollout strategy per domain) ──────"
+        "// ── Default capabilities (Layers 3/4/7/8/9/10/11/12) ──"
     );
     for r in &domain.resources {
         let _ = writeln!(out);
-        let _ = writeln!(out, "impl tatara_lisp::LifecycleProtocol for {} {{", r.struct_name);
         let _ = writeln!(
             out,
-            "    const STRATEGY: tatara_lisp::RolloutStrategy = tatara_lisp::RolloutStrategy::Immediate;"
+            "tatara_lisp::impl_default_capabilities!({});",
+            r.struct_name
         );
-        let _ = writeln!(out, "}}");
-    }
-
-    // Emit `impl ValidatedDomain` — seventh capability layer.
-    // Default impl (validate_value returns Ok) for forge-
-    // generated domains since CRDs don't ship semantic rules
-    // outside the type system. Hand-written domains override.
-    let _ = writeln!(out);
-    let _ = writeln!(
-        out,
-        "// ── Validation metadata (per-domain semantic checks) ──────"
-    );
-    for r in &domain.resources {
-        let _ = writeln!(out);
-        let _ = writeln!(out, "impl tatara_lisp::ValidatedDomain for {} {{}}", r.struct_name);
     }
 
     // Emit `impl AttestableDomain` — sixth capability layer.
@@ -281,26 +273,9 @@ pub fn emit_lib_rs(domain: &Domain) -> String {
         }
     }
 
-    // Emit `impl DependentDomain` — fourth capability layer.
-    // CRDs don't generally declare type-level deps, so the
-    // forge-generated default is empty. Users who want
-    // dep-aware rollout ordering hand-edit the resulting crate
-    // (or supply a `tatara-deps.toml` companion in a future
-    // forge phase). Hand-written domains can override directly.
-    let _ = writeln!(out);
-    let _ = writeln!(
-        out,
-        "// ── Dependency metadata (consumed by tatara-rollout topo-sort) ──"
-    );
-    for r in &domain.resources {
-        let _ = writeln!(out);
-        let _ = writeln!(out, "impl tatara_lisp::DependentDomain for {} {{", r.struct_name);
-        let _ = writeln!(
-            out,
-            "    const DEPENDS_ON: &'static [&'static str] = &[];"
-        );
-        let _ = writeln!(out, "}}");
-    }
+    // Layer 4 (DependentDomain) is now covered by the
+    // `impl_default_capabilities!` macro emitted below — no
+    // explicit emit needed here.
 
     // Emit register fn — wires every Resource's keyword form into
     // an `Interpreter<H>`'s domain registry. When render metadata
@@ -316,11 +291,17 @@ pub fn emit_lib_rs(domain: &Domain) -> String {
     );
     let _ = writeln!(out, "pub fn register() {{");
     for r in &domain.resources {
+        // Default-everything via the all-capabilities macro —
+        // covers compile + doc + deps + validate + lifecycle +
+        // compliance + observability + help + stability.
         let _ = writeln!(
             out,
-            "    tatara_lisp::domain::register::<{}>();",
+            "    tatara_lisp::register_all_capabilities!({});",
             r.struct_name
         );
+        // Optional layers that depend on CRD metadata being
+        // available. Forge calls these only when the values
+        // exist — hand-written domains call them inline.
         if r.api_version.is_some() && r.kind.is_some() {
             let _ = writeln!(
                 out,
@@ -328,16 +309,6 @@ pub fn emit_lib_rs(domain: &Domain) -> String {
                 r.struct_name
             );
         }
-        let _ = writeln!(
-            out,
-            "    tatara_lisp::domain::register_doc::<{}>();",
-            r.struct_name
-        );
-        let _ = writeln!(
-            out,
-            "    tatara_lisp::domain::register_deps::<{}>();",
-            r.struct_name
-        );
         if r.raw_schema.is_some() {
             let _ = writeln!(
                 out,
@@ -352,16 +323,6 @@ pub fn emit_lib_rs(domain: &Domain) -> String {
                 r.struct_name
             );
         }
-        let _ = writeln!(
-            out,
-            "    tatara_lisp::domain::register_validate::<{}>();",
-            r.struct_name
-        );
-        let _ = writeln!(
-            out,
-            "    tatara_lisp::domain::register_lifecycle::<{}>();",
-            r.struct_name
-        );
     }
     let _ = writeln!(out, "}}");
     out
@@ -639,7 +600,11 @@ spec:
         assert!(lib.contains("pub struct MonitorSpec"));
         assert!(lib.contains("#[tatara(keyword = \"defmonitor\")]"));
         assert!(lib.contains("pub fn register()"));
-        assert!(lib.contains("tatara_lisp::domain::register::<MonitorSpec>()"));
+        // The register fn now goes through the all-capabilities
+        // macro — `register_all_capabilities!(MonitorSpec)` —
+        // which expands to register::<MonitorSpec>() plus all
+        // 8 default-able layers.
+        assert!(lib.contains("register_all_capabilities!(MonitorSpec)"));
         // Required fields are bare; optional fields wrap in Option<…>.
         assert!(lib.contains("pub name: String,"));
         assert!(lib.contains("pub query: String,"));

@@ -83,6 +83,16 @@ rec {
       # File a bug if you depend on any for non-debug work!
       debug = internal.debugCrate { inherit packageId; };
     };
+    "tatara-env" = rec {
+      packageId = "tatara-env";
+      build = internal.buildRustCrateWithFeatures {
+        packageId = "tatara-env";
+      };
+
+      # Debug support which might change between releases.
+      # File a bug if you depend on any for non-debug work!
+      debug = internal.debugCrate { inherit packageId; };
+    };
     "tatara-gateway-api" = rec {
       packageId = "tatara-gateway-api";
       build = internal.buildRustCrateWithFeatures {
@@ -3357,6 +3367,55 @@ rec {
         features = {
         };
         resolvedDefaultFeatures = [ "aya-runtime" "default" ];
+      };
+      "tatara-env" = rec {
+        crateName = "tatara-env";
+        version = "0.2.0";
+        edition = "2021";
+        src = lib.cleanSourceWith { filter = sourceFilter;  src = ./tatara-env; };
+        libName = "tatara_env";
+        authors = [
+          "Pleme.io <engineering@pleme.io>"
+        ];
+        dependencies = [
+          {
+            name = "indexmap";
+            packageId = "indexmap";
+            features = [ "serde" ];
+          }
+          {
+            name = "serde";
+            packageId = "serde";
+            features = [ "derive" ];
+          }
+          {
+            name = "serde_json";
+            packageId = "serde_json";
+          }
+          {
+            name = "tatara-lisp";
+            packageId = "tatara-lisp";
+          }
+          {
+            name = "tatara-lisp-derive";
+            packageId = "tatara-lisp-derive";
+          }
+          {
+            name = "thiserror";
+            packageId = "thiserror 2.0.18";
+          }
+        ];
+        devDependencies = [
+          {
+            name = "tatara-ebpf";
+            packageId = "tatara-ebpf";
+          }
+          {
+            name = "tatara-gateway-api";
+            packageId = "tatara-gateway-api";
+          }
+        ];
+
       };
       "tatara-gateway-api" = rec {
         crateName = "tatara-gateway-api";

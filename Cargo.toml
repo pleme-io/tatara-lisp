@@ -4,6 +4,7 @@ members = [
     "tatara-cilium",
     "tatara-domain-forge",
     "tatara-ebpf",
+    "tatara-env",
     "tatara-gateway-api",
     "tatara-lisp",
     "tatara-lisp-derive",

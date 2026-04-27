@@ -163,6 +163,16 @@ rec {
       # File a bug if you depend on any for non-debug work!
       debug = internal.debugCrate { inherit packageId; };
     };
+    "tatara-platform-checks" = rec {
+      packageId = "tatara-platform-checks";
+      build = internal.buildRustCrateWithFeatures {
+        packageId = "tatara-platform-checks";
+      };
+
+      # Debug support which might change between releases.
+      # File a bug if you depend on any for non-debug work!
+      debug = internal.debugCrate { inherit packageId; };
+    };
     "tatara-prometheus-operator" = rec {
       packageId = "tatara-prometheus-operator";
       build = internal.buildRustCrateWithFeatures {
@@ -3723,6 +3733,45 @@ rec {
           {
             name = "tempfile";
             packageId = "tempfile";
+          }
+        ];
+
+      };
+      "tatara-platform-checks" = rec {
+        crateName = "tatara-platform-checks";
+        version = "0.2.0";
+        edition = "2021";
+        src = lib.cleanSourceWith { filter = sourceFilter;  src = ./tatara-platform-checks; };
+        libName = "tatara_platform_checks";
+        authors = [
+          "Pleme.io <engineering@pleme.io>"
+        ];
+        dependencies = [
+          {
+            name = "serde_json";
+            packageId = "serde_json";
+          }
+          {
+            name = "tatara-lisp";
+            packageId = "tatara-lisp";
+          }
+        ];
+        devDependencies = [
+          {
+            name = "tatara-cilium";
+            packageId = "tatara-cilium";
+          }
+          {
+            name = "tatara-ebpf";
+            packageId = "tatara-ebpf";
+          }
+          {
+            name = "tatara-gateway-api";
+            packageId = "tatara-gateway-api";
+          }
+          {
+            name = "tatara-prometheus-operator";
+            packageId = "tatara-prometheus-operator";
           }
         ];
 

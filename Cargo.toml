@@ -12,6 +12,7 @@ members = [
     "tatara-lisp-eval",
     "tatara-lisp-script",
     "tatara-lisp-source",
+    "tatara-platform-checks",
     "tatara-prometheus-operator",
     "tatara-render",
     "tatara-rollout",

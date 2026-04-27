@@ -1125,6 +1125,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "tatara-platform-checks"
+version = "0.2.0"
+dependencies = [
+ "serde_json",
+ "tatara-cilium",
+ "tatara-ebpf",
+ "tatara-gateway-api",
+ "tatara-lisp",
+ "tatara-prometheus-operator",
+]
+
+[[package]]
 name = "tatara-prometheus-operator"
 version = "0.2.0"
 dependencies = [

@@ -41,6 +41,7 @@
 //! (HAProxy / nginx / iptables / WireGuard configs) follows the same
 //! shape — typed structs + register() + tests.
 
+pub mod bpf_fn;
 pub mod codegen;
 pub mod runtime;
 pub mod spec;

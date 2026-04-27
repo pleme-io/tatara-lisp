@@ -147,6 +147,87 @@ fn policy_validation_catches_dangling_program_ref() {
     );
 }
 
+/// The "best merger of the two" — a tatara-lisp authored body
+/// lowers to aya-Rust source, which the codegen pass wraps in
+/// the right BPF attribute. Pillar 1 demonstrated end-to-end at
+/// the kernel-up tier.
+#[test]
+fn lisp_authored_bpf_body_lowers_through_codegen() {
+    use tatara_ebpf::bpf_fn::{lower, BpfExpr, BpfFn, CompareOp};
+    use tatara_ebpf::codegen::emit_aya_program;
+    use tatara_ebpf::{BpfAttachPoint, BpfProgramKind, BpfProgramSpec};
+
+    // Equivalent Lisp source (for documentation):
+    //
+    //   (bpf-fn drop-syn-flood (ctx)
+    //     (let ((cpu (call get-current-cpu)))
+    //       (if (= cpu 0)
+    //           (return :xdp-drop)
+    //           (return :xdp-pass))))
+    //
+    // Programmatically constructed here so the test is hermetic;
+    // the reader-side parsing of `(bpf-fn …)` is the next step.
+    let f = BpfFn {
+        name: "drop_syn_flood".into(),
+        ctx: "ctx".into(),
+        body: vec![BpfExpr::Let {
+            name: "cpu".into(),
+            value: Box::new(BpfExpr::Call {
+                helper: "get-current-cpu".into(),
+                args: vec![],
+            }),
+            body: vec![BpfExpr::If {
+                cond: Box::new(BpfExpr::Compare {
+                    op: CompareOp::Eq,
+                    left: Box::new(BpfExpr::Var("cpu".into())),
+                    right: Box::new(BpfExpr::Int(0)),
+                }),
+                then: Box::new(BpfExpr::Return {
+                    action: "xdp-drop".into(),
+                }),
+                otherwise: Box::new(BpfExpr::Return {
+                    action: "xdp-pass".into(),
+                }),
+            }],
+        }],
+    };
+    let body_rust = lower(&f).expect("lisp body lowers to rust");
+
+    // The lowered source already includes the `pub fn` signature
+    // + body. The wrapper pass adds the `#[xdp]` attribute around
+    // it. Compose them by extracting the body block and feeding
+    // through `emit_aya_program`.
+    let spec = BpfProgramSpec {
+        name: "drop_syn_flood".into(),
+        kind: BpfProgramKind::Xdp,
+        attach: BpfAttachPoint {
+            target: "eth0".into(),
+            direction: None,
+        },
+        source: "examples/lisp-authored.tlisp:drop-syn-flood".into(),
+        license: "GPL".into(),
+        pin_path: None,
+        uses_maps: vec![],
+    };
+
+    // The wrapper expects just the body block contents. Since
+    // `lower` produces a complete `pub fn` definition, we slice
+    // out the `{ … }` body for re-wrapping. (In a fuller pipeline,
+    // `lower` would have a `lower_body_only` variant; for the
+    // MVP we extract here.)
+    let open = body_rust.find('{').unwrap();
+    let close = body_rust.rfind('}').unwrap();
+    let body_block = body_rust[open + 1..close].trim();
+    let wrapped = emit_aya_program(&spec, body_block);
+
+    assert!(wrapped.contains("#[xdp]"));
+    assert!(wrapped.contains("pub fn drop_syn_flood"));
+    assert!(wrapped.contains("aya_ebpf::helpers::bpf_get_smp_processor_id"));
+    assert!(wrapped.contains("XDP_DROP"));
+    assert!(wrapped.contains("XDP_PASS"));
+    assert!(wrapped.contains("if (cpu == 0_i64)"));
+}
+
 #[test]
 fn policy_validation_catches_program_using_undeclared_map() {
     let prog = BpfProgramSpec {

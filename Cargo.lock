@@ -1015,6 +1015,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "tatara-ebpf"
+version = "0.2.0"
+dependencies = [
+ "indexmap",
+ "serde",
+ "serde_json",
+ "tatara-lisp",
+ "tatara-lisp-derive",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "tatara-gateway-api"
 version = "0.2.0"
 dependencies = [

@@ -3,6 +3,7 @@ members = [
     "tatara",
     "tatara-cilium",
     "tatara-domain-forge",
+    "tatara-ebpf",
     "tatara-gateway-api",
     "tatara-lisp",
     "tatara-lisp-derive",

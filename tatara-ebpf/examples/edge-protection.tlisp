@@ -1,0 +1,57 @@
+;; edge-protection — a complete eBPF policy authored in tatara-lisp.
+;;
+;; Demonstrates the full tatara-ebpf authoring surface: a per-CPU map
+;; counting SYN floods, an XDP program that drops them, and a policy
+;; that ties the two together.
+;;
+;; To use this file:
+;;
+;;   1. Have an embedder run `tatara_ebpf::register()` so the keyword
+;;      forms below are recognized.
+;;   2. Read this file via `tatara-lisp::read_spanned` (or the
+;;      `tatara` CLI's `run` / `lint` paths).
+;;   3. Hand the parsed forms to `arch-synthesizer`, which validates
+;;      ref-coherence (via `BpfPolicySpec::validate`) and emits the
+;;      derived terraform / FluxCD / substrate-build manifests.
+;;
+;; The actual BPF program body lives at `bpf/drop_syn.rs` (referenced
+;; by `:source`). Future phase: author the body inline as a
+;; `(bpf-fn drop-syn …)` form and let the codegen pass produce the
+;; Rust source — see `tatara-ebpf/src/codegen.rs` for the planned
+;; lowering.
+
+;; ── Map: per-CPU SYN counter ──────────────────────────────────────
+(defbpf-map
+  :name "syn_counter"
+  :kind :per-cpu-array
+  :key-size 4
+  :value-size 8
+  :max-entries 1
+  :pin-path "/sys/fs/bpf/syn_counter")
+
+;; ── Program: XDP-level SYN flood mitigation ───────────────────────
+(defbpf-program
+  :name "drop_syn_flood"
+  :kind :xdp
+  :attach (:target "eth0")
+  :source "bpf/drop_syn.rs"
+  :license "GPL"
+  :uses-maps ("syn_counter")
+  :pin-path "/sys/fs/bpf/drop_syn_flood")
+
+;; ── Program: rate-limit TCP via tc-egress ─────────────────────────
+(defbpf-program
+  :name "rate_limit_tcp"
+  :kind :tc
+  :attach (:target "eth0" :direction "egress")
+  :source "bpf/rate_limit_tcp.rs"
+  :license "GPL"
+  :uses-maps ("syn_counter")
+  :pin-path "/sys/fs/bpf/rate_limit_tcp")
+
+;; ── Policy: composition that arch-synthesizer applies as one unit ─
+(defbpf-policy
+  :name "edge_protection"
+  :description "L4 SYN-flood mitigation + TCP rate-limit on WAN."
+  :programs ("drop_syn_flood" "rate_limit_tcp")
+  :maps ("syn_counter"))

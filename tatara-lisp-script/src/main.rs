@@ -1,14 +1,26 @@
 //! tatara-script — the scripting binary.
 //!
 //! Usage:
-//!   tatara-script path/to/script.tlisp [arg ...]
-//!   tatara-script --test path/to/tests.tlisp
+//!   tatara-script <path-or-url> [arg ...]
+//!   tatara-script --test <path-or-url>
 //!   tatara-script --repl
 //!
-//! Reads the .tlisp file, expands macros via tatara-lisp, evaluates each
-//! form against a `ScriptCtx` host with the full stdlib (http, json,
-//! yaml, sops, toml, file I/O, env, sha256, regex, time, cli, log,
-//! encoding, crypto_extra, os, process, string, list) registered.
+//! `<path-or-url>` accepts any of:
+//!     ./local/path.tlisp                                       file
+//!     github:owner/repo/path/to/program.tlisp[?ref=v0.1.0]    GitHub
+//!     gitlab:owner/repo/path[?ref=main]                        GitLab
+//!     codeberg:owner/repo/path[?ref=...]                       Codeberg
+//!     https://example.com/program.tlisp[#blake3=hex]           direct + pin
+//!
+//! See theory/WASM-PACKAGING.md for the URL grammar. URLs are
+//! BLAKE3-cached at ~/.cache/tatara/sources so subsequent runs of
+//! the same ref skip the network.
+//!
+//! Reads the source, expands macros via tatara-lisp, evaluates each
+//! form against a `ScriptCtx` host with the full stdlib (http,
+//! http-server, json, yaml, sops, toml, file I/O, env, sha256,
+//! regex, time, cli, log, encoding, crypto_extra, os, process,
+//! string, list) registered.
 //!
 //! `(require "path.tlisp")` at the top level of a script is handled by
 //! this driver — it resolves the path against the current file's dir,
@@ -22,12 +34,13 @@
 //! `--repl` drops into an interactive read-eval-print loop using
 //! tatara-lisp-eval's ReplSession shape.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use tatara_lisp::{read_spanned, Spanned, SpannedForm};
 use tatara_lisp_eval::{Interpreter, Value};
 use tatara_lisp_script::{install_stdlib, ScriptCtx};
+use tatara_lisp_source::{FileCache, Resolver, Source};
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -62,30 +75,106 @@ fn print_help() {
         "tatara-script — pleme-io Lisp scripting\n\
          \n\
          Usage:\n  \
-           tatara-script <script.tlisp> [arg ...]    run a script\n  \
-           tatara-script --test <script.tlisp>        collect + run (deftest …) forms\n  \
-           tatara-script --repl                       interactive read-eval-print loop\n  \
-           tatara-script --help                       this banner\n\
+           tatara-script <path-or-url> [arg ...]      run a script\n  \
+           tatara-script --test <path-or-url>          collect + run (deftest …) forms\n  \
+           tatara-script --repl                        interactive read-eval-print loop\n  \
+           tatara-script --help                        this banner\n\
          \n\
+         <path-or-url> can be:\n  \
+           ./local/path.tlisp                           file path\n  \
+           github:owner/repo/path/...[?ref=tag]         GitHub source\n  \
+           gitlab:owner/repo/path[?ref=main]            GitLab source\n  \
+           codeberg:owner/repo/path                     Codeberg source\n  \
+           https://example.com/...[#blake3=hex]         direct fetch + optional pin\n\
+         \n\
+         URLs cache at ~/.cache/tatara/sources keyed by BLAKE3.\n\
          See the tatara-lisp-script crate stdlib docs for the full primitive list."
     );
 }
 
+/// Resolve a path-or-URL into (source-text, canonical-path-or-pseudo).
+/// For local paths the canonical path is the real filesystem path; for
+/// remote URLs we synthesize a deterministic pseudo-path under the
+/// cache so `(require ...)` relative resolution still works.
+fn resolve_input(input: &str) -> Result<(String, PathBuf), String> {
+    let source = Source::parse(input).map_err(|e| format!("parse source {input:?}: {e}"))?;
+
+    // Local paths read directly — no cache, no network.
+    if let Source::Local { path } = &source {
+        let bytes =
+            std::fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
+        return Ok((bytes, path.clone()));
+    }
+
+    // Remote sources go through the resolver with a file-backed cache.
+    let cache_root = dirs_cache_root().join("tatara").join("sources");
+    let cache = FileCache::new(&cache_root)
+        .map_err(|e| format!("open cache {}: {e}", cache_root.display()))?;
+    let mut resolver = Resolver::new(cache);
+
+    let resolved = resolver
+        .resolve_source(&source)
+        .map_err(|e| format!("{e}"))?;
+
+    let text = String::from_utf8(resolved.bytes).map_err(|e| format!("source not utf-8: {e}"))?;
+
+    // Synthesize a canonical pseudo-path under the cache root so
+    // `(require ...)` relative resolution behaves predictably for
+    // remote sources too.
+    let pseudo = cache_root
+        .join("rendered")
+        .join(format!("{}.tlisp", resolved.blake3));
+    Ok((text, pseudo))
+}
+
+fn dirs_cache_root() -> PathBuf {
+    if let Ok(s) = std::env::var("XDG_CACHE_HOME") {
+        return PathBuf::from(s);
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        return PathBuf::from(home).join(".cache");
+    }
+    std::env::temp_dir()
+}
+
+/// Configure the interpreter's module loader to read .tlisp files
+/// from the script's directory + any `$TATARA_PATH` entries. Called
+/// from each entry point (run, --test, --repl) so namespaced
+/// `(require "lib/foo" :as f)` works uniformly.
+fn install_canonical_loader(interp: &mut Interpreter<ScriptCtx>, script_path: &Path) {
+    let base = script_path
+        .parent()
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    let mut search_paths: Vec<PathBuf> = Vec::new();
+    if let Ok(extra) = std::env::var("TATARA_PATH") {
+        for s in extra.split(':') {
+            if !s.is_empty() {
+                search_paths.push(PathBuf::from(s));
+            }
+        }
+    }
+    let loader = tatara_lisp_eval::FilesystemLoader::new(base).with_search_paths(search_paths);
+    interp.set_loader(std::sync::Arc::new(loader));
+}
+
 fn run_script(script_path: &str, rest: Vec<String>) -> ExitCode {
-    let path = PathBuf::from(script_path);
     let mut interp: Interpreter<ScriptCtx> = Interpreter::new();
     install_stdlib(&mut interp);
+
+    let (src, path) = match resolve_input(script_path) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("tatara-script: {e}");
+            return ExitCode::from(2);
+        }
+    };
+
+    install_canonical_loader(&mut interp, &path);
 
     let mut ctx = ScriptCtx::with_argv(rest);
     ctx.current_file = Some(path.clone());
 
-    let src = match std::fs::read_to_string(&path) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("tatara-script: cannot read {script_path}: {e}");
-            return ExitCode::from(2);
-        }
-    };
     let forms = match read_spanned(&src) {
         Ok(f) => f,
         Err(e) => {
@@ -104,20 +193,21 @@ fn run_script(script_path: &str, rest: Vec<String>) -> ExitCode {
 }
 
 fn run_test_mode(script_path: &str, rest: Vec<String>) -> ExitCode {
-    let path = PathBuf::from(script_path);
     let mut interp: Interpreter<ScriptCtx> = Interpreter::new();
     install_stdlib(&mut interp);
 
-    let mut ctx = ScriptCtx::with_argv(rest);
-    ctx.current_file = Some(path.clone());
-
-    let src = match std::fs::read_to_string(&path) {
-        Ok(s) => s,
+    let (src, path) = match resolve_input(script_path) {
+        Ok(r) => r,
         Err(e) => {
-            eprintln!("tatara-script --test: cannot read {script_path}: {e}");
+            eprintln!("tatara-script --test: {e}");
             return ExitCode::from(2);
         }
     };
+
+    install_canonical_loader(&mut interp, &path);
+
+    let mut ctx = ScriptCtx::with_argv(rest);
+    ctx.current_file = Some(path.clone());
     let forms = match read_spanned(&src) {
         Ok(f) => f,
         Err(e) => {
@@ -248,44 +338,20 @@ fn dispatch_top_form(
     form: &Spanned,
     ctx: &mut ScriptCtx,
 ) -> Result<Value, String> {
-    // Peek the head symbol for require / deftest.
+    // (deftest …) is handled here because it's a script-driver
+    // concern (collecting tests for --test mode), not an evaluator
+    // concern. Everything else — including (require) and (provide)
+    // — flows through eval_top_form so the canonical module system
+    // (file=module + qualified names + cycle detection) is what
+    // runs. The FilesystemLoader is wired via install_canonical_loader.
     if let SpannedForm::List(items) = &form.form {
         if let Some(head) = items.first().and_then(Spanned::as_symbol) {
-            match head {
-                "require" => return dispatch_require(interp, items, ctx),
-                "deftest" => return dispatch_deftest(items, ctx),
-                _ => {}
+            if head == "deftest" {
+                return dispatch_deftest(items, ctx);
             }
         }
     }
-    interp
-        .eval_spanned(form, ctx)
-        .map_err(|e| e.render(src))
-}
-
-fn dispatch_require(
-    interp: &mut Interpreter<ScriptCtx>,
-    items: &[Spanned],
-    ctx: &mut ScriptCtx,
-) -> Result<Value, String> {
-    if items.len() != 2 {
-        return Err("require: expected (require \"path.tlisp\")".to_string());
-    }
-    let target = match &items[1].form {
-        SpannedForm::Atom(tatara_lisp::Atom::Str(s)) => s.clone(),
-        _ => return Err("require: path must be a string literal".to_string()),
-    };
-    let Some(path) = tatara_lisp_script::stdlib::module::plan_require(ctx, &target)? else {
-        return Ok(Value::Nil); // already required
-    };
-    // Read the required file's source once and feed it through the same
-    // pipeline as the root script — its own spans resolve into its own
-    // src, which is what `e.render(src)` wants.
-    let src = std::fs::read_to_string(&path)
-        .map_err(|e| format!("read {}: {e}", path.display()))?;
-    let forms = tatara_lisp::read_spanned(&src)
-        .map_err(|e| format!("parse {}: {e:?}", path.display()))?;
-    eval_forms_with_require(interp, &src, &forms, ctx, &path)
+    interp.eval_top_form(form, ctx).map_err(|e| e.render(src))
 }
 
 fn dispatch_deftest(items: &[Spanned], ctx: &mut ScriptCtx) -> Result<Value, String> {

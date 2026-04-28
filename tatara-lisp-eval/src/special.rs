@@ -23,6 +23,38 @@ pub enum SpecialForm {
     And,
     Or,
     Not,
+    /// `(try body... (catch (binding) handler...))` —
+    /// runs body sequentially; if any form raises an `EvalError::User`
+    /// (i.e., a Lisp-level `(throw ...)`), the carried Value is bound
+    /// to `binding` and `handler...` runs. Bare Rust-side errors
+    /// (TypeMismatch, ArityMismatch, etc.) are wrapped into a
+    /// `Value::Error` with tag `:runtime` so they can be caught too.
+    Try,
+    /// `(macroexpand-1 'form)` — evaluate the argument to a code value,
+    /// run ONE level of macro expansion if the head is a registered
+    /// macro, and return the expanded code as a Value. Useful for
+    /// debugging macros — see exactly what one expansion produces.
+    MacroexpandOne,
+    /// `(macroexpand 'form)` — like macroexpand-1, but fully expand
+    /// until no macro calls remain.
+    MacroexpandAll,
+    /// `(delay expr)` — wrap `expr` as a memoizing thunk. The first
+    /// `(force p)` triggers evaluation; subsequent forces return the
+    /// cached value. Returns a `Value::Promise`.
+    Delay,
+    /// `(eval form)` — evaluate `form` (a runtime Value representing
+    /// code, typically a quoted list) at top-level, returning the
+    /// result. Unlocks runtime metaprogramming.
+    Eval,
+    /// `(provide name1 name2 ...)` — declare that the names are
+    /// exported from the current module. Errors at top-level (i.e.
+    /// outside a `(require)` load).
+    Provide,
+    /// `(require "path")` — load and evaluate the module at `path`,
+    /// register it. With `:as alias`, every exported name becomes
+    /// reachable as `alias/name`. With `:refer (a b)`, only the listed
+    /// names are imported as bare unqualified bindings.
+    Require,
 }
 
 impl SpecialForm {
@@ -46,6 +78,13 @@ impl SpecialForm {
             "and" => Self::And,
             "or" => Self::Or,
             "not" => Self::Not,
+            "try" => Self::Try,
+            "macroexpand-1" => Self::MacroexpandOne,
+            "macroexpand" => Self::MacroexpandAll,
+            "delay" => Self::Delay,
+            "eval" => Self::Eval,
+            "provide" => Self::Provide,
+            "require" => Self::Require,
             _ => return None,
         })
     }

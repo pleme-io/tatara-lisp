@@ -20,14 +20,20 @@ path = "src/lib.rs"
 workspace = true
 
 [dependencies]
-tatara-lisp      = { path = "../tatara-lisp" }
-tatara-lisp-eval = { path = "../tatara-lisp-eval" }
+tatara-lisp        = { path = "../tatara-lisp" }
+tatara-lisp-eval   = { path = "../tatara-lisp-eval" }
+tatara-lisp-source = { path = "../tatara-lisp-source" }
 
 anyhow     = "1"
 thiserror  = "2"
 
 # HTTP client — blocking on purpose. Orchestration scripts, not a service.
 ureq       = { version = "3", features = ["json"] }
+
+# HTTP server — blocking, single-threaded. The whole scripting model is
+# synchronous; a production service would run via WASM/wasm-operator
+# anyway. tiny_http is ~2k LoC and works well for hello-world-tier services.
+tiny_http  = "0.12"
 
 # Data formats
 serde      = { version = "1", features = ["derive"] }

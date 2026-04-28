@@ -1,0 +1,22 @@
+[package]
+name = "tatara-platform-checks"
+description = "Platform-wide invariant checks over the registered tatara catalog. Each invariant walks the capability registries, asserting properties no single domain can verify alone (no duplicate keywords, every dep ref resolves, every schema parses, every compliance framework is known). New domains are validated automatically; new invariants are one function each."
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+tatara-lisp = { path = "../tatara-lisp" }
+serde_json = "1"
+
+[dev-dependencies]
+tatara-ebpf = { path = "../tatara-ebpf" }
+tatara-gateway-api = { path = "../tatara-gateway-api" }
+tatara-cilium = { path = "../tatara-cilium" }
+tatara-prometheus-operator = { path = "../tatara-prometheus-operator" }

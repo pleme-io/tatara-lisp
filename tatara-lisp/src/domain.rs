@@ -204,6 +204,733 @@ pub fn registered_keywords() -> Vec<&'static str> {
     registry().lock().unwrap().keys().copied().collect()
 }
 
+// ── Capability registries — compounding metadata layer ────────────
+//
+// Each registered domain can ALSO carry capability metadata —
+// orthogonal concerns the rest of the platform needs to ask about
+// the type without importing it. Today: `RenderMetadata` (used by
+// tatara-render to emit Kubernetes CR YAML without a hard-coded
+// match). Future: `ComplianceMetadata`, `DocumentationMetadata`,
+// `AttestationMetadata` — same shape, additional concerns.
+//
+// Each metadata kind has its own static registry parallel to
+// `REGISTRY` (the handler registry). Domain crates call
+// `register_render::<T>()` alongside `register::<T>()` during
+// boot; consumers like `tatara-render` look up by keyword.
+
+/// Type that knows its Kubernetes-CR rendering metadata. Tiny —
+/// just constants. Implementing crates derive nothing; they
+/// `impl RenderableDomain for FooSpec { … }` with three lines.
+pub trait RenderableDomain {
+    /// Kubernetes apiVersion the resource lives under
+    /// (`gateway.networking.k8s.io/v1`, `cilium.io/v2`, etc.).
+    const API_VERSION: &'static str;
+    /// Kubernetes kind (`Gateway`, `CiliumNetworkPolicy`).
+    const KIND: &'static str;
+    /// Field name (in the typed JSON) that supplies the CR's
+    /// `metadata.name`. Most domains use `name`; gateway-api
+    /// uses `gateway_class_name`. Defaults via `Default` impl.
+    const NAME_FIELD: &'static str = "name";
+}
+
+/// Erased render metadata — what `tatara-render` consumes.
+#[derive(Clone, Copy, Debug)]
+pub struct RenderHandler {
+    pub keyword: &'static str,
+    pub api_version: &'static str,
+    pub kind: &'static str,
+    pub name_field: &'static str,
+}
+
+static RENDER_REGISTRY: OnceLock<Mutex<HashMap<&'static str, RenderHandler>>> = OnceLock::new();
+
+fn render_registry() -> &'static Mutex<HashMap<&'static str, RenderHandler>> {
+    RENDER_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Register a `RenderableDomain`'s metadata. Idempotent.
+/// Domain crates call this once at boot, alongside `register::<T>()`.
+pub fn register_render<T>()
+where
+    T: TataraDomain + RenderableDomain,
+{
+    let handler = RenderHandler {
+        keyword: T::KEYWORD,
+        api_version: T::API_VERSION,
+        kind: T::KIND,
+        name_field: T::NAME_FIELD,
+    };
+    render_registry().lock().unwrap().insert(T::KEYWORD, handler);
+}
+
+/// Look up render metadata by keyword.
+#[must_use]
+pub fn lookup_render(keyword: &str) -> Option<RenderHandler> {
+    render_registry().lock().unwrap().get(keyword).copied()
+}
+
+/// List every keyword that has render metadata registered.
+#[must_use]
+pub fn registered_render_keywords() -> Vec<&'static str> {
+    render_registry().lock().unwrap().keys().copied().collect()
+}
+
+// ── Documented capability ─────────────────────────────────────────
+//
+// Third capability layer (compile / render / doc). Each domain
+// can carry its struct-level + field-level documentation strings
+// for catalog browsers, IDE hover-help, and the `tatara doc`
+// CLI to consult uniformly.
+
+/// Type that knows its human-readable documentation. Tiny: one
+/// `&'static str` for the type-level summary, plus an array of
+/// (field, doc) pairs.
+pub trait DocumentedDomain {
+    /// Top-level docstring for the type — what an embedder sees
+    /// when hovering the keyword in a catalog browser.
+    const DOCSTRING: &'static str;
+    /// Per-field docstrings, in declaration order. Empty when no
+    /// docs were captured upstream (typical for hand-written
+    /// domains until they fill them in). Forge-generated domains
+    /// populate this from CRD `description` fields.
+    const FIELD_DOCS: &'static [(&'static str, &'static str)];
+}
+
+/// Erased doc handle.
+#[derive(Clone, Copy, Debug)]
+pub struct DocHandler {
+    pub keyword: &'static str,
+    pub docstring: &'static str,
+    pub field_docs: &'static [(&'static str, &'static str)],
+}
+
+static DOC_REGISTRY: OnceLock<Mutex<HashMap<&'static str, DocHandler>>> = OnceLock::new();
+
+fn doc_registry() -> &'static Mutex<HashMap<&'static str, DocHandler>> {
+    DOC_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Register a `DocumentedDomain`'s metadata. Idempotent.
+pub fn register_doc<T>()
+where
+    T: TataraDomain + DocumentedDomain,
+{
+    let handler = DocHandler {
+        keyword: T::KEYWORD,
+        docstring: T::DOCSTRING,
+        field_docs: T::FIELD_DOCS,
+    };
+    doc_registry().lock().unwrap().insert(T::KEYWORD, handler);
+}
+
+/// Look up doc metadata by keyword.
+#[must_use]
+pub fn lookup_doc(keyword: &str) -> Option<DocHandler> {
+    doc_registry().lock().unwrap().get(keyword).copied()
+}
+
+/// List every keyword that has doc metadata registered.
+#[must_use]
+pub fn registered_doc_keywords() -> Vec<&'static str> {
+    doc_registry().lock().unwrap().keys().copied().collect()
+}
+
+// ── Dependent capability ──────────────────────────────────────────
+//
+// Fourth capability layer (compile / render / doc / deps). Each
+// domain can declare which OTHER keywords its instances logically
+// depend on. The rollout pipeline consumes this to topo-sort the
+// `Plan` so deploys land in the right order — apply
+// `defservice` before `defpodmonitor` before `defciliumnetworkpolicy`,
+// drain in reverse.
+
+/// Type-level dependency declarations. The strings are keywords
+/// of OTHER domains this one expects to be present (e.g. a
+/// `defciliumnetworkpolicy` depends on a `defservice` whose pods
+/// it selects). The dependency relation is type-to-type, not
+/// instance-to-instance — finer-grained refs live on the typed
+/// resource value itself.
+pub trait DependentDomain {
+    /// Keywords this domain logically depends on. Empty by
+    /// default for forge-generated domains since CRDs don't
+    /// generally declare deps; hand-written domains override
+    /// to capture real ordering constraints.
+    const DEPENDS_ON: &'static [&'static str];
+}
+
+/// Erased dep handle — what the topo-sort consumer reads.
+#[derive(Clone, Copy, Debug)]
+pub struct DepsHandler {
+    pub keyword: &'static str,
+    pub depends_on: &'static [&'static str],
+}
+
+static DEPS_REGISTRY: OnceLock<Mutex<HashMap<&'static str, DepsHandler>>> = OnceLock::new();
+
+fn deps_registry() -> &'static Mutex<HashMap<&'static str, DepsHandler>> {
+    DEPS_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Register a `DependentDomain`'s deps. Idempotent.
+pub fn register_deps<T>()
+where
+    T: TataraDomain + DependentDomain,
+{
+    let handler = DepsHandler {
+        keyword: T::KEYWORD,
+        depends_on: T::DEPENDS_ON,
+    };
+    deps_registry().lock().unwrap().insert(T::KEYWORD, handler);
+}
+
+/// Look up dep metadata by keyword.
+#[must_use]
+pub fn lookup_deps(keyword: &str) -> Option<DepsHandler> {
+    deps_registry().lock().unwrap().get(keyword).copied()
+}
+
+/// List every keyword that has dep metadata registered.
+#[must_use]
+pub fn registered_deps_keywords() -> Vec<&'static str> {
+    deps_registry().lock().unwrap().keys().copied().collect()
+}
+
+// ── Schematic capability ──────────────────────────────────────────
+//
+// Fifth capability layer: per-domain JSON Schema export. Forge-
+// generated domains preserve the source CRD's openAPIV3Schema
+// verbatim; hand-written domains can either skip the layer or
+// hand-curate a schema. Consumers: IDE hover-help, web
+// validators, openapi exporters, admin-UI form generators —
+// everyone who wants the typed shape without depending on the
+// Rust struct directly.
+
+pub trait SchematicDomain {
+    /// JSON Schema source for this type. Preserved verbatim from
+    /// the CRD's openAPIV3Schema for forge-generated domains;
+    /// hand-curated for non-CRD domains. Consumers parse this on
+    /// demand — keeping it as a static string avoids paying
+    /// serde_json::Value at startup for every domain.
+    const SCHEMA_JSON: &'static str;
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct SchemaHandler {
+    pub keyword: &'static str,
+    pub schema_json: &'static str,
+}
+
+static SCHEMA_REGISTRY: OnceLock<Mutex<HashMap<&'static str, SchemaHandler>>> = OnceLock::new();
+
+fn schema_registry() -> &'static Mutex<HashMap<&'static str, SchemaHandler>> {
+    SCHEMA_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+pub fn register_schema<T>()
+where
+    T: TataraDomain + SchematicDomain,
+{
+    let handler = SchemaHandler {
+        keyword: T::KEYWORD,
+        schema_json: T::SCHEMA_JSON,
+    };
+    schema_registry().lock().unwrap().insert(T::KEYWORD, handler);
+}
+
+#[must_use]
+pub fn lookup_schema(keyword: &str) -> Option<SchemaHandler> {
+    schema_registry().lock().unwrap().get(keyword).copied()
+}
+
+#[must_use]
+pub fn registered_schema_keywords() -> Vec<&'static str> {
+    schema_registry().lock().unwrap().keys().copied().collect()
+}
+
+// ── Attestable capability ─────────────────────────────────────────
+//
+// Sixth capability layer: each domain declares its **attestation
+// namespace** — the bucket the tameshi BLAKE3 chain groups its
+// resources under. The canonical hash itself is namespace-aware
+// (`blake3(namespace || canonical_json(value))`) so two resources
+// with identical content but different domains never collide in
+// the attestation tree. Closes the trust loop in the rollout
+// pipeline.
+
+pub trait AttestableDomain {
+    /// Bucket name for the tameshi attestation chain. Forge-
+    /// generated CRD domains use the CRD's group (e.g.
+    /// `gateway.networking.k8s.io`); hand-written domains pick
+    /// a stable namespace (e.g. `pleme.io/ebpf`). The namespace
+    /// is hashed into the resource's BLAKE3 so cross-domain
+    /// collisions are impossible.
+    const ATTESTATION_NAMESPACE: &'static str;
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct AttestHandler {
+    pub keyword: &'static str,
+    pub namespace: &'static str,
+}
+
+static ATTEST_REGISTRY: OnceLock<Mutex<HashMap<&'static str, AttestHandler>>> = OnceLock::new();
+
+fn attest_registry() -> &'static Mutex<HashMap<&'static str, AttestHandler>> {
+    ATTEST_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+pub fn register_attest<T>()
+where
+    T: TataraDomain + AttestableDomain,
+{
+    let handler = AttestHandler {
+        keyword: T::KEYWORD,
+        namespace: T::ATTESTATION_NAMESPACE,
+    };
+    attest_registry().lock().unwrap().insert(T::KEYWORD, handler);
+}
+
+#[must_use]
+pub fn lookup_attest(keyword: &str) -> Option<AttestHandler> {
+    attest_registry().lock().unwrap().get(keyword).copied()
+}
+
+#[must_use]
+pub fn registered_attest_keywords() -> Vec<&'static str> {
+    attest_registry().lock().unwrap().keys().copied().collect()
+}
+
+/// Compute a namespaced BLAKE3 attestation for a typed value.
+///
+/// `BLAKE3(ATTESTATION_NAMESPACE || ":" || canonical_json(value))`
+///
+/// The namespace prefix prevents cross-domain hash collisions in
+/// the tameshi attestation tree — two resources with identical
+/// JSON but different domain semantics produce different hashes.
+/// The canonical-JSON serialization is what `serde_json::to_string`
+/// produces; consumers can rely on the hash being stable across
+/// processes given the same input value.
+#[must_use]
+pub fn attest_value(namespace: &str, value: &serde_json::Value) -> String {
+    let canonical = serde_json::to_string(value).unwrap_or_default();
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(namespace.as_bytes());
+    hasher.update(b":");
+    hasher.update(canonical.as_bytes());
+    hasher.finalize().to_hex().to_string()
+}
+
+// ── Validated capability ──────────────────────────────────────────
+//
+// Seventh capability layer: per-domain semantic validators. The
+// first capability with **executable behavior** (not just static
+// metadata) — the registry stores function pointers, not
+// constants. Each domain plugs in its own logic; the env-level
+// validator dispatches.
+
+/// Type that carries a semantic validator for its typed values.
+/// Default impl returns `Ok(())` — so domains opt in, never
+/// out. The validator runs AFTER `compile_from_args` succeeds —
+/// it's a chance to enforce cross-field invariants the type
+/// system alone can't catch (e.g. "if `kind = :xdp`, `attach`
+/// must include an interface").
+pub trait ValidatedDomain {
+    /// Validate the typed JSON form of a domain instance. The
+    /// default returns Ok — domains override to add real checks.
+    /// Errors carry a human-readable message naming the
+    /// offending field + constraint.
+    fn validate_value(_value: &serde_json::Value) -> std::result::Result<(), String> {
+        Ok(())
+    }
+}
+
+/// Erased validator handle — function pointer, no captured state.
+#[derive(Clone, Copy)]
+pub struct ValidateHandler {
+    pub keyword: &'static str,
+    pub validate: fn(&serde_json::Value) -> std::result::Result<(), String>,
+}
+
+impl std::fmt::Debug for ValidateHandler {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ValidateHandler")
+            .field("keyword", &self.keyword)
+            .field("validate", &"<fn>")
+            .finish()
+    }
+}
+
+static VALIDATE_REGISTRY: OnceLock<Mutex<HashMap<&'static str, ValidateHandler>>> = OnceLock::new();
+
+fn validate_registry() -> &'static Mutex<HashMap<&'static str, ValidateHandler>> {
+    VALIDATE_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+pub fn register_validate<T>()
+where
+    T: TataraDomain + ValidatedDomain,
+{
+    let handler = ValidateHandler {
+        keyword: T::KEYWORD,
+        validate: <T as ValidatedDomain>::validate_value,
+    };
+    validate_registry().lock().unwrap().insert(T::KEYWORD, handler);
+}
+
+#[must_use]
+pub fn lookup_validate(keyword: &str) -> Option<ValidateHandler> {
+    validate_registry().lock().unwrap().get(keyword).copied()
+}
+
+#[must_use]
+pub fn registered_validate_keywords() -> Vec<&'static str> {
+    validate_registry().lock().unwrap().keys().copied().collect()
+}
+
+// ── Lifecycle capability ──────────────────────────────────────────
+//
+// Eighth capability layer: per-domain rollout strategy. Where
+// Layer 4 (DependentDomain) declares **apply X before Y**, Layer
+// 8 declares **when X changes, here's how to swap it**.
+//
+// Different shapes need different protocols:
+//   - service-shaped CRs (Gateway, Service): RollingUpdate
+//   - stateful resources (ConfigMaps owned by stateful sets):
+//     Recreate
+//   - kernel-attached programs (eBPF): BlueGreen — load new
+//     before unloading old, atomic-swap (the verifier rejects
+//     half-loaded state, so blue/green is the only safe shape)
+//   - config CRs (most CRD-shaped resources): Immediate
+//
+// `tatara-rollout` (and future `tatara-deploy`) consult this
+// per Change to pick the right swap protocol for each resource.
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum RolloutStrategy {
+    /// Apply once, no transition. Most config-shaped CRDs.
+    Immediate,
+    /// Tear down, then create. Stateful resources where in-place
+    /// updates aren't safe.
+    Recreate,
+    /// Standard rolling update — replace pod-by-pod with health
+    /// probes between. Service-shaped CRs.
+    RollingUpdate,
+    /// Install new alongside old, switch traffic, drain old.
+    /// Kernel-attached programs (eBPF) — the verifier won't
+    /// accept half-loaded state, so blue/green is the only
+    /// safe shape.
+    BlueGreen,
+    /// Percentage traffic shift over time. Service mesh primary
+    /// pattern.
+    Canary,
+}
+
+pub trait LifecycleProtocol {
+    /// How changes to this domain's resources roll out.
+    const STRATEGY: RolloutStrategy;
+    /// Seconds to wait for graceful termination before force-kill.
+    /// 30s default matches K8s pod terminationGracePeriodSeconds.
+    const DRAIN_SECONDS: u32 = 30;
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct LifecycleHandler {
+    pub keyword: &'static str,
+    pub strategy: RolloutStrategy,
+    pub drain_seconds: u32,
+}
+
+static LIFECYCLE_REGISTRY: OnceLock<Mutex<HashMap<&'static str, LifecycleHandler>>> =
+    OnceLock::new();
+
+fn lifecycle_registry() -> &'static Mutex<HashMap<&'static str, LifecycleHandler>> {
+    LIFECYCLE_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+pub fn register_lifecycle<T>()
+where
+    T: TataraDomain + LifecycleProtocol,
+{
+    let handler = LifecycleHandler {
+        keyword: T::KEYWORD,
+        strategy: T::STRATEGY,
+        drain_seconds: T::DRAIN_SECONDS,
+    };
+    lifecycle_registry().lock().unwrap().insert(T::KEYWORD, handler);
+}
+
+#[must_use]
+pub fn lookup_lifecycle(keyword: &str) -> Option<LifecycleHandler> {
+    lifecycle_registry().lock().unwrap().get(keyword).copied()
+}
+
+#[must_use]
+pub fn registered_lifecycle_keywords() -> Vec<&'static str> {
+    lifecycle_registry().lock().unwrap().keys().copied().collect()
+}
+
+// ── Meta-compounder: capability_layer! macro ──────────────────────
+//
+// Layers 1–8 above each take ~50 lines of boilerplate (trait +
+// handler struct + registry + 3 fns). The macro below collapses
+// every static-data capability layer to ~10 lines of declaration.
+// First-class compounding the compounding: each new layer is now
+// shorter to author than its predecessors.
+//
+// Use the macro for layers whose trait holds only `const` items
+// (and whose handler is a flat struct of those values). Layers
+// with executable behavior (Validated, layer 7) keep the
+// hand-written form because the trait carries a method, not
+// constants — `fn validate_value(&Value) -> Result<…>` doesn't
+// fit a `const` slot.
+//
+// Shape:
+//
+//   capability_layer! {
+//       trait $Trait,                     // pub trait + name
+//       handler $Handler,                 // erased Handler struct
+//       static $REGISTRY,                 // backing OnceLock
+//       registry_fn $internal_fn,         // private accessor
+//       register $register_fn,            // pub register::<T>()
+//       lookup $lookup_fn,                // pub lookup(kw) -> Option<Handler>
+//       list $list_fn,                    // pub list registered keywords
+//       consts {
+//           const NAME: ty => field name,  // trait const → handler field
+//           ...
+//       }
+//   }
+
+#[macro_export]
+macro_rules! capability_layer {
+    (
+        trait $Trait:ident,
+        handler $Handler:ident,
+        static $REGISTRY:ident,
+        registry_fn $registry_fn:ident,
+        register $register:ident,
+        lookup $lookup:ident,
+        list $list:ident,
+        consts {
+            $(const $CONST:ident: $ty:ty => field $field:ident),* $(,)?
+        } $(,)?
+    ) => {
+        pub trait $Trait {
+            $(const $CONST: $ty;)*
+        }
+
+        #[derive(Clone, Copy, Debug)]
+        pub struct $Handler {
+            pub keyword: &'static str,
+            $(pub $field: $ty,)*
+        }
+
+        static $REGISTRY: ::std::sync::OnceLock<
+            ::std::sync::Mutex<::std::collections::HashMap<&'static str, $Handler>>
+        > = ::std::sync::OnceLock::new();
+
+        fn $registry_fn() -> &'static ::std::sync::Mutex<
+            ::std::collections::HashMap<&'static str, $Handler>
+        > {
+            $REGISTRY.get_or_init(|| {
+                ::std::sync::Mutex::new(::std::collections::HashMap::new())
+            })
+        }
+
+        pub fn $register<T>()
+        where
+            T: $crate::domain::TataraDomain + $Trait,
+        {
+            let handler = $Handler {
+                keyword: T::KEYWORD,
+                $($field: T::$CONST,)*
+            };
+            $registry_fn().lock().unwrap().insert(T::KEYWORD, handler);
+        }
+
+        #[must_use]
+        pub fn $lookup(keyword: &str) -> Option<$Handler> {
+            $registry_fn().lock().unwrap().get(keyword).copied()
+        }
+
+        #[must_use]
+        pub fn $list() -> Vec<&'static str> {
+            $registry_fn().lock().unwrap().keys().copied().collect()
+        }
+    };
+}
+
+// ── Layer 9: Compliant capability (via the macro) ─────────────────
+//
+// First layer authored with the meta-compounder. Compounding the
+// compounding made operational. Per-domain compliance posture —
+// which baselines the resource satisfies (NIST 800-53, CIS,
+// FedRAMP, PCI DSS, SOC 2). Consumers: kensa (compliance engine),
+// sekiban (admission webhook), tameshi (heartbeat chain).
+
+capability_layer! {
+    trait CompliantDomain,
+    handler ComplianceHandler,
+    static COMPLIANCE_REGISTRY,
+    registry_fn compliance_registry,
+    register register_compliance,
+    lookup lookup_compliance,
+    list registered_compliance_keywords,
+    consts {
+        const FRAMEWORKS: &'static [&'static str] => field frameworks,
+        const CONTROLS: &'static [&'static str] => field controls,
+    }
+}
+
+// ── Layer 10: Observable capability (via the macro) ───────────────
+//
+// Per-domain Prometheus metric prefix + log label names.
+// Consumers: arch-synthesizer (auto-generates ServiceMonitor +
+// PodMonitor specs that scrape the right prefixes) and the
+// Loki query layer (knows which labels each domain emits).
+
+capability_layer! {
+    trait ObservableDomain,
+    handler ObservabilityHandler,
+    static OBSERVABILITY_REGISTRY,
+    registry_fn observability_registry,
+    register register_observability,
+    lookup lookup_observability,
+    list registered_observability_keywords,
+    consts {
+        const METRIC_PREFIX: &'static str => field metric_prefix,
+        const LOG_LABELS: &'static [&'static str] => field log_labels,
+    }
+}
+
+// ── Layer 11: Authoring help capability (via the macro) ───────────
+//
+// Per-domain authoring examples + a one-liner mnemonic for the
+// catalog browser. Consumers: tatara-doc (renders examples in
+// the catalog), IDE hover-help, the future `tatara init` CLI
+// that scaffolds new programs from examples.
+
+capability_layer! {
+    trait HelpDomain,
+    handler HelpHandler,
+    static HELP_REGISTRY,
+    registry_fn help_registry,
+    register register_help,
+    lookup lookup_help,
+    list registered_help_keywords,
+    consts {
+        const MNEMONIC: &'static str => field mnemonic,
+        const EXAMPLES: &'static [&'static str] => field examples,
+    }
+}
+
+// ── Layer 12: Stable capability (via the macro) ───────────────────
+//
+// Per-domain stability signal. Consumers: caixa-lint (warns on
+// unstable usages), tatara-doc (decorates the catalog), CI
+// gates (blocks promotion to prod when an unstable resource
+// crosses a `:tier "prod"` env boundary).
+
+capability_layer! {
+    trait StableDomain,
+    handler StabilityHandler,
+    static STABILITY_REGISTRY,
+    registry_fn stability_registry,
+    register register_stability,
+    lookup lookup_stability,
+    list registered_stability_keywords,
+    consts {
+        const STABILITY: &'static str => field stability,
+        const SINCE_VERSION: &'static str => field since_version,
+    }
+}
+
+// ── Meta-meta-compounder: impl_default_capabilities! ──────────────
+//
+// Forge-generated domains plug into the platform with a single
+// macro call:
+//
+//   impl_default_capabilities!(MyDomainSpec);
+//
+// Expands to default `impl` blocks for every static-data
+// capability layer that *has* a meaningful default. Layers
+// without a sensible default (Render, Validated — Render needs
+// real api_version+kind, Validated has its trait-default
+// `validate_value`) are skipped here; the forge emits those
+// separately when CRD metadata is available.
+//
+// **Why this matters**: previously, adding a new capability
+// layer required editing both `tatara-lisp::domain` (define the
+// layer) AND `tatara-domain-forge::emit` (emit per-layer impl
+// blocks). Now the forge's emit is a single line; new layers
+// land in this macro alone. Compounding the compounding the
+// compounding — three orders deep.
+
+#[macro_export]
+macro_rules! impl_default_capabilities {
+    ($Spec:ty) => {
+        // NOTE: Layer 3 (Documented) is intentionally NOT here.
+        // Forge-generated domains emit it explicitly with real
+        // docs from CRD descriptions; hand-written domains
+        // override directly. The macro covering it would create
+        // a double-impl conflict in both cases.
+        //
+        // Layer 4 — Dependent (forge default empty).
+        impl $crate::domain::DependentDomain for $Spec {
+            const DEPENDS_ON: &'static [&'static str] = &[];
+        }
+        // Layer 7 — Validated (uses the trait's default fn).
+        impl $crate::domain::ValidatedDomain for $Spec {}
+        // Layer 8 — Lifecycle (Immediate is the safe CRD default).
+        impl $crate::domain::LifecycleProtocol for $Spec {
+            const STRATEGY: $crate::domain::RolloutStrategy =
+                $crate::domain::RolloutStrategy::Immediate;
+        }
+        // Layer 9 — Compliance (claims none by default).
+        impl $crate::domain::CompliantDomain for $Spec {
+            const FRAMEWORKS: &'static [&'static str] = &[];
+            const CONTROLS: &'static [&'static str] = &[];
+        }
+        // Layer 10 — Observable (no metrics by default).
+        impl $crate::domain::ObservableDomain for $Spec {
+            const METRIC_PREFIX: &'static str = "";
+            const LOG_LABELS: &'static [&'static str] = &[];
+        }
+        // Layer 11 — Authoring help.
+        impl $crate::domain::HelpDomain for $Spec {
+            const MNEMONIC: &'static str = "";
+            const EXAMPLES: &'static [&'static str] = &[];
+        }
+        // Layer 12 — Stability (assume stable + 0.1.0 unless
+        // overridden; loud-failure beats silent missing field).
+        impl $crate::domain::StableDomain for $Spec {
+            const STABILITY: &'static str = "stable";
+            const SINCE_VERSION: &'static str = "0.1.0";
+        }
+    };
+}
+
+/// Companion to `impl_default_capabilities!` — registers every
+/// layer's handler in one call. Domains that have explicit
+/// Render + Schema + Attest metadata also call those register
+/// fns separately (they're not part of this macro because not
+/// every domain has them — hand-written ebpf doesn't have render
+/// metadata). Adding a new always-present layer means updating
+/// this macro and `impl_default_capabilities!` once.
+#[macro_export]
+macro_rules! register_all_capabilities {
+    ($Spec:ty) => {
+        $crate::domain::register::<$Spec>();
+        $crate::domain::register_doc::<$Spec>();
+        $crate::domain::register_deps::<$Spec>();
+        $crate::domain::register_validate::<$Spec>();
+        $crate::domain::register_lifecycle::<$Spec>();
+        $crate::domain::register_compliance::<$Spec>();
+        $crate::domain::register_observability::<$Spec>();
+        $crate::domain::register_help::<$Spec>();
+        $crate::domain::register_stability::<$Spec>();
+    };
+}
+
 // ── Sexp ↔ serde_json bridge (universal type support) ──────────────
 //
 // Lets the derive macro fall through to `serde_json::from_value` for any

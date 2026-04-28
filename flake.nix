@@ -39,9 +39,49 @@
         inherit pkgs;
       };
       tatara-lisp-script = cargoNix.workspaceMembers."tatara-lisp-script".build;
+
+      # Distroless OCI image — used by the wasm-engine pods to evaluate
+      # tatara-lisp programs at runtime. Same content-addressed pattern
+      # as substrate's tool-image-flake.nix; we build it inline here so
+      # the consumer flake stays a single import.
+      image = if pkgs.stdenv.isLinux then
+        pkgs.dockerTools.buildLayeredImage {
+          name = "ghcr.io/pleme-io/tatara-lisp-script";
+          tag = "0.2.0";
+          contents = [
+            tatara-lisp-script
+            pkgs.cacert
+            pkgs.dockerTools.fakeNss
+            pkgs.bashInteractive    # for diagnostic shell access; remove when settled
+          ];
+          config = {
+            Entrypoint = [ "${tatara-lisp-script}/bin/tatara-script" ];
+            User = "65532:65532";
+            Env = [
+              "PATH=${tatara-lisp-script}/bin:/usr/bin:/bin"
+              "SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt"
+              "RUST_LOG=info,tatara_lisp_script=debug"
+            ];
+            Labels = {
+              "org.opencontainers.image.source" = "https://github.com/pleme-io/tatara-lisp";
+              "org.opencontainers.image.description" =
+                "tatara-lisp-script — pleme-io Lisp scripting + WASM/WASI program evaluator";
+              "org.opencontainers.image.licenses" = "MIT";
+              "org.opencontainers.image.version" = "0.2.0";
+            };
+          };
+        }
+      else
+        # Cross-system stub on Darwin — the image is Linux-only.
+        pkgs.runCommand "tatara-lisp-script-image-stub" {} ''
+          mkdir -p $out
+          echo "Build the OCI image on Linux:" > $out/README
+          echo "  nix build .#image --system aarch64-linux" >> $out/README
+        '';
     in {
       packages.tatara-lisp-script = tatara-lisp-script;
       packages.tatara-script = tatara-lisp-script;
+      packages.image = image;
 
       apps.tatara-script = {
         type = "app";

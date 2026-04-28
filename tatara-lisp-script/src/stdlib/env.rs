@@ -31,13 +31,15 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
         Arity::Exact(1),
         |args: &[Value], _ctx: &mut ScriptCtx, sp| {
             let name = str_arg(&args[0], "env-required", sp)?;
-            std::env::var(&*name).map(|v| Value::Str(Arc::from(v))).map_err(|_| {
-                EvalError::native_fn(
-                    "env-required",
-                    format!("environment variable {name} is not set"),
-                    sp,
-                )
-            })
+            std::env::var(&*name)
+                .map(|v| Value::Str(Arc::from(v)))
+                .map_err(|_| {
+                    EvalError::native_fn(
+                        "env-required",
+                        format!("environment variable {name} is not set"),
+                        sp,
+                    )
+                })
         },
     );
 
@@ -83,9 +85,8 @@ pub(crate) fn str_arg(
 ) -> Result<Arc<str>, EvalError> {
     match v {
         Value::Str(s) => Ok(s.clone()),
-        other => Err(EvalError::type_mismatch("string", other.type_name(), sp)).map_err(|e| {
-            EvalError::native_fn(fname, format!("expected string, got {e:?}"), sp)
-        }),
+        other => Err(EvalError::type_mismatch("string", other.type_name(), sp))
+            .map_err(|e| EvalError::native_fn(fname, format!("expected string, got {e:?}"), sp)),
     }
 }
 

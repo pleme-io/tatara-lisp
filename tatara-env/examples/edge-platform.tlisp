@@ -1,0 +1,65 @@
+;; edge-platform.tlisp — a complete pleme-io stack authored as one
+;; typed environment. Every line below is consumed by the
+;; tatara-env compile pass into a single Env snapshot the
+;; arch-synthesizer / FluxCD / tameshi pipeline ingests.
+;;
+;; To use:
+;;   1. Embedder calls tatara_env::register() + the register()
+;;      of every imported crate.
+;;   2. read this file via tatara_lisp::read.
+;;   3. Hand the forms to tatara_env::compile_into_env.
+;;   4. Run tatara_env::validate to surface coherence errors.
+;;   5. Hand the typed Env to the synthesizer.
+
+;; ── Env metadata ─────────────────────────────────────────────────
+(defenv
+  :name "edge-platform"
+  :description "Production edge — ingress + L4 mitigation + monitoring."
+  :imports ("tatara-gateway-api"
+            "tatara-cilium"
+            "tatara-prometheus-operator"
+            "tatara-ebpf")
+  :labels (:tier "prod"
+           :region "us-east-1"
+           :owner "platform"))
+
+;; ── Ingress (gateway-api) ────────────────────────────────────────
+(defgateway
+  :gateway-class-name "nginx"
+  :listeners ())
+
+;; ── BPF: per-CPU SYN counter map ─────────────────────────────────
+(defbpf-map
+  :name "syn_counter"
+  :kind :per-cpu-array
+  :key-size 4
+  :value-size 8
+  :max-entries 1
+  :pin-path "/sys/fs/bpf/syn_counter")
+
+;; ── BPF: XDP-level SYN flood mitigation ──────────────────────────
+(defbpf-program
+  :name "drop_syn_flood"
+  :kind :xdp
+  :attach (:target "eth0")
+  :source "bpf/drop_syn.rs"
+  :license "GPL"
+  :uses-maps ("syn_counter")
+  :pin-path "/sys/fs/bpf/drop_syn_flood")
+
+;; ── BPF: TC-egress rate limiter ──────────────────────────────────
+(defbpf-program
+  :name "rate_limit_tcp"
+  :kind :tc
+  :attach (:target "eth0" :direction "egress")
+  :source "bpf/rate_limit_tcp.rs"
+  :license "GPL"
+  :uses-maps ("syn_counter")
+  :pin-path "/sys/fs/bpf/rate_limit_tcp")
+
+;; ── BPF: edge-protection composition ─────────────────────────────
+(defbpf-policy
+  :name "edge_protection"
+  :description "L4 SYN-flood mitigation + TCP rate-limit on WAN."
+  :programs ("drop_syn_flood" "rate_limit_tcp")
+  :maps ("syn_counter"))

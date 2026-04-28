@@ -24,11 +24,7 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
 
             // Prefer a sops binary on PATH; error loudly if absent.
             let sops = which::which("sops").map_err(|e| {
-                EvalError::native_fn(
-                    "sops-extract",
-                    format!("sops not found on PATH: {e}"),
-                    sp,
-                )
+                EvalError::native_fn("sops-extract", format!("sops not found on PATH: {e}"), sp)
             })?;
 
             let out = Command::new(&sops)

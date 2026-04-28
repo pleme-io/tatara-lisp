@@ -38,11 +38,9 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
             let bytes = engine
                 .decode(s.as_bytes())
                 .map_err(|e| EvalError::native_fn("base64-decode", e.to_string(), sp))?;
-            Ok(Value::Str(Arc::from(
-                String::from_utf8(bytes).map_err(|e| {
-                    EvalError::native_fn("base64-decode", format!("not utf8: {e}"), sp)
-                })?,
-            )))
+            Ok(Value::Str(Arc::from(String::from_utf8(bytes).map_err(
+                |e| EvalError::native_fn("base64-decode", format!("not utf8: {e}"), sp),
+            )?)))
         },
     );
 
@@ -65,11 +63,9 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
             let bytes = engine
                 .decode(s.as_bytes())
                 .map_err(|e| EvalError::native_fn("base64url-decode", e.to_string(), sp))?;
-            Ok(Value::Str(Arc::from(
-                String::from_utf8(bytes).map_err(|e| {
-                    EvalError::native_fn("base64url-decode", format!("not utf8: {e}"), sp)
-                })?,
-            )))
+            Ok(Value::Str(Arc::from(String::from_utf8(bytes).map_err(
+                |e| EvalError::native_fn("base64url-decode", format!("not utf8: {e}"), sp),
+            )?)))
         },
     );
 
@@ -88,8 +84,7 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
         |args: &[Value], _ctx: &mut ScriptCtx, sp| {
             let s = str_arg(&args[0], "url-decode", sp)?;
             Ok(Value::Str(Arc::from(
-                url_pct_decode(&s)
-                    .map_err(|e| EvalError::native_fn("url-decode", e, sp))?,
+                url_pct_decode(&s).map_err(|e| EvalError::native_fn("url-decode", e, sp))?,
             )))
         },
     );
@@ -110,11 +105,9 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
             let s = str_arg(&args[0], "hex-decode", sp)?;
             let bytes = hex::decode(s.as_bytes())
                 .map_err(|e| EvalError::native_fn("hex-decode", e.to_string(), sp))?;
-            Ok(Value::Str(Arc::from(
-                String::from_utf8(bytes).map_err(|e| {
-                    EvalError::native_fn("hex-decode", format!("not utf8: {e}"), sp)
-                })?,
-            )))
+            Ok(Value::Str(Arc::from(String::from_utf8(bytes).map_err(
+                |e| EvalError::native_fn("hex-decode", format!("not utf8: {e}"), sp),
+            )?)))
         },
     );
 }
@@ -142,8 +135,8 @@ fn url_pct_decode(s: &str) -> Result<String, String> {
             }
             let hex_str = std::str::from_utf8(&bytes[i + 1..i + 3])
                 .map_err(|e| format!("bad utf8 in escape: {e}"))?;
-            let byte = u8::from_str_radix(hex_str, 16)
-                .map_err(|e| format!("bad hex {hex_str:?}: {e}"))?;
+            let byte =
+                u8::from_str_radix(hex_str, 16).map_err(|e| format!("bad hex {hex_str:?}: {e}"))?;
             out.push(byte);
             i += 3;
         } else {

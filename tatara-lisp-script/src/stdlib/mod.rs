@@ -20,8 +20,10 @@ pub mod env;
 pub mod fs;
 pub mod hash;
 pub mod http;
+pub mod http_server;
 pub mod io;
 pub mod json;
+pub mod kube;
 pub mod list_ext;
 pub mod log;
 pub mod module;
@@ -33,6 +35,7 @@ pub mod string;
 pub mod string_ext;
 pub mod time;
 pub mod toml;
+pub mod uuid;
 pub mod yaml;
 
 /// Install every stdlib family. Order doesn't matter — each family owns
@@ -48,7 +51,9 @@ pub fn install_stdlib(interp: &mut Interpreter<ScriptCtx>) {
     fs::install(interp);
     hash::install(interp);
     http::install(interp);
+    http_server::install(interp);
     io::install(interp);
+    kube::install(interp);
     json::install(interp);
     list_ext::install(interp);
     log::install(interp);
@@ -61,5 +66,6 @@ pub fn install_stdlib(interp: &mut Interpreter<ScriptCtx>) {
     string_ext::install(interp);
     time::install(interp);
     toml::install(interp);
+    uuid::install(interp);
     yaml::install(interp);
 }

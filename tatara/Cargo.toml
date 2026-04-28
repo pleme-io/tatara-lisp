@@ -1,0 +1,34 @@
+[package]
+name = "tatara"
+description = "tatara — umbrella CLI: fmt, lint, run, test, deploy. Drives feira for static checks, tatara-script for execution, wasm-platform for deploy."
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+tatara-lisp = { path = "../tatara-lisp" }
+tatara-lisp-eval = { path = "../tatara-lisp-eval" }
+tatara-lisp-source = { path = "../tatara-lisp-source" }
+tatara-domain-forge = { path = "../tatara-domain-forge" }
+tatara-platform-checks = { path = "../tatara-platform-checks" }
+# Catalog crates the CLI registers when running `tatara checks`,
+# so the platform invariants run against the live registry.
+tatara-ebpf = { path = "../tatara-ebpf" }
+tatara-gateway-api = { path = "../tatara-gateway-api" }
+tatara-cilium = { path = "../tatara-cilium" }
+tatara-prometheus-operator = { path = "../tatara-prometheus-operator" }
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+blake3 = "1.5"
+
+[[bin]]
+name = "tatara"
+path = "src/main.rs"

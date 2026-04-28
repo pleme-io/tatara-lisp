@@ -45,7 +45,10 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
                 other => {
                     return Err(EvalError::native_fn(
                         "alist-get",
-                        format!("key must be string/symbol/keyword, got {}", other.type_name()),
+                        format!(
+                            "key must be string/symbol/keyword, got {}",
+                            other.type_name()
+                        ),
                         sp,
                     ))
                 }
@@ -101,7 +104,11 @@ pub fn value_to_json(v: &Value) -> JsonValue {
             let looks_like_object = !xs.is_empty()
                 && xs.iter().all(|entry| {
                     if let Value::List(pair) = entry {
-                        pair.len() == 2 && matches!(pair[0], Value::Str(_) | Value::Symbol(_) | Value::Keyword(_))
+                        pair.len() == 2
+                            && matches!(
+                                pair[0],
+                                Value::Str(_) | Value::Symbol(_) | Value::Keyword(_)
+                            )
                     } else {
                         false
                     }

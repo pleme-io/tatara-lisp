@@ -1,0 +1,28 @@
+[package]
+name = "tatara-lisp-source"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Source-URL resolver for tatara-lisp scripts. Parses Nix-flake-style URLs (github:owner/repo/path?ref=tag, gitlab:..., codeberg:..., file://, https://#blake3=...) and fetches their bytes with content-addressed BLAKE3 caching."
+
+[lints]
+workspace = true
+
+[dependencies]
+# HTTP client — keep ureq (already used by tatara-lisp-script's stdlib).
+ureq          = { version = "2.12", default-features = false, features = ["tls"] }
+# Hashing
+blake3        = "1.5"
+# URL parsing helpers
+url           = "2.5"
+# Errors
+thiserror     = "1.0"
+# Logging hooks (host wraps with tracing if it wants)
+log           = "0.4"
+
+[dev-dependencies]
+tempfile      = "3.10"

@@ -73,14 +73,9 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
                 .into_body()
                 .read_to_string()
                 .map_err(|e| EvalError::native_fn("http-post-json", e.to_string(), sp))?;
-            let parsed: serde_json::Value =
-                serde_json::from_str(&resp_body).map_err(|e| {
-                    EvalError::native_fn(
-                        "http-post-json",
-                        format!("response not JSON: {e}"),
-                        sp,
-                    )
-                })?;
+            let parsed: serde_json::Value = serde_json::from_str(&resp_body).map_err(|e| {
+                EvalError::native_fn("http-post-json", format!("response not JSON: {e}"), sp)
+            })?;
             Ok(json_to_value(&parsed))
         },
     );
@@ -127,7 +122,10 @@ fn headers_from_value(
                 if pair.len() != 2 {
                     return Err(EvalError::native_fn(
                         "http",
-                        format!("header entry must be (KEY VALUE), got {} elements", pair.len()),
+                        format!(
+                            "header entry must be (KEY VALUE), got {} elements",
+                            pair.len()
+                        ),
                         sp,
                     ));
                 }
@@ -137,7 +135,10 @@ fn headers_from_value(
                     other => {
                         return Err(EvalError::native_fn(
                             "http",
-                            format!("header key must be string/symbol/keyword, got {}", other.type_name()),
+                            format!(
+                                "header key must be string/symbol/keyword, got {}",
+                                other.type_name()
+                            ),
                             sp,
                         ))
                     }

@@ -19,9 +19,9 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
         Arity::Exact(1),
         |args: &[Value], _ctx: &mut ScriptCtx, sp| {
             let s = str_arg(&args[0], "toml-parse", sp)?;
-            let parsed: TomlValue = s
-                .parse()
-                .map_err(|e: toml::de::Error| EvalError::native_fn("toml-parse", e.to_string(), sp))?;
+            let parsed: TomlValue = s.parse().map_err(|e: toml::de::Error| {
+                EvalError::native_fn("toml-parse", e.to_string(), sp)
+            })?;
             Ok(toml_to_value(&parsed))
         },
     );
@@ -33,9 +33,9 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
             let path = str_arg(&args[0], "toml-read", sp)?;
             let body = std::fs::read_to_string(&*path)
                 .map_err(|e| EvalError::native_fn("toml-read", format!("{path}: {e}"), sp))?;
-            let parsed: TomlValue = body
-                .parse()
-                .map_err(|e: toml::de::Error| EvalError::native_fn("toml-read", e.to_string(), sp))?;
+            let parsed: TomlValue = body.parse().map_err(|e: toml::de::Error| {
+                EvalError::native_fn("toml-read", e.to_string(), sp)
+            })?;
             Ok(toml_to_value(&parsed))
         },
     );
@@ -115,7 +115,9 @@ fn value_to_toml(v: &Value) -> Option<TomlValue> {
                 }
                 Some(TomlValue::Table(m))
             } else {
-                Some(TomlValue::Array(xs.iter().filter_map(value_to_toml).collect()))
+                Some(TomlValue::Array(
+                    xs.iter().filter_map(value_to_toml).collect(),
+                ))
             }
         }
         _ => None,

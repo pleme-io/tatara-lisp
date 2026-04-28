@@ -38,9 +38,8 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
         |args: &[Value], ctx: &mut ScriptCtx, sp| {
             let spec = parse_spec(&args[0], sp)?;
             let argv = ctx.argv.clone();
-            let result = do_parse(&spec, &argv).map_err(|e| {
-                EvalError::native_fn("parse-args", e, sp)
-            })?;
+            let result =
+                do_parse(&spec, &argv).map_err(|e| EvalError::native_fn("parse-args", e, sp))?;
             Ok(result)
         },
     );
@@ -69,10 +68,7 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
                 };
                 let req = if opt.required { " (required)" } else { "" };
                 let help = opt.help.as_deref().unwrap_or("");
-                eprintln!(
-                    "  {}--{}{}{}   {}",
-                    short, opt.name, kind_hint, req, help
-                );
+                eprintln!("  {}--{}{}{}   {}", short, opt.name, kind_hint, req, help);
             }
             Ok(Value::Nil)
         },
@@ -138,11 +134,23 @@ fn parse_spec_entry(v: &Value, sp: tatara_lisp::Span) -> Result<Spec, EvalError>
         match key {
             "name" => match val {
                 Value::Str(s) => spec.name = s.as_ref().to_owned(),
-                _ => return Err(EvalError::native_fn("parse-args", ":name must be string", sp)),
+                _ => {
+                    return Err(EvalError::native_fn(
+                        "parse-args",
+                        ":name must be string",
+                        sp,
+                    ))
+                }
             },
             "short" => match val {
                 Value::Str(s) => spec.short = Some(s.as_ref().to_owned()),
-                _ => return Err(EvalError::native_fn("parse-args", ":short must be string", sp)),
+                _ => {
+                    return Err(EvalError::native_fn(
+                        "parse-args",
+                        ":short must be string",
+                        sp,
+                    ))
+                }
             },
             "kind" => match val {
                 Value::Keyword(k) => {
@@ -159,7 +167,13 @@ fn parse_spec_entry(v: &Value, sp: tatara_lisp::Span) -> Result<Spec, EvalError>
                         }
                     }
                 }
-                _ => return Err(EvalError::native_fn("parse-args", ":kind must be keyword", sp)),
+                _ => {
+                    return Err(EvalError::native_fn(
+                        "parse-args",
+                        ":kind must be keyword",
+                        sp,
+                    ))
+                }
             },
             "required" => {
                 spec.required = matches!(val, Value::Bool(true));
@@ -193,8 +207,7 @@ fn do_parse(spec: &[Spec], argv: &[String]) -> Result<Value, String> {
     let mut positional: Vec<Value> = Vec::new();
 
     // Build lookup tables
-    let by_long: HashMap<&str, &Spec> =
-        spec.iter().map(|s| (s.name.as_str(), s)).collect();
+    let by_long: HashMap<&str, &Spec> = spec.iter().map(|s| (s.name.as_str(), s)).collect();
     let by_short: HashMap<&str, &Spec> = spec
         .iter()
         .filter_map(|s| s.short.as_deref().map(|k| (k, s)))

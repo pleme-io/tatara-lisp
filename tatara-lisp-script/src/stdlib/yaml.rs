@@ -58,7 +58,10 @@ fn yaml_to_value(y: &serde_yaml::Value) -> Value {
                 .map(|(k, v)| {
                     let key_str = match k {
                         serde_yaml::Value::String(s) => s.clone(),
-                        other => serde_yaml::to_string(other).unwrap_or_default().trim().to_string(),
+                        other => serde_yaml::to_string(other)
+                            .unwrap_or_default()
+                            .trim()
+                            .to_string(),
                     };
                     Value::list(vec![Value::Str(Arc::from(key_str)), yaml_to_value(v)])
                 })

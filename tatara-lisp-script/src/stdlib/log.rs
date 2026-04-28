@@ -43,7 +43,11 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
 }
 
 fn current_level() -> u8 {
-    match std::env::var("TATARA_LOG").ok().as_deref().unwrap_or("info") {
+    match std::env::var("TATARA_LOG")
+        .ok()
+        .as_deref()
+        .unwrap_or("info")
+    {
         "debug" => LEVEL_DEBUG,
         "warn" => LEVEL_WARN,
         "error" => LEVEL_ERROR,

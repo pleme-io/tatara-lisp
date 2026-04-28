@@ -1,0 +1,29 @@
+[package]
+name = "tatara-ebpf"
+description = "eBPF authoring surface for tatara-lisp — typed program / map / policy declarations + a Lisp-to-Rust codegen path that produces aya-compatible source for hermetic BPF builds. The 'kernel up' tier of the pleme-io cloud stack."
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+tatara-lisp-derive = { path = "../tatara-lisp-derive" }
+tatara-lisp = { path = "../tatara-lisp" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+indexmap = { version = "2", features = ["serde"] }
+thiserror = "2"
+
+[features]
+default = []
+# When enabled, the crate compiles + links aya for runtime program
+# loading, map lifecycle, and perf-event ingestion. Off by default
+# because aya pulls in libbpf-sys and only builds on Linux — leaving
+# it gated keeps darwin / WASM consumers happy when they're using
+# the typed surface alone (declarative authoring + codegen).
+aya-runtime = []

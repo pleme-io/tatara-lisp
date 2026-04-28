@@ -25,7 +25,9 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
         Arity::Exact(1),
         |args: &[Value], _ctx: &mut ScriptCtx, sp| {
             let s = str_arg(&args[0], "sha1", sp)?;
-            Ok(Value::Str(Arc::from(hex::encode(Sha1::digest(s.as_bytes())))))
+            Ok(Value::Str(Arc::from(hex::encode(Sha1::digest(
+                s.as_bytes(),
+            )))))
         },
     );
 
@@ -34,7 +36,9 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
         Arity::Exact(1),
         |args: &[Value], _ctx: &mut ScriptCtx, sp| {
             let s = str_arg(&args[0], "sha512", sp)?;
-            Ok(Value::Str(Arc::from(hex::encode(Sha512::digest(s.as_bytes())))))
+            Ok(Value::Str(Arc::from(hex::encode(Sha512::digest(
+                s.as_bytes(),
+            )))))
         },
     );
 
@@ -47,16 +51,16 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
             let mut mac = HmacSha256::new_from_slice(key.as_bytes())
                 .map_err(|e| EvalError::native_fn("hmac-sha256", e.to_string(), sp))?;
             mac.update(msg.as_bytes());
-            Ok(Value::Str(Arc::from(hex::encode(mac.finalize().into_bytes()))))
+            Ok(Value::Str(Arc::from(hex::encode(
+                mac.finalize().into_bytes(),
+            ))))
         },
     );
 
     interp.register_fn(
         "uuid-v4",
         Arity::Exact(0),
-        |_args: &[Value], _ctx: &mut ScriptCtx, _sp| {
-            Ok(Value::Str(Arc::from(uuid_v4())))
-        },
+        |_args: &[Value], _ctx: &mut ScriptCtx, _sp| Ok(Value::Str(Arc::from(uuid_v4()))),
     );
 
     interp.register_fn(
@@ -120,7 +124,10 @@ fn random_bytes(n: usize) -> Vec<u8> {
         .unwrap_or(0);
     let pid = std::process::id() as u64;
     for (i, b) in out.iter_mut().enumerate() {
-        let seed = ts.wrapping_add(pid).wrapping_add(i as u64).wrapping_mul(2_862_933_555_777_941_757);
+        let seed = ts
+            .wrapping_add(pid)
+            .wrapping_add(i as u64)
+            .wrapping_mul(2_862_933_555_777_941_757);
         *b = (seed >> 32) as u8;
     }
     out

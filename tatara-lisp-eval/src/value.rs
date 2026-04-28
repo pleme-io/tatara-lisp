@@ -6,6 +6,7 @@
 //! have no surface syntax.
 
 use std::any::Any;
+use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
@@ -25,8 +26,23 @@ pub enum Value {
     Symbol(Arc<str>),
     Keyword(Arc<str>),
     List(Arc<Vec<Value>>),
+    /// Persistent hash map keyed by a hashable subset of `Value`
+    /// (`Bool`, `Int`, `Float`, `Str`, `Symbol`, `Keyword`, `Nil`).
+    /// Inserting / removing yields a new Map (copy-on-write via `Arc`).
+    Map(Arc<HashMap<MapKey, Value>>),
     Closure(Arc<Closure>),
     NativeFn(Arc<NativeFn>),
+    /// A delayed (lazy) computation. First force triggers evaluation
+    /// of the underlying thunk; subsequent forces return the cached
+    /// result. Backed by `Mutex` so a Promise can be shared across
+    /// references safely (single-threaded runtime, but the lock is
+    /// trivial overhead and gives us zero-effort safety).
+    Promise(Arc<std::sync::Mutex<PromiseState>>),
+    /// A first-class structured error — Clojure ex-info shape:
+    /// a tag (keyword/string), a message string, and a data plist.
+    /// Constructed by `(error tag msg data)` / `(ex-info msg data)`.
+    /// Raised by `(throw err)`. Caught by `(try ... (catch (e) ...))`.
+    Error(Arc<ErrorObj>),
     /// Escape hatch: unevaluated source form carried as a value, e.g. after
     /// `(quote x)`. Preserves span info.
     Sexp(Sexp, Span),
@@ -34,6 +50,90 @@ pub enum Value {
     /// functions read them back via downcast. Used to expose typed Rust
     /// handles (job refs, client handles) to Lisp code.
     Foreign(Arc<dyn Any + Send + Sync>),
+}
+
+/// Structured error payload — tag + message + attached data. The data
+/// is a list of (key, value) pairs preserving insertion order — a
+/// plist-style alist. Keys are typically `Value::Keyword`s but any
+/// equality-comparable Value works.
+#[derive(Debug, Clone)]
+pub struct ErrorObj {
+    pub tag: Arc<str>,
+    pub message: Arc<str>,
+    pub data: Vec<(Value, Value)>,
+}
+
+/// Hashable subset of `Value` — every variant that has well-defined
+/// equality and hashing semantics. Used as the key type for `Value::Map`.
+///
+/// `Float` keys are stored as raw bit patterns so two `NaN`s hash to the
+/// same slot and equality is bit-exact. This trades IEEE-NaN-comparison
+/// semantics for usability — keys round-trip correctly.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum MapKey {
+    Nil,
+    Bool(bool),
+    Int(i64),
+    Float(u64),
+    Str(Arc<str>),
+    Symbol(Arc<str>),
+    Keyword(Arc<str>),
+}
+
+impl MapKey {
+    /// Try to convert a Value into a hashable map key. Returns None
+    /// for non-hashable variants (List, Map, Closure, NativeFn,
+    /// Error, Sexp, Foreign).
+    pub fn from_value(v: &Value) -> Option<Self> {
+        Some(match v {
+            Value::Nil => Self::Nil,
+            Value::Bool(b) => Self::Bool(*b),
+            Value::Int(n) => Self::Int(*n),
+            Value::Float(n) => Self::Float(n.to_bits()),
+            Value::Str(s) => Self::Str(s.clone()),
+            Value::Symbol(s) => Self::Symbol(s.clone()),
+            Value::Keyword(s) => Self::Keyword(s.clone()),
+            _ => return None,
+        })
+    }
+
+    /// Convert back to a Value. The reverse direction is total — every
+    /// MapKey variant has a corresponding Value variant.
+    pub fn to_value(&self) -> Value {
+        match self {
+            Self::Nil => Value::Nil,
+            Self::Bool(b) => Value::Bool(*b),
+            Self::Int(n) => Value::Int(*n),
+            Self::Float(b) => Value::Float(f64::from_bits(*b)),
+            Self::Str(s) => Value::Str(s.clone()),
+            Self::Symbol(s) => Value::Symbol(s.clone()),
+            Self::Keyword(s) => Value::Keyword(s.clone()),
+        }
+    }
+}
+
+impl fmt::Display for MapKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.to_value())
+    }
+}
+
+/// State of a `Value::Promise`. Created Pending wrapping a thunk
+/// (always a unary closure of zero args); on first force, the thunk
+/// runs and the result replaces the state with `Forced(value)`. All
+/// subsequent forces return the cached value without re-evaluation.
+pub enum PromiseState {
+    Pending(Arc<Closure>),
+    Forced(Value),
+}
+
+impl fmt::Debug for PromiseState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Pending(_) => f.write_str("Pending(…)"),
+            Self::Forced(v) => write!(f, "Forced({v:?})"),
+        }
+    }
 }
 
 /// A user-defined closure produced by `(lambda …)` or `(define (f …) …)`.
@@ -93,8 +193,11 @@ impl Value {
             Self::Symbol(_) => "symbol",
             Self::Keyword(_) => "keyword",
             Self::List(_) => "list",
+            Self::Map(_) => "map",
             Self::Closure(_) => "closure",
             Self::NativeFn(_) => "native-fn",
+            Self::Promise(_) => "promise",
+            Self::Error(_) => "error",
             Self::Sexp(..) => "sexp",
             Self::Foreign(_) => "foreign",
         }
@@ -114,8 +217,11 @@ impl fmt::Debug for Value {
             Self::Symbol(s) => write!(f, "Symbol({s})"),
             Self::Keyword(s) => write!(f, "Keyword(:{s})"),
             Self::List(xs) => f.debug_list().entries(xs.iter()).finish(),
+            Self::Map(m) => write!(f, "Map({} entries)", m.len()),
             Self::Closure(_) => f.write_str("Closure(…)"),
             Self::NativeFn(n) => write!(f, "NativeFn({})", n.name),
+            Self::Promise(_) => f.write_str("Promise(…)"),
+            Self::Error(e) => write!(f, "Error({}: {})", e.tag, e.message),
             Self::Sexp(s, sp) => write!(f, "Sexp({s} @ {sp})"),
             Self::Foreign(_) => f.write_str("Foreign(…)"),
         }
@@ -143,6 +249,19 @@ impl fmt::Display for Value {
                 }
                 f.write_str(")")
             }
+            Self::Map(m) => {
+                // Render as `{k v k v ...}` — Clojure-style. Order is
+                // not guaranteed (HashMap), so consumers that need
+                // determinism should sort keys themselves.
+                f.write_str("{")?;
+                for (i, (k, v)) in m.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(", ")?;
+                    }
+                    write!(f, "{k} {v}")?;
+                }
+                f.write_str("}")
+            }
             Self::Closure(c) => {
                 write!(f, "#<closure")?;
                 if !c.params.is_empty() {
@@ -155,6 +274,27 @@ impl fmt::Display for Value {
                 write!(f, ">")
             }
             Self::NativeFn(n) => write!(f, "#<native {}>", n.name),
+            Self::Promise(p) => {
+                let state = p.lock().unwrap();
+                match &*state {
+                    PromiseState::Pending(_) => f.write_str("#<promise pending>"),
+                    PromiseState::Forced(v) => write!(f, "#<promise {v}>"),
+                }
+            }
+            Self::Error(e) => {
+                write!(f, "#<error :{} {:?}", e.tag, e.message.as_ref())?;
+                if !e.data.is_empty() {
+                    f.write_str(" {")?;
+                    for (i, (k, v)) in e.data.iter().enumerate() {
+                        if i > 0 {
+                            f.write_str(" ")?;
+                        }
+                        write!(f, "{k} {v}")?;
+                    }
+                    f.write_str("}")?;
+                }
+                f.write_str(">")
+            }
             Self::Sexp(s, _) => write!(f, "'{s}"),
             Self::Foreign(_) => f.write_str("#<foreign>"),
         }

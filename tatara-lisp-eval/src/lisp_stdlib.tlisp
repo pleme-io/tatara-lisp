@@ -1168,3 +1168,40 @@
          (,name ,@arg-syms)
          ,@checks
          (the ,ret-ty (begin ,@body))))))
+
+;; ====================================================================
+;; Clojure-flavored aliases
+;;
+;; tatara-lisp's primitives use Scheme conventions (`#t`/`#f`,
+;; `lambda`, `modulo`, `null?`); these aliases keep Clojure-trained
+;; muscle memory working without reaching for Scheme spelling. Aliases
+;; are intentionally shallow — each is one definition, no behavior
+;; change. If a script wants to be portable across dialects, it can
+;; pick either spelling.
+;; ====================================================================
+
+;; (fn (args) body) — alias for `lambda`. Macro expansion since
+;; `lambda` is a special form, not a function value.
+(defmacro fn (args &rest body) `(lambda ,args ,@body))
+
+;; Boolean literals — Clojure / Java / Python users expect bare
+;; `true` and `false` symbols. Bound at the value layer to the
+;; Scheme primitives.
+(define true #t)
+(define false #f)
+
+;; Common arithmetic spellings.
+(define mod modulo)
+(define rem modulo)
+
+;; Predicate aliases.
+(define nil? null?)
+
+;; Equality alias — `==` is what Python/Java/Rust users reach for; the
+;; primitive is `=`. Keep both bound. (Already-bound `empty?` from
+;; the sequence-helpers section is preserved; do NOT redefine here.)
+(define == =)
+
+;; `next` — Clojure spelling for "rest of the list", same semantics
+;; as `rest` (we don't distinguish empty-rest from nil-rest).
+(define next rest)

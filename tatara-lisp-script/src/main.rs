@@ -160,7 +160,8 @@ fn install_canonical_loader(interp: &mut Interpreter<ScriptCtx>, script_path: &P
 
 fn run_script(script_path: &str, rest: Vec<String>) -> ExitCode {
     let mut interp: Interpreter<ScriptCtx> = Interpreter::new();
-    install_stdlib(&mut interp);
+    let mut ctx = ScriptCtx::with_argv(rest);
+    install_stdlib(&mut interp, &mut ctx);
 
     let (src, path) = match resolve_input(script_path) {
         Ok(r) => r,
@@ -171,8 +172,6 @@ fn run_script(script_path: &str, rest: Vec<String>) -> ExitCode {
     };
 
     install_canonical_loader(&mut interp, &path);
-
-    let mut ctx = ScriptCtx::with_argv(rest);
     ctx.current_file = Some(path.clone());
 
     let forms = match read_spanned(&src) {
@@ -194,7 +193,8 @@ fn run_script(script_path: &str, rest: Vec<String>) -> ExitCode {
 
 fn run_test_mode(script_path: &str, rest: Vec<String>) -> ExitCode {
     let mut interp: Interpreter<ScriptCtx> = Interpreter::new();
-    install_stdlib(&mut interp);
+    let mut ctx = ScriptCtx::with_argv(rest);
+    install_stdlib(&mut interp, &mut ctx);
 
     let (src, path) = match resolve_input(script_path) {
         Ok(r) => r,
@@ -205,8 +205,6 @@ fn run_test_mode(script_path: &str, rest: Vec<String>) -> ExitCode {
     };
 
     install_canonical_loader(&mut interp, &path);
-
-    let mut ctx = ScriptCtx::with_argv(rest);
     ctx.current_file = Some(path.clone());
     let forms = match read_spanned(&src) {
         Ok(f) => f,
@@ -262,8 +260,8 @@ fn run_repl(_rest: Vec<String>) -> ExitCode {
     use std::io::{BufRead, Write};
 
     let mut interp: Interpreter<ScriptCtx> = Interpreter::new();
-    install_stdlib(&mut interp);
     let mut ctx = ScriptCtx::with_argv(Vec::<String>::new());
+    install_stdlib(&mut interp, &mut ctx);
 
     eprintln!("tatara-script REPL — ^D to exit");
     let stdin = std::io::stdin();

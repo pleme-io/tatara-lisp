@@ -23,7 +23,8 @@
 //! use tatara_lisp_script::{Interpreter, ScriptCtx, install_stdlib};
 //!
 //! let mut interp: Interpreter<ScriptCtx> = Interpreter::new();
-//! install_stdlib(&mut interp);
+//! let mut ctx = ScriptCtx::default();
+//! install_stdlib(&mut interp, &mut ctx);
 //! // Register more fns before eval_program.
 //! ```
 
@@ -47,8 +48,8 @@ pub use tatara_lisp_eval::{Arity, EvalError, Interpreter, Value};
 pub fn eval_str(src: &str) -> Result<Value, anyhow::Error> {
     let forms = read_spanned(src).map_err(|e| anyhow::anyhow!("parse error: {e}"))?;
     let mut interp: Interpreter<ScriptCtx> = Interpreter::new();
-    install_stdlib(&mut interp);
     let mut ctx = ScriptCtx::default();
+    install_stdlib(&mut interp, &mut ctx);
     interp
         .eval_program(&forms, &mut ctx)
         .map_err(|e| anyhow::anyhow!("eval error: {e:?}"))

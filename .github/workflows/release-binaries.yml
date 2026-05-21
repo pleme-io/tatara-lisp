@@ -1,13 +1,11 @@
 # tatara-lisp ships its standalone CLI (`tatara-script`) as a
-# cross-arch GitHub Release on every `v*` tag. Delegates to
-# substrate's reusable rust-binary-release primitive — that workflow
-# fans out across {linux,macOS} x {x86_64,aarch64}, builds the
-# `tatara-script` binary, computes per-asset sha256, and attaches to
-# the Release.
+# cross-arch GitHub Release on every `v*` tag, plus a Linux x86_64
+# Docker image built via nix dockerTools and published to ghcr.io.
 #
-# This unlocks the curl-based install path used by the redistributable
-# `pleme-io/actions/tatara-script` composite action — runners pull a
-# pre-built binary instead of compiling from source on every CI run.
+# The Docker image is what pleme-io/actions/* consume as the FROM
+# layer in their per-action Dockerfiles — replaces the composite-
+# action bash bootstrap that used to curl the binary on every run.
+
 name: release-binaries
 
 on:
@@ -19,3 +17,12 @@ jobs:
     uses: pleme-io/substrate/.github/workflows/rust-binary-release.yml@main
     with:
       binary-name: tatara-script
+
+  image:
+    name: Docker image → ghcr.io
+    uses: pleme-io/substrate/.github/workflows/image-push.yml@main
+    with:
+      imageAttr: image
+      imageName: pleme-io/tatara-script
+      tag: ${{ github.ref_name }}
+    secrets: inherit

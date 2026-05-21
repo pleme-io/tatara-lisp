@@ -1,0 +1,21 @@
+# tatara-lisp ships its standalone CLI (`tatara-script`) as a
+# cross-arch GitHub Release on every `v*` tag. Delegates to
+# substrate's reusable rust-binary-release primitive — that workflow
+# fans out across {linux,macOS} x {x86_64,aarch64}, builds the
+# `tatara-script` binary, computes per-asset sha256, and attaches to
+# the Release.
+#
+# This unlocks the curl-based install path used by the redistributable
+# `pleme-io/actions/tatara-script` composite action — runners pull a
+# pre-built binary instead of compiling from source on every CI run.
+name: release-binaries
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  binaries:
+    uses: pleme-io/substrate/.github/workflows/rust-binary-release.yml@main
+    with:
+      binary-name: tatara-script

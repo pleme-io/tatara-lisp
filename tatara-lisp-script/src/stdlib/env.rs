@@ -3,6 +3,12 @@
 //!   (env-get NAME)                → string or nil
 //!   (env-get NAME DEFAULT)        → string (default if missing)
 //!   (env-required NAME)           → string or raises
+//!   (env-set NAME VALUE)          → nil; sets the var in the script's
+//!                                   process so subsequent `exec-check`
+//!                                   children inherit it. Use to plumb
+//!                                   sops-decrypted creds (or any other
+//!                                   computed value) into subprocesses
+//!                                   without resorting to `sh -c`.
 //!   (argv)                        → list of strings (ScriptCtx::argv)
 //!   (argv-get N)                  → nth arg, or nil if out of range
 //!   (argv-get N DEFAULT)          → nth arg, or default
@@ -40,6 +46,25 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
                         sp,
                     )
                 })
+        },
+    );
+
+    interp.register_fn(
+        "env-set",
+        Arity::Exact(2),
+        |args: &[Value], _ctx: &mut ScriptCtx, sp| {
+            let name = str_arg(&args[0], "env-set", sp)?;
+            let value = str_arg(&args[1], "env-set", sp)?;
+            // SAFETY: set_var is documented as unsafe on multi-threaded
+            // processes that don't synchronize env access. Tatara-lisp
+            // scripts run single-threaded by design (the interpreter
+            // owns the process), and the only consumers of env are the
+            // exec-* primitives that fork child processes afterward,
+            // so this is the documented use case.
+            unsafe {
+                std::env::set_var(&*name, &*value);
+            }
+            Ok(Value::Nil)
         },
     );
 

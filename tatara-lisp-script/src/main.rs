@@ -163,7 +163,7 @@ fn run_script(script_path: &str, rest: Vec<String>) -> ExitCode {
     let mut ctx = ScriptCtx::with_argv(rest);
     install_stdlib(&mut interp, &mut ctx);
 
-    let (src, path) = match resolve_input(script_path) {
+    let (raw_src, path) = match resolve_input(script_path) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("tatara-script: {e}");
@@ -173,6 +173,21 @@ fn run_script(script_path: &str, rest: Vec<String>) -> ExitCode {
 
     install_canonical_loader(&mut interp, &path);
     ctx.current_file = Some(path.clone());
+
+    // Allow Unix shebang on the first line so `.tlisp` files can be
+    // marked executable and invoked directly (`./script.tlisp`).
+    // Skip the first line iff it starts with `#!`; replace it with an
+    // empty line so subsequent line numbers in parse-error messages
+    // stay aligned with the original file.
+    let src = if raw_src.starts_with("#!") {
+        let newline = raw_src.find('\n').map_or(raw_src.len(), |i| i + 1);
+        let mut s = String::with_capacity(raw_src.len());
+        s.push('\n');
+        s.push_str(&raw_src[newline..]);
+        s
+    } else {
+        raw_src
+    };
 
     let forms = match read_spanned(&src) {
         Ok(f) => f,

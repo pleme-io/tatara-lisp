@@ -47,12 +47,36 @@
       image = if pkgs.stdenv.isLinux then
         pkgs.dockerTools.buildLayeredImage {
           name = "ghcr.io/pleme-io/tatara-lisp-script";
-          tag = "0.2.0";
+          tag = "0.3.0";
+          # Universal action base — bakes in every CLI a pleme-io/actions
+          # tlisp script might shell out to via exec-check, so per-action
+          # Dockerfiles stay pure (FROM + COPY + ENTRYPOINT, no RUN).
+          # New tool needed? Add it here, cut a tatara-lisp release.
           contents = [
             tatara-lisp-script
+
+            # Cert + identity bootstrap
             pkgs.cacert
             pkgs.dockerTools.fakeNss
-            pkgs.bashInteractive    # for diagnostic shell access; remove when settled
+
+            # Generic core utils — many tlisp scripts call sh/sed/awk via exec-check
+            pkgs.coreutils
+            pkgs.gnused
+            pkgs.gawk
+            pkgs.findutils
+            pkgs.gnugrep
+            pkgs.gzip
+            pkgs.gnutar
+            pkgs.bashInteractive
+
+            # Per-action tooling
+            pkgs.git              # git-push-with-token + checkouts
+            pkgs.curl             # generic HTTP
+            pkgs.openssh          # ssh remotes
+            pkgs.ruby_3_3         # gem-publish (gem build/push)
+            pkgs.kubernetes-helm  # helm-oci-publish (lint/package/push)
+            pkgs.skopeo           # oci-image-push (fallback when forge absent)
+            pkgs.openssl          # often pulled by gem deps
           ];
           config = {
             Entrypoint = [ "${tatara-lisp-script}/bin/tatara-script" ];
@@ -65,9 +89,9 @@
             Labels = {
               "org.opencontainers.image.source" = "https://github.com/pleme-io/tatara-lisp";
               "org.opencontainers.image.description" =
-                "tatara-lisp-script — pleme-io Lisp scripting + WASM/WASI program evaluator";
+                "tatara-script + common tooling — universal base image for pleme-io/actions Docker actions";
               "org.opencontainers.image.licenses" = "MIT";
-              "org.opencontainers.image.version" = "0.2.0";
+              "org.opencontainers.image.version" = "0.3.0";
             };
           };
         }

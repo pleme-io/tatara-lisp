@@ -78,6 +78,13 @@
             pkgs.skopeo           # oci-image-push (fallback when forge absent)
             pkgs.openssl          # often pulled by gem deps
           ];
+          # buildLayeredImage doesn't create /tmp /var/tmp /run by
+          # default — skopeo (and most "real" tools) need them at
+          # runtime for staging tarballs. Create with sticky bit.
+          extraCommands = ''
+            mkdir -p tmp var/tmp run
+            chmod 1777 tmp var/tmp
+          '';
           config = {
             Entrypoint = [ "${tatara-lisp-script}/bin/tatara-script" ];
             # Run as root. Originally non-root for K8s pod hygiene, but

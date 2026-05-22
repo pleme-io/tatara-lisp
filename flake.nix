@@ -80,7 +80,13 @@
           ];
           config = {
             Entrypoint = [ "${tatara-lisp-script}/bin/tatara-script" ];
-            User = "65532:65532";
+            # Run as root. Originally non-root for K8s pod hygiene, but
+            # the GHA Docker-action use case mounts $GITHUB_OUTPUT (and
+            # related file_commands) owned by root in the container —
+            # a non-root user can't write to those, breaking output
+            # forwarding. Defaulting to root keeps the action use case
+            # working; security-sensitive Kubernetes consumers can
+            # override `securityContext.runAsUser` at deploy time.
             Env = [
               "PATH=${tatara-lisp-script}/bin:/usr/bin:/bin"
               "SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt"

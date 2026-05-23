@@ -20,9 +20,9 @@ path = "src/lib.rs"
 workspace = true
 
 [dependencies]
-tatara-lisp        = { path = "../tatara-lisp", version = "0.2.0" }
-tatara-lisp-eval   = { path = "../tatara-lisp-eval", version = "0.2.0" }
-tatara-lisp-source = { path = "../tatara-lisp-source", version = "0.2.0" }
+tatara-lisp        = { path = "../tatara-lisp", version = "0.2.1" }
+tatara-lisp-eval   = { path = "../tatara-lisp-eval", version = "0.2.1" }
+tatara-lisp-source = { path = "../tatara-lisp-source", version = "0.2.1" }
 
 anyhow     = "1"
 thiserror  = "2"

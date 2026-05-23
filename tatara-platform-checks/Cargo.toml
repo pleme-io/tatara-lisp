@@ -12,11 +12,11 @@ homepage.workspace = true
 workspace = true
 
 [dependencies]
-tatara-lisp = { path = "../tatara-lisp" }
+tatara-lisp = { path = "../tatara-lisp", version = "0.2.0" }
 serde_json = "1"
 
 [dev-dependencies]
-tatara-ebpf = { path = "../tatara-ebpf" }
-tatara-gateway-api = { path = "../tatara-gateway-api" }
-tatara-cilium = { path = "../tatara-cilium" }
-tatara-prometheus-operator = { path = "../tatara-prometheus-operator" }
+tatara-ebpf = { path = "../tatara-ebpf", version = "0.2.0" }
+tatara-gateway-api = { path = "../tatara-gateway-api", version = "0.2.0" }
+tatara-cilium = { path = "../tatara-cilium", version = "0.2.0" }
+tatara-prometheus-operator = { path = "../tatara-prometheus-operator", version = "0.2.0" }

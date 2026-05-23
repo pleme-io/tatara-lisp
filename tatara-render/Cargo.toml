@@ -12,8 +12,8 @@ homepage.workspace = true
 workspace = true
 
 [dependencies]
-tatara-env = { path = "../tatara-env" }
-tatara-lisp = { path = "../tatara-lisp" }
+tatara-env = { path = "../tatara-env", version = "0.2.0" }
+tatara-lisp = { path = "../tatara-lisp", version = "0.2.0" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml_ng = "0.10"
@@ -21,6 +21,6 @@ indexmap = { version = "2", features = ["serde"] }
 thiserror = "2"
 
 [dev-dependencies]
-tatara-ebpf = { path = "../tatara-ebpf" }
-tatara-gateway-api = { path = "../tatara-gateway-api" }
-tatara-lisp = { path = "../tatara-lisp" }
+tatara-ebpf = { path = "../tatara-ebpf", version = "0.2.0" }
+tatara-gateway-api = { path = "../tatara-gateway-api", version = "0.2.0" }
+tatara-lisp = { path = "../tatara-lisp", version = "0.2.0" }

@@ -27,6 +27,9 @@ authors = ["Pleme.io <engineering@pleme.io>"]
 license = "MIT"
 repository = "https://github.com/pleme-io/tatara-lisp"
 homepage = "https://github.com/pleme-io/tatara-lisp"
+readme = "README.md"
+categories = ["compilers", "command-line-interface"]
+keywords = ["tatara", "lisp", "pleme-io", "scripting", "tlisp"]
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }

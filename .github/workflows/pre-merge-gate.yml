@@ -1,0 +1,10 @@
+name: pre-merge-gate
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  gate:
+    uses: pleme-io/substrate/.github/workflows/pre-merge-gate.yml@main
+    secrets: inherit

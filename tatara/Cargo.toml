@@ -12,17 +12,17 @@ homepage.workspace = true
 workspace = true
 
 [dependencies]
-tatara-lisp = { path = "../tatara-lisp", version = "0.2.1" }
-tatara-lisp-eval = { path = "../tatara-lisp-eval", version = "0.2.1" }
-tatara-lisp-source = { path = "../tatara-lisp-source", version = "0.2.1" }
-tatara-domain-forge = { path = "../tatara-domain-forge", version = "0.2.1" }
-tatara-platform-checks = { path = "../tatara-platform-checks", version = "0.2.1" }
+tatara-lisp = { path = "../tatara-lisp", version = "0.2.2" }
+tatara-lisp-eval = { path = "../tatara-lisp-eval", version = "0.2.2" }
+tatara-lisp-source = { path = "../tatara-lisp-source", version = "0.2.2" }
+tatara-domain-forge = { path = "../tatara-domain-forge", version = "0.2.2" }
+tatara-platform-checks = { path = "../tatara-platform-checks", version = "0.2.2" }
 # Catalog crates the CLI registers when running `tatara checks`,
 # so the platform invariants run against the live registry.
-tatara-ebpf = { path = "../tatara-ebpf", version = "0.2.1" }
-tatara-gateway-api = { path = "../tatara-gateway-api", version = "0.2.1" }
-tatara-cilium = { path = "../tatara-cilium", version = "0.2.1" }
-tatara-prometheus-operator = { path = "../tatara-prometheus-operator", version = "0.2.1" }
+tatara-ebpf = { path = "../tatara-ebpf", version = "0.2.2" }
+tatara-gateway-api = { path = "../tatara-gateway-api", version = "0.2.2" }
+tatara-cilium = { path = "../tatara-cilium", version = "0.2.2" }
+tatara-prometheus-operator = { path = "../tatara-prometheus-operator", version = "0.2.2" }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }

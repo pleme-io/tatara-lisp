@@ -12,5 +12,5 @@ homepage.workspace = true
 workspace = true
 
 [dependencies]
-tatara-lisp = { path = "../tatara-lisp", version = "0.2.1" }
+tatara-lisp = { path = "../tatara-lisp", version = "0.2.2" }
 thiserror = "2"

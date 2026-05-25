@@ -32,6 +32,7 @@ use crate::script_ctx::ScriptCtx;
 // Core scripting families
 pub mod cli;
 pub mod crypto_extra;
+pub mod dns;
 pub mod encoding;
 pub mod env;
 pub mod fs;
@@ -83,6 +84,7 @@ pub fn install_stdlib(interp: &mut Interpreter<ScriptCtx>, ctx: &mut ScriptCtx) 
     install_map(interp);
     cli::install(interp);
     crypto_extra::install(interp);
+    dns::install(interp);
     encoding::install(interp);
     env::install(interp);
     fs::install(interp);

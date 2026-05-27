@@ -1903,7 +1903,10 @@
       "proc_macro": true,
       "build_script": null,
       "binaries": [],
-      "lib_target": null,
+      "lib_target": {
+        "name": "document_features",
+        "path": "lib.rs"
+      },
       "dependencies": [
         {
           "name": "litrs",

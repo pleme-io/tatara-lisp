@@ -35,8 +35,11 @@
     # flake's `apps.<system>.tatara-script` and pass their own path).
     scriptAugment = flake-utils.lib.eachDefaultSystem (system: let
       pkgs = import nixpkgs { inherit system; };
-      cargoNix = import ./Cargo.nix {
-        inherit pkgs;
+      lockfileBuilder = import "${substrate}/lib/build/rust/lockfile-builder.nix" { inherit pkgs; };
+      plemeCrateOverrides = import "${substrate}/lib/build/rust/pleme-crate-overrides.nix";
+      cargoNix = lockfileBuilder.mkProject {
+        src = self;
+        defaultCrateOverrides = pkgs.defaultCrateOverrides // plemeCrateOverrides;
       };
       tatara-lisp-script = cargoNix.workspaceMembers."tatara-lisp-script".build;
 
@@ -138,10 +141,19 @@
     # top level). Both are kept outside `eachDefaultSystem` so consumers
     # reach them as `flake.overlays.tatara-script` / `flake.homeManagerModules.default`
     # rather than the per-system wrapped forms.
-    crossSystemAugment = {
+    crossSystemAugment = let
+      mkPkg = pkgs:
+        let
+          lfb = import "${substrate}/lib/build/rust/lockfile-builder.nix" { inherit pkgs; };
+          pco = import "${substrate}/lib/build/rust/pleme-crate-overrides.nix";
+          project = lfb.mkProject {
+            src = self;
+            defaultCrateOverrides = pkgs.defaultCrateOverrides // pco;
+          };
+        in project.workspaceMembers."tatara-lisp-script".build;
+    in {
       overlays.tatara-script = final: _prev: let
-        cargoNix = import ./Cargo.nix { pkgs = final; };
-        pkg = cargoNix.workspaceMembers."tatara-lisp-script".build;
+        pkg = mkPkg final;
       in {
         tatara-lisp-script = pkg;
         tatara-script = pkg;
@@ -150,8 +162,7 @@
       # `overlays.default` is the well-known entry point for consumers that
       # want the overlay without caring about its name.
       overlays.default = final: _prev: let
-        cargoNix = import ./Cargo.nix { pkgs = final; };
-        pkg = cargoNix.workspaceMembers."tatara-lisp-script".build;
+        pkg = mkPkg final;
       in {
         tatara-lisp-script = pkg;
         tatara-script = pkg;

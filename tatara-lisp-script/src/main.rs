@@ -173,14 +173,23 @@ fn run_lint(args: &[String]) -> ExitCode {
         .map(PathBuf::from)
         .collect();
 
-    let files = if explicit.is_empty() {
-        let mut acc = Vec::new();
-        collect_tlisp_files(Path::new("."), &mut acc);
-        acc.sort();
-        acc
+    // No paths → walk cwd. Otherwise expand each path: a directory is walked
+    // recursively, a file is taken as-is (so `lint .`, `lint src/`, and
+    // `lint a.tlisp b.tlisp` all behave intuitively).
+    let mut files = Vec::new();
+    if explicit.is_empty() {
+        collect_tlisp_files(Path::new("."), &mut files);
     } else {
-        explicit
-    };
+        for path in &explicit {
+            if path.is_dir() {
+                collect_tlisp_files(path, &mut files);
+            } else {
+                files.push(path.clone());
+            }
+        }
+    }
+    files.sort();
+    files.dedup();
 
     let rules = tatara_lisp_lint::default_rules();
     let mut violations = 0usize;

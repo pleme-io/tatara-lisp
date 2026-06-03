@@ -1094,6 +1094,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "tatara-lisp-lint"
+version = "0.2.2"
+dependencies = [
+ "tatara-lisp",
+]
+
+[[package]]
 name = "tatara-lisp-script"
 version = "0.2.2"
 dependencies = [
@@ -1109,6 +1116,7 @@ dependencies = [
  "sha2",
  "tatara-lisp",
  "tatara-lisp-eval",
+ "tatara-lisp-lint",
  "tatara-lisp-source",
  "thiserror 2.0.18",
  "tiny_http",

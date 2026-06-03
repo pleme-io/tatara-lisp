@@ -22,6 +22,7 @@ workspace = true
 [dependencies]
 tatara-lisp        = { path = "../tatara-lisp", version = "0.2.2" }
 tatara-lisp-eval   = { path = "../tatara-lisp-eval", version = "0.2.2" }
+tatara-lisp-lint   = { path = "../tatara-lisp-lint", version = "0.2.2" }
 tatara-lisp-source = { path = "../tatara-lisp-source", version = "0.2.2" }
 
 anyhow     = "1"

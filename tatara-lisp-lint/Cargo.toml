@@ -1,0 +1,23 @@
+[package]
+name = "tatara-lisp-lint"
+description = "tatara-lisp-lint — typed, pluggable rule engine that lints .tlisp source against semantic Rules over the real tatara-lisp AST (read_spanned). Each rule is one trait impl; the first, GitMutationResultDiscarded, makes the auto-release silent-failure class (a discarded exec-check/exec-capture git mutation) mechanically un-reintroducible. Exposed via `tatara-script lint`."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+categories.workspace = true
+keywords.workspace = true
+
+[lib]
+name = "tatara_lisp_lint"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+tatara-lisp = { path = "../tatara-lisp", version = "0.2.2" }

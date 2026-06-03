@@ -58,6 +58,7 @@ fn main() -> ExitCode {
             print_help();
             ExitCode::SUCCESS
         }
+        Some("lint") => run_lint(&args[1..]),
         Some(path) if path.starts_with("--") => {
             eprintln!("tatara-script: unknown flag {path:?}; see --help");
             ExitCode::from(2)
@@ -77,6 +78,7 @@ fn print_help() {
          Usage:\n  \
            tatara-script <path-or-url> [arg ...]      run a script\n  \
            tatara-script --test <path-or-url>          collect + run (deftest …) forms\n  \
+           tatara-script lint [path ...]               semantic lint (.tlisp); no paths = walk cwd\n  \
            tatara-script --repl                        interactive read-eval-print loop\n  \
            tatara-script --help                        this banner\n\
          \n\
@@ -156,6 +158,95 @@ fn install_canonical_loader(interp: &mut Interpreter<ScriptCtx>, script_path: &P
     }
     let loader = tatara_lisp_eval::FilesystemLoader::new(base).with_search_paths(search_paths);
     interp.set_loader(std::sync::Arc::new(loader));
+}
+
+/// `tatara-script lint [path ...]` — run the semantic rule set over each
+/// `.tlisp` file. With no paths, walks the current directory recursively.
+/// Prints `path:line:col: [rule] message` per violation; exits non-zero if any
+/// violation or unparseable file is found, unless `--warn` downgrades to a
+/// warning-only pass.
+fn run_lint(args: &[String]) -> ExitCode {
+    let warn_only = args.iter().any(|a| a == "--warn");
+    let explicit: Vec<PathBuf> = args
+        .iter()
+        .filter(|a| !a.starts_with("--"))
+        .map(PathBuf::from)
+        .collect();
+
+    let files = if explicit.is_empty() {
+        let mut acc = Vec::new();
+        collect_tlisp_files(Path::new("."), &mut acc);
+        acc.sort();
+        acc
+    } else {
+        explicit
+    };
+
+    let rules = tatara_lisp_lint::default_rules();
+    let mut violations = 0usize;
+    let mut errors = 0usize;
+    let mut scanned = 0usize;
+
+    for file in &files {
+        let src = match std::fs::read_to_string(file) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("tatara-script lint: read {}: {e}", file.display());
+                errors += 1;
+                continue;
+            }
+        };
+        scanned += 1;
+        match tatara_lisp_lint::lint_source(&src, &rules) {
+            Ok(found) => {
+                for v in found {
+                    violations += 1;
+                    println!(
+                        "{}:{}:{}: [{}] {}",
+                        file.display(),
+                        v.line,
+                        v.col,
+                        v.rule,
+                        v.message
+                    );
+                }
+            }
+            Err(e) => {
+                eprintln!("{}: parse error: {e}", file.display());
+                errors += 1;
+            }
+        }
+    }
+
+    eprintln!(
+        "tatara-script lint: {scanned} file(s) scanned, {violations} violation(s), {errors} parse error(s)"
+    );
+
+    if (violations > 0 || errors > 0) && !warn_only {
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
+/// Recursively collect `*.tlisp` files under `dir`, skipping VCS / build dirs.
+fn collect_tlisp_files(dir: &Path, acc: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if path.is_dir() {
+            if matches!(name.as_ref(), ".git" | "target" | "node_modules" | ".direnv") {
+                continue;
+            }
+            collect_tlisp_files(&path, acc);
+        } else if path.extension().is_some_and(|e| e == "tlisp") {
+            acc.push(path);
+        }
+    }
 }
 
 fn run_script(script_path: &str, rest: Vec<String>) -> ExitCode {

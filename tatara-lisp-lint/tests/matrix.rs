@@ -70,8 +70,40 @@ const MATRIX: &[Row] = &[
         expect: 0,
     },
     Row {
-        name: "non-git command discarded (out of this rule's scope)",
+        name: "non-git/gh command discarded (out of these rules' scope)",
         src: r#"(exec-check "npm" "install" "-g" "snyk")"#,
+        expect: 0,
+    },
+    // ── gh-mutation-discard: should FLAG ───────────────────────────────
+    Row {
+        name: "discarded gh pr create",
+        src: r#"(exec-capture "gh" "pr" "create" "--title" "x" "--repo" "o/r")"#,
+        expect: 1,
+    },
+    Row {
+        name: "discarded gh release create + secret set",
+        src: "(exec-check \"gh\" \"release\" \"create\" \"v1\")\n(exec-capture \"gh\" \"secret\" \"set\" \"TOKEN\" \"--body\" \"v\")",
+        expect: 2,
+    },
+    // ── gh-mutation-discard: should ALLOW ──────────────────────────────
+    Row {
+        name: "bound gh pr create result",
+        src: r#"(let ((r (exec-capture "gh" "pr" "create" "--title" "x"))) (status-of r))"#,
+        expect: 0,
+    },
+    Row {
+        name: "read-only gh (pr view / issue list) discarded",
+        src: "(exec-capture \"gh\" \"pr\" \"view\" \"1\")\n(exec-capture \"gh\" \"issue\" \"list\")",
+        expect: 0,
+    },
+    Row {
+        name: "secondary gh edits (pr comment/edit/close) excluded for now",
+        src: "(exec-check \"gh\" \"pr\" \"comment\" \"1\")\n(exec-check \"gh\" \"pr\" \"close\" \"1\")",
+        expect: 0,
+    },
+    Row {
+        name: "gh-mutation suppression comment",
+        src: ";; lint:allow gh-mutation-discard best-effort notification\n(exec-capture \"gh\" \"issue\" \"create\" \"--title\" \"x\")",
         expect: 0,
     },
 ];

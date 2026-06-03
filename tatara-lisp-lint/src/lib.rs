@@ -2,13 +2,14 @@
 //! source against semantic [`Rule`]s evaluated over the real `tatara-lisp`
 //! AST (via [`tatara_lisp::read_spanned`]).
 //!
-//! Each rule is one small trait impl; adding a fleet-wide check is one file +
-//! one line in [`default_rules`]. The first rule,
-//! [`rules::GitMutationResultDiscarded`], makes the 2026-06-03 auto-release
-//! silent-failure class mechanically un-reintroducible: a *discarded*
-//! `(exec-check …)` / `(exec-capture …)` whose command is a `git` mutation
-//! (commit/tag/push/…) is a violation, because `exec-check` returns the exit
-//! code rather than raising — discarding it silently ignores failure.
+//! Adding a fleet-wide check is one constructor + one line in [`default_rules`].
+//! The seed rules are instances of [`rules::CommandMutationDiscarded`]
+//! ([`rules::git_mutation_discarded`], [`rules::gh_mutation_discarded`]): they
+//! make the 2026-06-03 auto-release silent-failure class mechanically
+//! un-reintroducible — a *discarded* `(exec-check …)` / `(exec-capture …)` of a
+//! state-changing `git` / `gh` command is a violation, because `exec-check`
+//! returns the exit code rather than raising, so discarding it silently ignores
+//! failure.
 //!
 //! The load-bearing reusable primitive is [`walk_consumption`]: a
 //! consumption-aware AST walk that tells a rule, for every node, whether that
@@ -53,7 +54,10 @@ pub trait Rule: Send + Sync {
 /// surface for a new rule.
 #[must_use]
 pub fn default_rules() -> Vec<Box<dyn Rule>> {
-    vec![Box::new(rules::GitMutationResultDiscarded)]
+    vec![
+        Box::new(rules::git_mutation_discarded()),
+        Box::new(rules::gh_mutation_discarded()),
+    ]
 }
 
 /// Parse `src` and run every rule, returning violations sorted by position.

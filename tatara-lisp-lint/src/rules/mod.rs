@@ -1,7 +1,7 @@
-//! Lint rules. Each rule is one submodule + one `impl Rule`. To ship a new
-//! check fleet-wide: add `mod my_rule;`, `pub use my_rule::MyRule;`, and one
-//! line in [`crate::default_rules`].
+//! Lint rules. Most rules are instances of a parameterized rule type; to ship
+//! a new check fleet-wide, add a constructor (or a new module) and one line in
+//! [`crate::default_rules`].
 
-mod git_mutation_discard;
+mod mutation_discard;
 
-pub use git_mutation_discard::GitMutationResultDiscarded;
+pub use mutation_discard::{git_mutation_discarded, gh_mutation_discarded, CommandMutationDiscarded};

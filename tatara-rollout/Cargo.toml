@@ -21,6 +21,6 @@ indexmap = { version = "2", features = ["serde"] }
 thiserror = "2"
 
 [dev-dependencies]
-tatara-ebpf = { path = "../tatara-ebpf", version = "0.2.2" }
-tatara-gateway-api = { path = "../tatara-gateway-api", version = "0.2.2" }
-tatara-lisp = { path = "../tatara-lisp", version = "0.2.2" }
+tatara-ebpf = { path = "../tatara-ebpf"}
+tatara-gateway-api = { path = "../tatara-gateway-api"}
+tatara-lisp = { path = "../tatara-lisp"}

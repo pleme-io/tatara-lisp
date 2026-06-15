@@ -1,13 +1,5 @@
 name: auto-release
 
-# Adopts the ★★ AUTO-RELEASE prime directive — every merge to
-# main bumps the workspace patch + tags + publishes every member
-# crate to crates.io.
-#
-# tatara-lisp is the RUNTIME every pleme-io/actions tlisp action
-# calls (via tatara-script binary). Publishing it makes the whole
-# action ecosystem reproducibly installable via cargo install.
-
 on:
   push:
     branches: [main]
@@ -23,6 +15,4 @@ jobs:
     uses: pleme-io/substrate/.github/workflows/rust-auto-release.yml@main
     with:
       bump-type: ${{ inputs.bump-type || 'patch' }}
-      add-paths: "Cargo.toml Cargo.lock Cargo.nix tatara*/Cargo.toml"
-      source-paths: "tatara* Cargo.toml Cargo.lock"
     secrets: inherit

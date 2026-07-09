@@ -45,13 +45,13 @@ pub use compiler_spec::{
 pub use domain::{
     AttestHandler, AttestableDomain, ComplianceHandler, CompliantDomain, DependentDomain,
     DepsHandler, DocHandler, DocumentedDomain, DomainHandler, HelpDomain, HelpHandler,
-    LifecycleHandler, LifecycleProtocol, ObservabilityHandler, ObservableDomain, RenderHandler,
-    RenderableDomain, RolloutStrategy, SchemaHandler, SchematicDomain, StabilityHandler,
-    StableDomain, TataraDomain, ValidateHandler, ValidatedDomain,
+    KeywordSexp, LifecycleHandler, LifecycleProtocol, ObservabilityHandler, ObservableDomain,
+    RenderHandler, RenderableDomain, RolloutStrategy, SchemaHandler, SchematicDomain,
+    StabilityHandler, StableDomain, TataraDomain, ValidateHandler, ValidatedDomain,
 };
-// Derive macro — same name as the trait, different namespace (procedural
+// Derive macros — same names as the traits, different namespace (procedural
 // macros vs. types), so they coexist cleanly under one import.
-pub use tatara_lisp_derive::TataraDomain as DeriveTataraDomain;
+pub use tatara_lisp_derive::{KeywordSexp as DeriveKeywordSexp, TataraDomain as DeriveTataraDomain};
 
 pub use ast::{Atom, Sexp};
 pub use compile::{compile_named, compile_named_from_forms, compile_typed, NamedDefinition};

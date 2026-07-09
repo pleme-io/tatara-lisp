@@ -45,6 +45,63 @@ use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
 use syn::{parse_macro_input, Attribute, Data, DeriveInput, Fields, LitStr, Meta, Type};
 
+/// Phase F: derive `KeywordSexp` for an enum whose variants map to lowercase
+/// keywords (`Role::Master` ↔ `:master`). Unit variants only.
+#[proc_macro_derive(KeywordSexp)]
+pub fn derive_keyword_sexp(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = input.ident.clone();
+    let variants = match &input.data {
+        Data::Enum(e) => &e.variants,
+        _ => {
+            return syn::Error::new_spanned(&name, "KeywordSexp may only be derived on enums")
+                .to_compile_error()
+                .into();
+        }
+    };
+    let mut from_arms: Vec<TokenStream2> = Vec::new();
+    let mut to_arms: Vec<TokenStream2> = Vec::new();
+    for v in variants {
+        if !matches!(v.fields, Fields::Unit) {
+            return syn::Error::new_spanned(
+                v,
+                "KeywordSexp requires unit variants only (no fields)",
+            )
+            .to_compile_error()
+            .into();
+        }
+        let vname = &v.ident;
+        let kw = v.ident.to_string().to_ascii_lowercase();
+        from_arms.push(quote! { #kw => ::std::result::Result::Ok(Self::#vname), });
+        to_arms.push(quote! { Self::#vname => #kw, });
+    }
+    let known = variants
+        .iter()
+        .map(|v| format!(":{}", v.ident.to_string().to_ascii_lowercase()))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let expanded = quote! {
+        impl ::tatara_lisp::domain::KeywordSexp for #name {
+            fn from_keyword(s: &str) -> ::tatara_lisp::Result<Self> {
+                match s {
+                    #(#from_arms)*
+                    other => ::std::result::Result::Err(::tatara_lisp::LispError::Compile {
+                        form: ::std::string::String::from(::std::stringify!(#name)),
+                        message: ::std::format!("unknown keyword :{}; expected one of {}", other, #known),
+                    }),
+                }
+            }
+
+            fn to_keyword(self) -> &'static str {
+                match self {
+                    #(#to_arms)*
+                }
+            }
+        }
+    };
+    expanded.into()
+}
+
 #[proc_macro_derive(TataraDomain, attributes(tatara))]
 pub fn derive_tatara_domain(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -76,6 +133,29 @@ pub fn derive_tatara_domain(input: TokenStream) -> TokenStream {
         let ident = field.ident.as_ref().expect("named field");
         let kebab = snake_to_kebab(&ident.to_string());
         let has_default = has_serde_default(field);
+        // Phase F: `#[tatara(domain)]` opts the field into the nested
+        // TataraDomain path — generate `<T as TataraDomain>::compile_from_sexp`
+        // directly (no serde JSON intermediate). Supports T / Option<T> / Vec<T>.
+        if has_tatara_attr_flag(field, "domain") {
+            let extract = generate_domain_extractor(&field.ty, &kebab);
+            field_inits.push(quote! { #ident: #extract });
+            continue;
+        }
+        // Phase F: `#[tatara(keyword_enum)]` — field type is an enum whose
+        // variants map to Lisp keywords (e.g., `:master` ↔ `Role::Master`).
+        // Requires the enum to implement `KeywordSexp` (use `#[derive(KeywordSexp)]`).
+        if has_tatara_attr_flag(field, "keyword_enum") {
+            let extract = generate_keyword_enum_extractor(&field.ty, &kebab);
+            field_inits.push(quote! { #ident: #extract });
+            continue;
+        }
+        // Phase F: `#[tatara(via_string)]` — field type is a newtype wrapper
+        // around a String. Requires `T: From<String>`.
+        if has_tatara_attr_flag(field, "via_string") {
+            let extract = generate_via_string_extractor(&field.ty, &kebab);
+            field_inits.push(quote! { #ident: #extract });
+            continue;
+        }
         match extractor_for(&field.ty, &kebab, has_default) {
             Ok(extract) => field_inits.push(quote! { #ident: #extract }),
             Err(err) => {
@@ -143,6 +223,124 @@ fn default_keyword(type_name: &str) -> String {
 
 fn snake_to_kebab(snake: &str) -> String {
     snake.replace('_', "-")
+}
+
+/// Phase F: check for a `#[tatara(<flag>)]` flag on a field (e.g., `domain`,
+/// `keyword_enum`, `via_string`). Returns true if the flag is present.
+fn has_tatara_attr_flag(field: &syn::Field, flag_name: &str) -> bool {
+    for attr in &field.attrs {
+        if !attr.path().is_ident("tatara") {
+            continue;
+        }
+        let Meta::List(list) = &attr.meta else {
+            continue;
+        };
+        let mut found = false;
+        let _ = list.parse_nested_meta(|meta| {
+            if meta.path.is_ident(flag_name) {
+                found = true;
+            }
+            Ok(())
+        });
+        if found {
+            return true;
+        }
+    }
+    false
+}
+
+/// Generate the extractor for a `#[tatara(domain)]` field. Inspects the
+/// field type's outer shape (`Option<T>` / `Vec<T>` / `T`) and emits a
+/// `<T as TataraDomain>::compile_from_sexp` call on the keyword's value.
+fn generate_domain_extractor(ty: &Type, key: &str) -> TokenStream2 {
+    if let Some(inner) = strip_wrapper(ty, "Option") {
+        quote! {
+            match kw.get(#key) {
+                None => None,
+                Some(sexp) => Some(
+                    <#inner as ::tatara_lisp::domain::TataraDomain>::compile_from_sexp(sexp)?
+                ),
+            }
+        }
+    } else if let Some(inner) = strip_wrapper(ty, "Vec") {
+        quote! {
+            match kw.get(#key) {
+                None => ::std::vec::Vec::new(),
+                Some(sexp) => {
+                    let list = sexp.as_list().ok_or_else(|| ::tatara_lisp::LispError::Compile {
+                        form: #key.to_string(),
+                        message: "expected list".into(),
+                    })?;
+                    list.iter()
+                        .map(|item| <#inner as ::tatara_lisp::domain::TataraDomain>::compile_from_sexp(item))
+                        .collect::<::tatara_lisp::Result<::std::vec::Vec<_>>>()?
+                }
+            }
+        }
+    } else {
+        quote! {
+            <#ty as ::tatara_lisp::domain::TataraDomain>::compile_from_sexp(
+                ::tatara_lisp::domain::required(&kw, #key)?
+            )?
+        }
+    }
+}
+
+/// Phase F: generate extractor for a `#[tatara(keyword_enum)]` field. The
+/// field type (or inner of Option<T>) must implement `KeywordSexp`.
+fn generate_keyword_enum_extractor(ty: &Type, key: &str) -> TokenStream2 {
+    if let Some(inner) = strip_wrapper(ty, "Option") {
+        quote! {
+            match kw.get(#key) {
+                None => None,
+                Some(sexp) => {
+                    let s = sexp.as_keyword().ok_or_else(|| ::tatara_lisp::LispError::Compile {
+                        form: #key.to_string(),
+                        message: "expected a :keyword".into(),
+                    })?;
+                    Some(<#inner as ::tatara_lisp::domain::KeywordSexp>::from_keyword(s)?)
+                }
+            }
+        }
+    } else {
+        quote! {
+            {
+                let sexp = ::tatara_lisp::domain::required(&kw, #key)?;
+                let s = sexp.as_keyword().ok_or_else(|| ::tatara_lisp::LispError::Compile {
+                    form: #key.to_string(),
+                    message: "expected a :keyword".into(),
+                })?;
+                <#ty as ::tatara_lisp::domain::KeywordSexp>::from_keyword(s)?
+            }
+        }
+    }
+}
+
+/// Phase F: generate extractor for a `#[tatara(via_string)]` field. The
+/// field type (or inner of Option<T>) must implement `From<String>`.
+fn generate_via_string_extractor(ty: &Type, key: &str) -> TokenStream2 {
+    if let Some(inner) = strip_wrapper(ty, "Option") {
+        quote! {
+            ::tatara_lisp::domain::extract_optional_string(&kw, #key)?
+                .map(|s| <#inner as ::std::convert::From<::std::string::String>>::from(s.to_string()))
+        }
+    } else {
+        quote! {
+            <#ty as ::std::convert::From<::std::string::String>>::from(
+                ::tatara_lisp::domain::extract_string(&kw, #key)?.to_string()
+            )
+        }
+    }
+}
+
+/// Returns the inner type of `Wrapper<T>` if `ty` is `Wrapper<T>`.
+fn strip_wrapper<'a>(ty: &'a Type, wrapper: &str) -> Option<&'a Type> {
+    let Type::Path(p) = ty else { return None };
+    let last = p.path.segments.last()?;
+    if last.ident != wrapper {
+        return None;
+    }
+    first_generic_type(last).ok()
 }
 
 /// Check if the field carries `#[serde(default)]` / `#[serde(default = "…")]`.

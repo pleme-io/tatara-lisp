@@ -14,6 +14,17 @@ use std::sync::{Mutex, OnceLock};
 use crate::ast::Sexp;
 use crate::error::{LispError, Result};
 
+/// Phase F: a Rust type (typically a unit-only enum) whose variants map to
+/// a single Lisp keyword atom — e.g., `Role::Master` ↔ `:master`. Used by
+/// `#[derive(TataraDomain)]` fields with `#[tatara(keyword_enum)]`. Derive
+/// via `#[derive(KeywordSexp)]` from `tatara-lisp-derive`.
+pub trait KeywordSexp: Sized {
+    /// Parse `s` (the keyword name without the leading `:`) into Self.
+    fn from_keyword(s: &str) -> Result<Self>;
+    /// The keyword name (without leading `:`) for this variant.
+    fn to_keyword(self) -> &'static str;
+}
+
 /// A Rust type compilable from a Lisp form.
 pub trait TataraDomain: Sized {
     /// The Lisp keyword (e.g., `"defmonitor"`).

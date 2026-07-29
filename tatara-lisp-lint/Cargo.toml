@@ -20,4 +20,4 @@ path = "src/lib.rs"
 workspace = true
 
 [dependencies]
-tatara-lisp = { path = "../tatara-lisp", version = "0.2.2" }
+tatara-lisp.workspace = true

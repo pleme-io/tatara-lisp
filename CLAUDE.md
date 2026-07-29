@@ -1,6 +1,70 @@
 # Tatara-Lisp
 
 pending-vacuous-guard: tatara-lisp-flake-check
+pending-closed-set-carrier-coupling: phase-2-step-2 blocked on an operator ruling
+
+> **★★ PHASE 2 STEP 2 IS BLOCKED, and the blocker is structural, not
+> effortful. Read this before attempting the error-variant port (2026-07-29).**
+
+`theory/TATARA-LISP-CONSOLIDATION.md` phase 2 orders step 1 (split
+`tatara-closed-set` out; **landed**, `011e8d0`) before step 2 (port A's ~45
+structural `LispError` variants + their payload carriers). The two steps carry a
+constraint the plan states as absolute —
+
+> "`tatara-lisp` never carries it and never re-exports it. This is what makes
+> the phase-3 facade legal … without importing 44,582 lines into the crate
+> whose virtue is that it is small."
+
+— and step 2 **cannot be satisfied while that constraint holds.** Measured, not
+inferred:
+
+**1. Seven of A's error-module carriers ARE closed-set implementors.**
+`tatara/tatara-lisp/src/error.rs`: `CompilerSpecIoStage` :2738, `MacroDefHead`
+:3760, `UnquoteForm` :4693, `KwargPathKind` :6518, `ExpectedKwargShape` :6742,
+`SexpShape` :7090, `StructuralKind` :8424 — each `#[derive(…
+tatara_lisp_derive::ClosedSet)]` with a `#[closed_set(…)]` attribute. The derive
+generates their `FromStr`, their `Display`, and their `Unknown*`
+parse-rejection carrier, and A's `lib.rs` re-exports all six `Unknown*` types
+publicly.
+
+**2. The 45 variants genuinely need them.** Reference counts inside
+`LispError` (error.rs:807-2737): `SexpWitness` 57, `SexpShape` 34, `KwargPath`
+22, `MacroDefHead` 18, `CompilerSpecIoStage` 13, `UnquoteForm` 9,
+`TemplateInvariantKind` 9, `ExpectedKwargShape` 5,
+`OptionalParamMalformedReason` 3. Not a leaf coupling — the payload alphabet.
+
+**3. So `tatara-lisp` would have to depend on `tatara-closed-set`, and that is
+a cargo cycle today.** Reproduced by adding the one line and building:
+
+```
+error: cyclic package dependency: package `tatara-lisp v0.3.3` depends on itself. Cycle:
+package `tatara-lisp v0.3.3 (…/tatara-lisp)`
+    ... which satisfies path dependency `tatara-lisp` of package `tatara-closed-set v0.3.3`
+    ... which satisfies path dependency `tatara-closed-set` of package `tatara-lisp v0.3.3`
+```
+
+The cycle exists because `ClosedSet::suggest_closest` composes the substrate's
+one bounded-edit-distance metric, which lives in `tatara-lisp`'s `domain`
+module — so `tatara-closed-set` → `tatara-lisp` already. A had no cycle only
+because both halves sat in ONE crate; the split is what forces a direction.
+
+### The three resolutions, costed. Pick one; do not pick silently.
+
+| # | shape | keeps carriers' ClosedSet surface | `tatara-lisp` closure | cost |
+|---|---|---|---|---|
+| **E** | port the carriers **without** the `ClosedSet` derive; hand-write `Unknown*` + `FromStr` + `Display` per enum | **no** — loses `ALL`/`labels`/`parse_label`/`suggest_closest` on 7 enums | unchanged (small) | ~96 hand-written lines the derive exists to eliminate; a knowing PRIME-DIRECTIVE regression, and a capability regression vs A |
+| **H** | third leaf crate owns `suggest`; `tatara-closed-set` becomes a leaf; `tatara-lisp` → `tatara-closed-set` | yes, byte-faithfully | **grows** by tatara-closed-set (~9k real lines under ~53k of doc comment) | one net-new crate; **breaks the plan's stated constraint** — needs an explicit ruling that a dependency edge is not "carrying" |
+| **I** | H, plus `tatara-closed-set` optional behind `feature = "closed-set"` (default off) + `cfg_attr` on the 7 enums | yes, for opt-in consumers | unchanged by default | a feature flag papering over a primitive's limitation, which the org CLAUDE.md names as an anti-pattern; 7 `cfg_attr` sites |
+
+Note what is NOT a resolution: duplicating `suggest` into `tatara-closed-set`
+to break the cycle. It breaks the cycle and still leaves H's closure cost,
+buying a second Levenshtein for nothing.
+
+**This is a hard, hard-to-reverse architectural call across a published crate
+boundary — `/twin-reasoning` territory, not an implementer's judgement call.**
+Step 1 is landed and green (2,061-test parity with A, measured). Steps 3 and 4
+are ordered behind step 2 and depend on its payload carriers, so they are
+blocked transitively, not independently.
 
 > **The `ci` job has been red since 2026-05-30 and its `nix build` + smoke-test
 > steps have been `skipped` on every run since. Do not read a green badge or a

@@ -21,7 +21,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.2.5"
+version = "0.3.2"
 edition = "2021"
 rust-version = "1.89.0"
 authors = ["Pleme.io <engineering@pleme.io>"]
@@ -65,7 +65,7 @@ keywords = ["tatara", "lisp", "pleme-io", "scripting", "tlisp"]
 # The bumper preserves the `=` prefix as of actions@2a7e8f1 (proved by a
 # fail-once test); before that fix this pin would have silently decayed
 # back to a caret on the next release.
-tatara-lisp-derive = { path = "tatara-lisp-derive", version = "=0.2.5" }
+tatara-lisp-derive = { path = "tatara-lisp-derive", version = "=0.3.2" }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }

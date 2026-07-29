@@ -18,8 +18,15 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@main
 
+      # NOT `--no-build`. `nix flake check` only ever BUILDS
+      # `checks.<system>.*`; everything else (packages/devShells/apps) it
+      # merely evaluates. So `--no-build` reduced this step to a pure
+      # evaluation pass and skipped the two derivations that carry real
+      # verdicts: `checks.build` (the shipped tatara-lisp artifact compiles)
+      # and `checks.gen-confirm` (the committed Cargo.gen.lock delta still
+      # matches what `gen` derives from Cargo.lock).
       - name: Flake check
-        run: nix flake check --no-build
+        run: nix flake check -L
 
       - name: Build tatara-script
         run: nix build .#tatara-script -L

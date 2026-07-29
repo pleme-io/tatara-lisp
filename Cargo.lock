@@ -1007,6 +1007,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "tatara-closed-set"
+version = "0.3.3"
+dependencies = [
+ "tatara-closed-set-derive",
+ "tatara-lisp",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "tatara-closed-set-derive"
+version = "0.3.3"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "tatara-doc"
 version = "0.3.3"
 dependencies = [

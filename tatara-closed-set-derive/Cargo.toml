@@ -1,0 +1,20 @@
+[package]
+name = "tatara-closed-set-derive"
+description = "#[derive(ClosedSet)] — emit the tatara-closed-set ClosedSet impl, its FromStr delegation, and its typed parse-rejection carrier"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"

@@ -166,6 +166,106 @@ pub fn extract_optional_bool(kw: &Kwargs<'_>, key: &str) -> Result<Option<bool>>
     }
 }
 
+// ── Near-match suggestion ──────────────────────────────────────────
+//
+// Ported verbatim from pleme-io/tatara's `tatara-lisp/src/domain.rs:983-1073`
+// ahead of the rest of the domain helper layer (phase 2 step 3), because
+// `tatara-closed-set`'s `ClosedSet::suggest_closest` composes it and the
+// alternative was a second copy of the metric. One primitive, two crates,
+// one dependency edge — never two implementations of edit distance.
+
+/// Suggest the candidate closest to `needle` by Levenshtein distance,
+/// when the closest candidate is within a bounded edit distance.
+///
+/// The bound scales with `needle`'s character length:
+///   - len ≤ 3: bound 1 (single-character typo on a short identifier)
+///   - len ≤ 7: bound 2 (insertion + transposition, two typos)
+///   - len ≥ 8: bound 3 (longer identifiers absorb more drift)
+///
+/// Returns the closest candidate within the bound. Ties are broken
+/// lexicographically so two operators on two machines see the same hint
+/// for the same input — diagnostics are deterministic. An exact match in
+/// `candidates` is excluded (the caller already has the keyword; the
+/// suggestion exists for near-misses only). Empty `candidates` returns
+/// `None`.
+///
+/// One named primitive lifts the substrate's understanding of "near-match
+/// across a candidate set" out of any per-call-site implementation. The
+/// unknown-kwarg diagnostic in `reject_unknown_kwargs` is the first
+/// consumer; future consumers — `LispError::HeadMismatch`'s "did you
+/// mean a registered domain?" hint, `tatara-check`'s registry-dispatch
+/// suggestions, the LSP's completion-failure fallback — bind to one
+/// helper rather than re-implementing edit distance.
+///
+/// Theory anchor: THEORY.md §V.1 — "Knowable platform … Render Anywhere."
+/// Naming the likely intended candidate is the floor of a constructive
+/// diagnostic. THEORY.md §VI.1 — generation over composition: every
+/// near-match suggestion in the substrate routes through ONE primitive.
+///
+/// Frontier inspiration: rustc's `find_best_match_for_name`, Idris's
+/// "did you mean …?" elaborator hint, Roslyn's `SymbolMatcher` — bounded
+/// edit distance over a symbol table. Translation through pleme-io
+/// primitives: a pure function over `&[&str]`, no new error variant, no
+/// new IR layer, no new dep.
+#[must_use]
+pub fn suggest<'a>(needle: &str, candidates: &[&'a str]) -> Option<&'a str> {
+    let bound = suggestion_bound(needle);
+    let mut best: Option<(usize, &'a str)> = None;
+    for &candidate in candidates {
+        if candidate == needle {
+            continue;
+        }
+        let dist = levenshtein(needle, candidate);
+        if dist > bound {
+            continue;
+        }
+        match best {
+            None => best = Some((dist, candidate)),
+            Some((bd, bc)) if dist < bd || (dist == bd && candidate < bc) => {
+                best = Some((dist, candidate));
+            }
+            _ => {}
+        }
+    }
+    best.map(|(_, c)| c)
+}
+
+fn suggestion_bound(needle: &str) -> usize {
+    let n = needle.chars().count();
+    if n <= 3 {
+        1
+    } else if n <= 7 {
+        2
+    } else {
+        3
+    }
+}
+
+/// Classic two-row Levenshtein. Operates on `char`s so multibyte input
+/// (e.g. a domain authored with non-ASCII identifiers) measures
+/// character-distance, not byte-distance.
+fn levenshtein(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    if a.is_empty() {
+        return b.len();
+    }
+    if b.is_empty() {
+        return a.len();
+    }
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    let mut curr: Vec<usize> = vec![0; b.len() + 1];
+    for (i, ca) in a.iter().enumerate() {
+        curr[0] = i + 1;
+        for (j, cb) in b.iter().enumerate() {
+            let cost = usize::from(ca != cb);
+            curr[j + 1] = (prev[j + 1] + 1).min(curr[j] + 1).min(prev[j] + cost);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[b.len()]
+}
+
 // ── Domain registry (runtime-registered, callable by keyword) ───────
 
 /// Erased handler that knows how to compile a form and hand back a typed

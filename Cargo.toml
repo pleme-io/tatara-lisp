@@ -2,6 +2,8 @@
 members = [
     "tatara",
     "tatara-cilium",
+    "tatara-closed-set",
+    "tatara-closed-set-derive",
     "tatara-doc",
     "tatara-domain-forge",
     "tatara-ebpf",
@@ -67,6 +69,13 @@ keywords = ["tatara", "lisp", "pleme-io", "scripting", "tlisp"]
 # back to a caret on the next release.
 tatara-lisp-derive = { path = "tatara-lisp-derive", version = "=0.3.3" }
 
+# The SAME seal, for the SAME reason, on the closed-set pair: this derive
+# emits `::tatara_closed_set::ClosedSet` paths, so lib and derive are one
+# artifact wearing two crate names and a caret would let them drift into
+# exactly the "the published crate cannot compile itself" failure recorded
+# above. `=`, not caret. The bumper preserves it (actions@2a7e8f1).
+tatara-closed-set-derive = { path = "tatara-closed-set-derive", version = "=0.3.3" }
+
 # ── Every other intra-workspace dep, for the SAME reason. ──────────────
 #
 # These were declared inline in each member's [dependencies] at
@@ -88,6 +97,7 @@ tatara-lisp-derive = { path = "tatara-lisp-derive", version = "=0.3.3" }
 # so they can no longer drift. The `=` above is reserved for the ONE
 # pairing where it is load-bearing (the derive emits ::tatara_lisp:: paths).
 tatara-lisp = { path = "tatara-lisp", version = "0.3.3" }
+tatara-closed-set = { path = "tatara-closed-set", version = "0.3.3" }
 tatara-lisp-eval = { path = "tatara-lisp-eval", version = "0.3.3" }
 tatara-lisp-lint = { path = "tatara-lisp-lint", version = "0.3.3" }
 tatara-lisp-source = { path = "tatara-lisp-source", version = "0.3.3" }

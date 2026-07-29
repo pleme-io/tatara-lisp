@@ -1,0 +1,30 @@
+[package]
+name = "tatara-closed-set"
+description = "ClosedSet — the typed witness for the closed-set-enum idiom (ALL + label + parse_label + typed parse-rejection carrier)"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# Exact-pinned in [workspace.dependencies] for the same reason
+# tatara-lisp-derive is: this derive EMITS `::tatara_closed_set::ClosedSet`
+# paths, so the pair is one artifact wearing two crate names.
+tatara-closed-set-derive.workspace = true
+# For the ONE shared primitive: `domain::suggest`, the substrate's bounded
+# edit-distance metric that `ClosedSet::suggest_closest` composes. Copying
+# it here would be the duplication the PRIME DIRECTIVE calls a bug, and the
+# edge only goes this way — `tatara-lisp` must never depend on this crate
+# (see the crate docs).
+tatara-lisp.workspace = true
+
+[dev-dependencies]
+# The generated parse-rejection carrier derives `::thiserror::Error`, so a
+# consumer of `#[closed_set(generate_unknown)]` needs thiserror in scope.
+# tests/derive_emits_closed_set_path.rs is exactly such a consumer.
+thiserror = "2"

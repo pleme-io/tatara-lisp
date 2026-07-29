@@ -1,9 +1,11 @@
 {
   "schema_version": 2,
-  "cargo_lock_sha256": "acd44d0285d476e124a42b5976d3aff66b9027e7acf4a4999b8f17935fa62f4e",
+  "cargo_lock_sha256": "ba65a8d1edb1b8ac740f83b160d18dd3c95e1bd1a59aa5f135ea5a719c6ee327",
   "manifest_sha256": {
-    "Cargo.toml": "b5313220b2eb3f5f99e58786cd53df6d7483eeb04d041b41abc967076d40f041",
+    "Cargo.toml": "58efc75d599e1c41074e402a847cb42265837a1a9830a7517833032c5f9c810c",
     "tatara-cilium/Cargo.toml": "1a556d537ee60e616b61251aad766b0198291fe84a534c2718fb77d75968c34a",
+    "tatara-closed-set-derive/Cargo.toml": "2fc3319ac7d59d99a114b54474b1bc489e2e2c91f8f8dcde90a81bb5f16e231b",
+    "tatara-closed-set/Cargo.toml": "7ad8fcc29379149297011c90091a57cbaf3c8a29ec081bc7933661696245cef3",
     "tatara-doc/Cargo.toml": "ea2347d4cfc6e0b07778d411364cbf8097f807036b7c7b6a8f4a8060986fb582",
     "tatara-domain-forge/Cargo.toml": "d3122046a692c60608e42a6f8b8dc4276fc3be45e3be0602517f17371d9b3c5d",
     "tatara-ebpf/Cargo.toml": "40f2a66bd52789cedbaa546247b8783a9dd6714e5236528e1bb35d7c62770a73",
@@ -2678,6 +2680,70 @@
             "optional": false,
             "target": null,
             "tree": "host"
+          }
+        ],
+        "build_dependencies": [],
+        "features": []
+      },
+      "tatara-closed-set-0.3.3": {
+        "runtime_dependencies": [
+          {
+            "name": "tatara_closed_set_derive",
+            "package_key": "tatara-closed-set-derive-0.3.3",
+            "kind": "normal",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "host"
+          },
+          {
+            "name": "tatara_lisp",
+            "package_key": "tatara-lisp-0.3.3",
+            "kind": "normal",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "target"
+          }
+        ],
+        "build_dependencies": [],
+        "features": []
+      },
+      "tatara-closed-set-derive-0.3.3": {
+        "runtime_dependencies": [
+          {
+            "name": "proc_macro2",
+            "package_key": "proc-macro2-1.0.106",
+            "kind": "normal",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "target"
+          },
+          {
+            "name": "quote",
+            "package_key": "quote-1.0.45",
+            "kind": "normal",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "target"
+          },
+          {
+            "name": "syn",
+            "package_key": "syn-2.0.117",
+            "kind": "normal",
+            "features": [
+              "full"
+            ],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "target"
           }
         ],
         "build_dependencies": [],
@@ -6688,6 +6754,21 @@
       "edition": "2021",
       "lib_target": {
         "name": "tatara_cilium",
+        "path": "src/lib.rs"
+      }
+    },
+    "tatara-closed-set-0.3.3": {
+      "edition": "2021",
+      "lib_target": {
+        "name": "tatara_closed_set",
+        "path": "src/lib.rs"
+      }
+    },
+    "tatara-closed-set-derive-0.3.3": {
+      "edition": "2021",
+      "proc_macro": true,
+      "lib_target": {
+        "name": "tatara_closed_set_derive",
         "path": "src/lib.rs"
       }
     },

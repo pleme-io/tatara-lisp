@@ -12,7 +12,10 @@ homepage.workspace = true
 workspace = true
 
 [dependencies]
-tatara-lisp-derive = { path = "../tatara-lisp-derive", version = "0.2.2" }
+# Exact-pinned in [workspace.dependencies] — see the seal comment there.
+# Inheriting is what puts the pin where rust-workspace-bump can maintain
+# it; declared inline here it sat stale at 0.2.2 for three releases.
+tatara-lisp-derive.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"

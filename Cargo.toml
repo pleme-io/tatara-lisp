@@ -32,6 +32,41 @@ readme = "README.md"
 categories = ["compilers", "command-line-interface"]
 keywords = ["tatara", "lisp", "pleme-io", "scripting", "tlisp"]
 
+[workspace.dependencies]
+# ── THE lib↔derive SEAL. Do not loosen this to a caret. ───────────────
+#
+# `tatara-lisp-derive` EMITS calls into `tatara-lisp` (`::tatara_lisp::
+# domain::…`), so the two are one artifact wearing two crate names. A
+# caret requirement lets them drift apart, and drift here is not
+# theoretical — it is the split-brain this fleet just spent a
+# consolidation on. Reproduced:
+#
+#   $ cargo update -p tatara-lisp-derive       # against published 0.2.4,
+#     Updating tatara-lisp-derive 0.2.2 -> 0.2.154   # whose req is caret
+#   error[E0425]: cannot find function `parse_kwargs_strict`
+#                 in module `tatara_lisp::domain`
+#     --> tatara-lisp-0.2.4/src/compiler_spec.rs:47
+#
+# i.e. the published crate could not compile ITSELF. Consumers papered
+# over it by hand-copying an exact-pin comment block into their own
+# Cargo.toml (banken carried 12 lines of it; 5+ repos duplicated it) —
+# the same fix N times, which the PRIME DIRECTIVE calls a bug. It
+# belongs here, once.
+#
+# This is the serde shape (`serde` exact-pins `serde_derive`): the lib
+# owns the pairing, so a consumer depends ONLY on `tatara-lisp` and uses
+# the `DeriveTataraDomain` re-export (lib.rs) — never naming the derive
+# and therefore never able to mispair it.
+#
+# Living HERE is load-bearing, not cosmetic: pleme-io/actions'
+# rust-workspace-bump rewrites intra-workspace pins ONLY inside
+# [workspace.dependencies] (rewrite-pins-walk), which is precisely why
+# the old pin sat stale at 0.2.2 while the workspace moved to 0.2.5.
+# The bumper preserves the `=` prefix as of actions@2a7e8f1 (proved by a
+# fail-once test); before that fix this pin would have silently decayed
+# back to a caret on the next release.
+tatara-lisp-derive = { path = "tatara-lisp-derive", version = "=0.2.5" }
+
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 missing_errors_doc = "allow"

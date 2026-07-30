@@ -978,7 +978,7 @@ dependencies = [
 
 [[package]]
 name = "tatara"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "anyhow",
  "blake3",
@@ -998,7 +998,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-cilium"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "serde",
  "serde_json",
@@ -1008,7 +1008,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-closed-set"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "tatara-closed-set-derive",
  "tatara-lisp",
@@ -1017,7 +1017,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-closed-set-derive"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1026,7 +1026,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-doc"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "serde_json",
  "tatara-ebpf",
@@ -1036,7 +1036,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-domain-forge"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "clap",
  "indexmap",
@@ -1049,7 +1049,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-ebpf"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "indexmap",
  "serde",
@@ -1061,7 +1061,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-env"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "indexmap",
  "serde",
@@ -1075,7 +1075,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-gateway-api"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "serde",
  "serde_json",
@@ -1085,7 +1085,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-lisp"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "blake3",
  "serde",
@@ -1096,7 +1096,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-lisp-derive"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1105,7 +1105,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-lisp-eval"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "tatara-lisp",
  "thiserror 2.0.18",
@@ -1113,14 +1113,14 @@ dependencies = [
 
 [[package]]
 name = "tatara-lisp-lint"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "tatara-lisp",
 ]
 
 [[package]]
 name = "tatara-lisp-script"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "anyhow",
  "base64",
@@ -1145,7 +1145,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-lisp-source"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "blake3",
  "log",
@@ -1157,7 +1157,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-platform-checks"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "serde_json",
  "tatara-cilium",
@@ -1169,7 +1169,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-prometheus-operator"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "serde",
  "serde_json",
@@ -1179,7 +1179,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-render"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "indexmap",
  "serde",
@@ -1194,7 +1194,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-rollout"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "blake3",
  "indexmap",

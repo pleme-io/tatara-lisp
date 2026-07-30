@@ -8138,10 +8138,6 @@ impl SexpShape {
     /// layer between the outer-`Sexp` and the three sub-carvings — the
     /// four pre-existing typed layers become a full FIVE-layer typed
     /// composition through ONE new named projection.
-    // `allow(dead_code)`: no caller until phase 2 step 5 routes the reader's
-    // `Hash` bodies through the carrier algebra — see the sibling note on
-    // `AtomKind::hash_discriminator`.
-    #[allow(dead_code)]
     #[must_use]
     pub(crate) fn hash_discriminator(self) -> u8 {
         match self {
@@ -9052,9 +9048,6 @@ impl StructuralKind {
     pub(crate) const HASH_DISCRIMINATORS: [u8; 2] =
         [Self::NIL_HASH_DISCRIMINATOR, Self::LIST_HASH_DISCRIMINATOR];
 
-    // `allow(dead_code)`: no caller until phase 2 step 5 — see the sibling
-    // note on `AtomKind::hash_discriminator`.
-    #[allow(dead_code)]
     #[must_use]
     pub(crate) fn hash_discriminator(self) -> u8 {
         match self {

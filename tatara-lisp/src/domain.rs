@@ -179,6 +179,302 @@ pub fn head_mismatch(keyword: &'static str, got: String) -> LispError {
     LispError::HeadMismatch { keyword, got }
 }
 
+/// The substrate-wide [`TataraDomain`] well-formedness testkit — closes
+/// the four typed-entry rejection gates on the trait's default
+/// [`TataraDomain::compile_from_sexp`], three [`TataraDomain::KEYWORD`]
+/// grammar invariants, AND the reader round-trip theorem at ONE call
+/// every implementor's test module reaches for.
+///
+/// Peer of [`crate::closed_set::assert_closed_set_well_formed`] on the
+/// sibling [`crate::ClosedSet`] contract — after this lift both
+/// homoiconic-authoring contracts (the closed-set enum idiom AND the
+/// derived-domain idiom) carry ONE substrate-wide structural checker
+/// each, and every downstream implementor's test module reduces to a
+/// single-line invocation instead of re-deriving the invariants
+/// per-implementor.
+///
+/// ## The four `compile_from_sexp` rejection gates
+///
+///   1. `NotAListForm { keyword }` on a bare atom — the typed-entry
+///      gate rejects the form-shape mismatch before descending into
+///      the list.
+///   2. `MissingHeadSymbol { keyword, got: None }` on the empty list
+///      `()` — `list.first()` returns `None`, there's no head to
+///      project.
+///   3. `MissingHeadSymbol { keyword, got: Some(_) }` on a list whose
+///      first element is not a symbol — `list.first().as_symbol()`
+///      returns `None`, and the offending element's typed identity
+///      threads into the `got` slot.
+///   4. `HeadMismatch { keyword, got }` on a list headed by a symbol
+///      other than `T::KEYWORD` — the substring-free structural
+///      discriminator.
+///
+/// ## The three `KEYWORD` grammar invariants
+///
+///   5. `KEYWORD` is non-empty — a keyword-less form cannot be
+///      dispatched.
+///   6. `KEYWORD` classifies as [`Atom::Symbol`] through the substrate's
+///      typed-entry classifier [`Atom::from_lexeme`] — the ONE
+///      projection every bare-atom lexeme routes through inside the
+///      reader's parse arm. Subsumes the pre-lift "no leading ASCII
+///      digit" heuristic (a KEYWORD `"42"` decodes as [`Atom::Int`],
+///      `"1.5"` as [`Atom::Float`]) AND catches the two shapes the
+///      pre-lift check silently accepted: a leading `:` (KEYWORD
+///      `":foo"` decodes as [`Atom::Keyword`]) and the two boolean
+///      literals (`"#t"` / `"#f"` decode as [`Atom::Bool`]) — none of
+///      which the trait's `as_symbol()` head-match would fire on. Binds
+///      the invariant to the substrate's typed reader-classifier
+///      algebra so a future seventh [`Atom`] variant (e.g. `Char` for
+///      `#\x` reader syntax, `Bigint` for arbitrary-precision integers)
+///      strengthens the check ONCE at [`Atom::from_lexeme`] rather than
+///      re-heuristicing per implementor's test module.
+///   7. `KEYWORD` contains no [`Sexp::is_bare_atom_boundary`] char —
+///      the ONE typed projection on the outer [`Sexp`] algebra that
+///      names "this char breaks the reader's bare-atom accumulator."
+///      Subsumes the pre-lift "no ASCII whitespace" heuristic (via
+///      `char::is_whitespace()` covering the Unicode whitespace surface
+///      the reader also splits on — NBSP `\u{00A0}`, ideographic space
+///      `\u{3000}`, and every other codepoint the pre-lift ASCII-only
+///      check silently accepted) AND catches the seven non-whitespace
+///      terminators the pre-lift check ignored:
+///      [`Sexp::LIST_OPEN`] `(`, [`Sexp::LIST_CLOSE`] `)`,
+///      [`crate::ast::QuoteForm::QUOTE_LEAD`] `'`,
+///      [`crate::ast::QuoteForm::QUASIQUOTE_LEAD`] `` ` ``,
+///      [`crate::ast::QuoteForm::UNQUOTE_LEAD`] `,`,
+///      [`Atom::STR_DELIMITER`] `"`, [`Sexp::COMMENT_LEAD`] `;` — every
+///      char that would tokenize a KEYWORD like `"def(x"` / `"def;x"` /
+///      `"def\"x"` into TWO tokens, breaking the trait's head-match
+///      structurally. Binds the invariant to the substrate's typed
+///      reader-boundary algebra so a future eighth outer-dispatch
+///      category (e.g. `#|…|#` block-comment lead byte) strengthens the
+///      check ONCE at [`Sexp::is_bare_atom_boundary`] rather than
+///      per-implementor re-derivation.
+///
+/// ## The round-trip theorem
+///
+///   8. `read(KEYWORD)` produces exactly one form, and that form's
+///      [`Sexp::as_symbol`] projection returns `Some(KEYWORD)`. This is
+///      the STRUCTURAL condition the trait's default
+///      [`TataraDomain::compile_from_sexp`] head-match depends on: the
+///      reader tokenizes the head slot, projects through
+///      [`Atom::from_lexeme`], and the head-match calls `as_symbol()`
+///      on the resulting [`Sexp`]. If the round-trip holds, the
+///      head-match fires on the intended keyword; if it fails, no
+///      other invariant matters. Invariants (6) and (7) together
+///      *entail* this theorem — (6) closes the classifier axis,
+///      (7) closes the tokenizer axis — so a KEYWORD that passes both
+///      structural checks always passes the round-trip; pinning the
+///      theorem explicitly closes the LOOP at the verification site
+///      and catches drift outside the closed-set structural surface
+///      (e.g. a future reader-level input transformation that couldn't
+///      be reduced to either axis).
+///
+/// A hand-written implementor that overrides
+/// [`TataraDomain::compile_from_sexp`] and drifts any of the four gates
+/// from the substrate-wide structural variants surfaces here rather
+/// than as a mystery integration failure downstream — the same posture
+/// [`crate::closed_set::assert_closed_set_well_formed`] takes on the
+/// override-prone `parse_label` / `parse_label_with_hint` /
+/// `labels_joined` axes.
+///
+/// ## Usage
+///
+/// ```ignore
+/// #[test]
+/// fn my_spec_is_well_formed_tatara_domain() {
+///     tatara_lisp::assert_tatara_domain_well_formed::<MySpec>();
+/// }
+/// ```
+///
+/// ## Theory grounding
+///
+/// THEORY.md §II.1 invariant 1 — typed entry; the four structural
+/// gates ARE the typed-entry boundary of the derived-domain idiom, and
+/// the testkit makes their identity load-bearing at the per-implementor
+/// test surface.
+///
+/// THEORY.md §V.1 — knowable platform; the four structural rejections
+/// were previously re-derived per implementor with
+/// `matches!(err, LispError::NotAListForm { ... })` scaffolds. The
+/// testkit collapses the scaffolds onto ONE substrate entry so future
+/// implementors inherit the contract by calling one line — mirrors the
+/// `assert_closed_set_well_formed` posture that closed the closed-set
+/// enum idiom's 36+ per-implementor test modules onto ONE checker.
+///
+/// THEORY.md §VI.1 — generation over composition; the four gate
+/// primitives ([`not_a_list_form_err`], [`missing_head_err`],
+/// [`head_mismatch`]) already compose the structural rejections at the
+/// GENERATION site. This testkit closes the LOOP at the VERIFICATION
+/// site so the two ends of the substrate meet at ONE structural
+/// witness — every implementor's test module inherits both halves
+/// through ONE call rather than restating the four `matches!` arms
+/// per-implementor.
+#[track_caller]
+pub fn assert_tatara_domain_well_formed<T>()
+where
+    T: TataraDomain,
+{
+    let type_name = core::any::type_name::<T>();
+    let keyword = T::KEYWORD;
+
+    // (1) — KEYWORD is non-empty. A keyword-less form has no head
+    // symbol for the dispatch to key on; the trait's contract is
+    // structurally degenerate without a discriminating lexeme.
+    assert!(
+        !keyword.is_empty(),
+        "{type_name}: TataraDomain::KEYWORD is empty — the head symbol has no lexeme to dispatch on",
+    );
+
+    // (2) — KEYWORD classifies as `Atom::Symbol` through the substrate's
+    // typed-entry classifier `Atom::from_lexeme`. The reader routes every
+    // bare-atom lexeme through this ONE projection; anything that decodes
+    // as `Bool` / `Keyword` / `Int` / `Float` / `Str` never reaches the
+    // trait's head-match as a symbol. Subsumes the pre-lift "no leading
+    // ASCII digit" heuristic (`"42"` → `Int`, `"1.5"` → `Float`) AND
+    // catches the two shapes the pre-lift check silently accepted:
+    // `":foo"` → `Keyword` and `"#t"` / `"#f"` → `Bool`. Binding to the
+    // substrate's classifier means a future seventh `Atom` variant
+    // (`Char`, `Bigint`) strengthens the check ONCE.
+    match Atom::from_lexeme(keyword) {
+        Atom::Symbol(s) if s == keyword => {}
+        classified => panic!(
+            "{type_name}: KEYWORD {keyword:?} classifies as {classified:?} via Atom::from_lexeme — the Lisp reader would not project the head as a symbol at the trait's head-match",
+        ),
+    }
+
+    // (3) — KEYWORD contains no `Sexp::is_bare_atom_boundary` char. The
+    // substrate's typed reader-boundary projection covers BOTH the
+    // Unicode-whitespace surface (via `char::is_whitespace`) AND the
+    // seven non-whitespace terminators (`(` `)` `'` `` ` `` `,` `"` `;`)
+    // that would tokenize the KEYWORD into two tokens, breaking the
+    // trait's head-match structurally. Subsumes the pre-lift
+    // "no ASCII whitespace" heuristic; binding to the substrate's typed
+    // reader-boundary algebra means a future eighth outer-dispatch
+    // category (`#|` block-comment lead) strengthens the check ONCE.
+    if let Some(ch) = keyword.chars().find(|&c| Sexp::is_bare_atom_boundary(c)) {
+        panic!(
+            "{type_name}: KEYWORD {keyword:?} contains reader-boundary char {ch:?} (Sexp::is_bare_atom_boundary → true) — the Lisp reader would split it into multiple tokens, breaking the head-match structurally",
+        );
+    }
+
+    // (4) — a bare-atom form rejects with `NotAListForm { keyword }`.
+    // The typed-entry gate rejects the form-shape mismatch before
+    // descending into the list's head; the variant carries the keyword
+    // as structural data so authoring surfaces bind on
+    // `LispError::NotAListForm { keyword }` rather than substring-
+    // parsing the rendered message.
+    let bare_atom = Sexp::int(0);
+    match T::compile_from_sexp(&bare_atom) {
+        Err(LispError::NotAListForm { keyword: k }) => assert_eq!(
+            k, keyword,
+            "{type_name}: NotAListForm.keyword {k:?} drifted from T::KEYWORD {keyword:?}",
+        ),
+        Ok(_) => panic!(
+            "{type_name}: compile_from_sexp accepted a bare-atom form — the typed-entry gate would let a non-list form silently reach the kwargs decoder",
+        ),
+        Err(other) => panic!(
+            "{type_name}: compile_from_sexp on a bare-atom form emitted {other:?}, expected LispError::NotAListForm {{ keyword: {keyword:?} }}",
+        ),
+    }
+
+    // (5) — the empty list `()` rejects with
+    // `MissingHeadSymbol { keyword, got: None }`. `list.first()`
+    // returns `None`, so no head-witness is threaded through the
+    // rejection — the `got: None` arm names the empty-list sub-mode
+    // structurally.
+    let empty_list = Sexp::List(Vec::new());
+    match T::compile_from_sexp(&empty_list) {
+        Err(LispError::MissingHeadSymbol {
+            keyword: k,
+            got: None,
+        }) => assert_eq!(
+            k, keyword,
+            "{type_name}: MissingHeadSymbol.keyword {k:?} drifted from T::KEYWORD {keyword:?} on the empty-list arm",
+        ),
+        Ok(_) => panic!(
+            "{type_name}: compile_from_sexp accepted the empty list `()` — the typed-entry gate would let a headless form silently reach the head-match",
+        ),
+        Err(other) => panic!(
+            "{type_name}: compile_from_sexp on the empty list `()` emitted {other:?}, expected LispError::MissingHeadSymbol {{ keyword: {keyword:?}, got: None }}",
+        ),
+    }
+
+    // (6) — a list whose head is a non-symbol atom rejects with
+    // `MissingHeadSymbol { keyword, got: Some(_) }`. The offending
+    // element's typed identity threads through `SexpWitness` into the
+    // `got` slot so authoring surfaces can render "your form's head
+    // is `0`, an int, not a symbol" without re-parsing the source.
+    let non_symbol_head = Sexp::List(vec![Sexp::int(0)]);
+    match T::compile_from_sexp(&non_symbol_head) {
+        Err(LispError::MissingHeadSymbol {
+            keyword: k,
+            got: Some(_),
+        }) => assert_eq!(
+            k, keyword,
+            "{type_name}: MissingHeadSymbol.keyword {k:?} drifted from T::KEYWORD {keyword:?} on the non-symbol-head arm",
+        ),
+        Ok(_) => panic!(
+            "{type_name}: compile_from_sexp accepted a form with a non-symbol head — the typed-entry gate would let a numeric-head form silently reach the head-match",
+        ),
+        Err(other) => panic!(
+            "{type_name}: compile_from_sexp on a non-symbol-head form emitted {other:?}, expected LispError::MissingHeadSymbol {{ keyword: {keyword:?}, got: Some(_) }}",
+        ),
+    }
+
+    // (7) — a symbol-headed list whose head is NOT `T::KEYWORD`
+    // rejects with `HeadMismatch { keyword, got }`. The probe symbol
+    // is chosen to be lexically distinct from every conceivable
+    // canonical keyword across the substrate so no real implementor
+    // can accidentally match it. A hard equality assertion rules out
+    // the degenerate case where an implementor's KEYWORD collides
+    // with the reserved probe.
+    let probe = "__assert_tatara_domain_well_formed_probe__";
+    assert_ne!(
+        keyword, probe,
+        "{type_name}: T::KEYWORD collides with the reserved probe {probe:?} — the wrong-head arm cannot rule out an implementor whose KEYWORD equals the probe; rename either side",
+    );
+    let wrong_head = Sexp::List(vec![Sexp::symbol(probe)]);
+    match T::compile_from_sexp(&wrong_head) {
+        Err(LispError::HeadMismatch { keyword: k, got }) => {
+            assert_eq!(
+                k, keyword,
+                "{type_name}: HeadMismatch.keyword {k:?} drifted from T::KEYWORD {keyword:?}",
+            );
+            assert_eq!(
+                got, probe,
+                "{type_name}: HeadMismatch.got {got:?} drifted from the offending head {probe:?}",
+            );
+        }
+        Ok(_) => panic!(
+            "{type_name}: compile_from_sexp accepted a form headed by the reserved probe {probe:?} — the typed-entry gate would let a wrong-head form silently reach the kwargs decoder",
+        ),
+        Err(other) => panic!(
+            "{type_name}: compile_from_sexp on the wrong-head form emitted {other:?}, expected LispError::HeadMismatch {{ keyword: {keyword:?}, got: {probe:?} }}",
+        ),
+    }
+
+    // (8) — reader round-trip theorem. `read(KEYWORD)` produces exactly
+    // one form, and that form's `as_symbol()` projection returns
+    // `Some(KEYWORD)`. This is the SUFFICIENT condition invariants
+    // (6) + (7) together entail: (6) closes the classifier axis (the
+    // token, once assembled, classifies as `Atom::Symbol`), (7) closes
+    // the tokenizer axis (the KEYWORD arrives at the classifier as ONE
+    // token). Pinning the composition explicitly closes the LOOP at
+    // the verification site — a substrate-owned theorem the two
+    // structural checks compose into — and catches drift outside the
+    // closed-set structural surface (e.g. a future reader-level input
+    // transformation that couldn't be reduced to either axis).
+    match crate::reader::read(keyword) {
+        Ok(forms) if forms.len() == 1 && forms[0].as_symbol() == Some(keyword) => {}
+        Ok(forms) => panic!(
+            "{type_name}: KEYWORD {keyword:?} did not round-trip through read → as_symbol — read produced {forms:?} (expected one form projecting to Some({keyword:?}))",
+        ),
+        Err(err) => panic!(
+            "{type_name}: KEYWORD {keyword:?} failed to tokenize at all — read returned {err:?}",
+        ),
+    }
+}
+
 // ── kwarg parsing + typed extractors used by the derive macro ──────
 
 pub type Kwargs<'a> = HashMap<String, &'a Sexp>;
@@ -1148,13 +1444,7 @@ pub fn extract_optional_bool(kw: &Kwargs<'_>, key: &str) -> Result<Option<bool>>
 /// the gate from three-site duplication to one rust function the
 /// substrate's diagnostic promotions hang off of.
 fn from_value_with_path<T: DeserializeOwned>(sexp: &Sexp, path: KwargPath) -> Result<T> {
-    // The fork spells this `sexp.to_json()?` against a fallible
-    // `Sexp::to_json`. B's projection is the infallible free function
-    // `sexp_to_json`, so there is no error arm to thread — the
-    // `KwargDeserialize` path below is the only rejection either way.
-    // Unifying the two projections is the ast.rs port's business, not
-    // this step's.
-    let json = sexp_to_json(sexp);
+    let json = sexp.to_json()?;
     serde_json::from_value(json).map_err(|e| LispError::KwargDeserialize {
         path,
         message: e.to_string(),
@@ -1976,86 +2266,49 @@ macro_rules! register_all_capabilities {
 
 use serde_json::Value as JValue;
 
-/// Convert a Sexp to its canonical JSON form.
+/// Thin delegate to [`Sexp::to_json`] retained for callers that want
+/// the free-function reach — the canonical site is now the inherent
+/// method on the [`Sexp`] algebra (sibling-lift posture to
+/// [`super::domain::sexp_shape`] → [`Sexp::shape`] (commit 121bb60)
+/// and [`super::domain::sexp_witness`] → [`Sexp::witness`] (commit
+/// a427e3b)). Rules + round-trip semantics live at
+/// [`Sexp::to_json`]'s docstring.
 ///
-/// Rules:
-///   - Symbols + Keywords → `Value::String`
-///     (symbols are enum discriminants; keywords prefix with `:`)
-///   - Strings, ints, floats, bools → their JSON counterpart
-///   - Lists that look like `:k v :k v …` → `Value::Object`
-///   - Other lists → `Value::Array`
-///   - Quote/Quasiquote/Unquote/UnquoteSplice → convert the inner (strips quote)
-pub fn sexp_to_json(s: &Sexp) -> JValue {
-    match s {
-        Sexp::Nil => JValue::Null,
-        Sexp::Atom(Atom::Symbol(s)) => JValue::String(s.clone()),
-        Sexp::Atom(Atom::Keyword(s)) => JValue::String(format!(":{s}")),
-        Sexp::Atom(Atom::Str(s)) => JValue::String(s.clone()),
-        Sexp::Atom(Atom::Int(n)) => JValue::Number((*n).into()),
-        Sexp::Atom(Atom::Float(n)) => serde_json::Number::from_f64(*n)
-            .map(JValue::Number)
-            .unwrap_or(JValue::Null),
-        Sexp::Atom(Atom::Bool(b)) => JValue::Bool(*b),
-        Sexp::List(items) => {
-            if is_kwargs_list(items) {
-                let mut map = serde_json::Map::with_capacity(items.len() / 2);
-                let mut i = 0;
-                while i + 1 < items.len() {
-                    if let Some(k) = items[i].as_keyword() {
-                        map.insert(kebab_to_camel(k), sexp_to_json(&items[i + 1]));
-                        i += 2;
-                    } else {
-                        break;
-                    }
-                }
-                JValue::Object(map)
-            } else {
-                JValue::Array(items.iter().map(sexp_to_json).collect())
-            }
-        }
-        Sexp::Quote(inner)
-        | Sexp::Quasiquote(inner)
-        | Sexp::Unquote(inner)
-        | Sexp::UnquoteSplice(inner) => sexp_to_json(inner),
-    }
+/// Composition law: `sexp_to_json(s) == s.to_json()` for every `s:
+/// &Sexp`. Pre-lift the dispatcher lived here as the canonical site;
+/// post-lift the inherent method [`Sexp::to_json`] is the canonical
+/// site and this free function delegates so existing callers
+/// continue to compile.
+pub fn sexp_to_json(s: &Sexp) -> Result<JValue> {
+    s.to_json()
 }
 
-/// Convert serde_json back to Sexp — inverse of `sexp_to_json`.
-/// Used by `rewrite_typed` to round-trip a typed value through Lisp forms.
+/// Thin delegate to [`Sexp::from_json`] retained for callers that want
+/// the free-function reach — the canonical site is now the inherent
+/// associated function on the [`Sexp`] algebra (sibling-lift posture to
+/// [`super::domain::sexp_to_json`] → [`Sexp::to_json`] (commit 875ee3b),
+/// [`super::domain::sexp_witness`] → [`Sexp::witness`] (commit a427e3b),
+/// and [`super::domain::sexp_shape`] → [`Sexp::shape`] (commit
+/// 121bb60)). Rules + round-trip semantics live at
+/// [`Sexp::from_json`]'s docstring.
+///
+/// Composition law: `json_to_sexp(v) == Sexp::from_json(v)` for every
+/// `v: &JValue`. Pre-lift the dispatcher lived here as the canonical
+/// site; post-lift the inherent associated function
+/// [`Sexp::from_json`] is the canonical site and this free function
+/// delegates so existing callers continue to compile. With this lift the
+/// substrate's `Sexp` ↔ `serde_json::Value` round-trip closure
+/// ([`Sexp::to_json`] + [`Sexp::from_json`]) lives entirely on the
+/// [`Sexp`] algebra; the four free functions that pre-dated the lift
+/// chain (`sexp_to_json`, `json_to_sexp`, `sexp_shape`, `sexp_witness`)
+/// are all delegates now — the canonical-form / structural-projection
+/// surface is structurally on the algebra.
 pub fn json_to_sexp(v: &JValue) -> Sexp {
-    match v {
-        JValue::Null => Sexp::Nil,
-        JValue::Bool(b) => Sexp::boolean(*b),
-        JValue::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                Sexp::int(i)
-            } else if let Some(f) = n.as_f64() {
-                Sexp::float(f)
-            } else {
-                Sexp::int(0)
-            }
-        }
-        JValue::String(s) => Sexp::string(s.clone()),
-        JValue::Array(items) => Sexp::List(items.iter().map(json_to_sexp).collect()),
-        JValue::Object(map) => {
-            let mut out = Vec::with_capacity(map.len() * 2);
-            for (k, v) in map {
-                out.push(Sexp::keyword(camel_to_kebab(k)));
-                out.push(json_to_sexp(v));
-            }
-            Sexp::List(out)
-        }
-    }
-}
-
-fn is_kwargs_list(items: &[Sexp]) -> bool {
-    !items.is_empty()
-        && items.len() % 2 == 0
-        && items.iter().step_by(2).all(|s| s.as_keyword().is_some())
+    Sexp::from_json(v)
 }
 
 /// `must-reach` → `mustReach`, `point-type` → `pointType`.
-fn kebab_to_camel(s: &str) -> String {
+pub(crate) fn kebab_to_camel(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut upper = false;
     for c in s.chars() {
@@ -2072,7 +2325,7 @@ fn kebab_to_camel(s: &str) -> String {
 }
 
 /// `mustReach` → `must-reach` (inverse of `kebab_to_camel`).
-fn camel_to_kebab(s: &str) -> String {
+pub(crate) fn camel_to_kebab(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     for (i, c) in s.chars().enumerate() {
         if c.is_uppercase() && i > 0 {
@@ -2306,5 +2559,265 @@ mod tests {
         assert_eq!(json["name"], "prom");
         assert_eq!(json["query"], "q");
         assert_eq!(json["threshold"], 0.5);
+    }
+
+    // ── assert_tatara_domain_well_formed — the substrate-wide testkit ──
+
+    #[test]
+    fn assert_tatara_domain_well_formed_passes_on_the_derive_reference_impl() {
+        // The reference implementor `MonitorSpec` inherits the trait
+        // default `compile_from_sexp` through the derive; every one of
+        // the four rejection gates (bare atom, empty list, non-symbol
+        // head, wrong-head symbol) MUST fire with the substrate-wide
+        // structural `LispError` variant, AND its KEYWORD `"defmonitor"`
+        // MUST pass the three grammar invariants (non-empty; classifies
+        // as `Atom::Symbol` via `Atom::from_lexeme`; contains no
+        // `Sexp::is_bare_atom_boundary` char) AND the round-trip
+        // theorem (`read("defmonitor")` projects to
+        // `Some("defmonitor")`). The single line below pins all EIGHT
+        // at once — every future `#[derive(TataraDomain)]` implementor
+        // reduces to the same one-line check in its test module,
+        // mirroring the `assert_closed_set_well_formed` deployment
+        // across 44+ closed-set implementor test sites.
+        assert_tatara_domain_well_formed::<MonitorSpec>();
+    }
+
+    #[test]
+    fn assert_tatara_domain_well_formed_panics_on_empty_keyword() {
+        // Negative arm on invariant (1) — a hand-written impl whose
+        // KEYWORD is the empty string tries to be a keyword-less
+        // dispatch target. The trait can't discriminate `(some-form
+        // …)` from `(other-form …)` without a lexeme, so the testkit
+        // MUST fire on this degenerate shape. Uses `catch_unwind` to
+        // observe the panic without terminating the test process —
+        // same posture the closed-set testkit's negative-arm tests
+        // take (see `closed_set.rs`).
+        struct EmptyKeyword;
+        impl TataraDomain for EmptyKeyword {
+            const KEYWORD: &'static str = "";
+            fn compile_from_args(_: &[Sexp]) -> Result<Self> {
+                unreachable!("compile_from_args unreachable — invariant (1) trips first")
+            }
+        }
+        let result = std::panic::catch_unwind(|| {
+            assert_tatara_domain_well_formed::<EmptyKeyword>();
+        });
+        let payload = result.expect_err("expected empty-KEYWORD invariant to panic");
+        let msg = payload
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| payload.downcast_ref::<&'static str>().copied())
+            .unwrap_or("");
+        assert!(
+            msg.contains("KEYWORD is empty"),
+            "expected empty-KEYWORD panic message to name the invariant, got {msg:?}",
+        );
+    }
+
+    /// Extract the panic message of the closure so the test module's
+    /// negative-arm sweep binds to ONE substrate-owned decode instead of
+    /// re-inlining the `catch_unwind` + `downcast_ref::<String>` + fallback
+    /// to `&'static str` cascade at every arm.
+    fn assert_panic_msg_contains(needle: &str, f: impl FnOnce() + std::panic::UnwindSafe) {
+        let result = std::panic::catch_unwind(f);
+        let payload = result.expect_err("expected invariant to panic");
+        let msg = payload
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| payload.downcast_ref::<&'static str>().copied())
+            .unwrap_or("");
+        assert!(
+            msg.contains(needle),
+            "expected panic message to contain {needle:?}, got {msg:?}",
+        );
+    }
+
+    #[test]
+    fn assert_tatara_domain_well_formed_panics_on_ascii_whitespace_keyword() {
+        // Negative arm on invariant (7) — a KEYWORD like `"def foo"`
+        // would arrive at the trait's head-match as two tokens because
+        // `Sexp::is_bare_atom_boundary(' ') == true` via
+        // `char::is_whitespace`. The testkit MUST catch this before an
+        // integration surface silently drops the trailing word. The
+        // pre-lift ASCII-only heuristic caught the same case; the
+        // sharpened invariant catches it via the substrate's typed
+        // reader-boundary projection.
+        struct WhitespaceKeyword;
+        impl TataraDomain for WhitespaceKeyword {
+            const KEYWORD: &'static str = "def foo";
+            fn compile_from_args(_: &[Sexp]) -> Result<Self> {
+                unreachable!("compile_from_args unreachable — invariant (7) trips first")
+            }
+        }
+        assert_panic_msg_contains("reader-boundary char", || {
+            assert_tatara_domain_well_formed::<WhitespaceKeyword>();
+        });
+    }
+
+    #[test]
+    fn assert_tatara_domain_well_formed_panics_on_unicode_whitespace_keyword() {
+        // Negative arm on invariant (7) — a KEYWORD carrying the
+        // no-break-space codepoint `\u{00A0}` (a Unicode-whitespace
+        // char the pre-lift `is_ascii_whitespace()` check silently
+        // accepted). The reader's outer-dispatch calls
+        // `char::is_whitespace()` (Unicode-aware) via
+        // `Sexp::is_bare_atom_boundary`, so a KEYWORD `"def\u{00A0}foo"`
+        // would split into two tokens. Binding the invariant to the
+        // substrate's typed reader-boundary projection closes this hole
+        // that the pre-lift ASCII-only heuristic left open.
+        struct NbspKeyword;
+        impl TataraDomain for NbspKeyword {
+            const KEYWORD: &'static str = "def\u{00A0}foo";
+            fn compile_from_args(_: &[Sexp]) -> Result<Self> {
+                unreachable!("compile_from_args unreachable — invariant (7) trips first")
+            }
+        }
+        assert_panic_msg_contains("reader-boundary char", || {
+            assert_tatara_domain_well_formed::<NbspKeyword>();
+        });
+    }
+
+    #[test]
+    fn assert_tatara_domain_well_formed_panics_on_list_open_char_keyword() {
+        // Negative arm on invariant (7) — a KEYWORD like `"def(x"`
+        // embeds `Sexp::LIST_OPEN` mid-lexeme; the reader's bare-atom
+        // terminator disjunct fires on `(`, splitting the token so the
+        // trait's head-match would see `"def"` followed by an opening
+        // paren — the head-match would fire on `"def"`, silently
+        // matching a DIFFERENT keyword. This is the reader-boundary
+        // hole the pre-lift ASCII-whitespace heuristic silently
+        // accepted; binding to `Sexp::is_bare_atom_boundary` catches
+        // it structurally.
+        struct ListOpenKeyword;
+        impl TataraDomain for ListOpenKeyword {
+            const KEYWORD: &'static str = "def(x";
+            fn compile_from_args(_: &[Sexp]) -> Result<Self> {
+                unreachable!("compile_from_args unreachable — invariant (7) trips first")
+            }
+        }
+        assert_panic_msg_contains("reader-boundary char", || {
+            assert_tatara_domain_well_formed::<ListOpenKeyword>();
+        });
+    }
+
+    #[test]
+    fn assert_tatara_domain_well_formed_panics_on_comment_lead_char_keyword() {
+        // Negative arm on invariant (7) — a KEYWORD like `"def;bad"`
+        // embeds `Sexp::COMMENT_LEAD` mid-lexeme; the reader's outer
+        // dispatch would treat `;` as the start of a line comment,
+        // discarding everything after it up to newline. The trait's
+        // head-match would fire on `"def"` (the token before `;`),
+        // silently matching a DIFFERENT keyword. Sibling coverage to
+        // the list-open arm above on the seven-terminator disjunction
+        // `Sexp::NON_WHITESPACE_BARE_ATOM_TERMINATORS`.
+        struct CommentLeadKeyword;
+        impl TataraDomain for CommentLeadKeyword {
+            const KEYWORD: &'static str = "def;bad";
+            fn compile_from_args(_: &[Sexp]) -> Result<Self> {
+                unreachable!("compile_from_args unreachable — invariant (7) trips first")
+            }
+        }
+        assert_panic_msg_contains("reader-boundary char", || {
+            assert_tatara_domain_well_formed::<CommentLeadKeyword>();
+        });
+    }
+
+    #[test]
+    fn assert_tatara_domain_well_formed_panics_on_keyword_marker_prefix() {
+        // Negative arm on invariant (6) — a KEYWORD `":foo"` classifies
+        // as `Atom::Keyword` via the reader's `Atom::from_lexeme`
+        // classifier (the `:` prefix is stripped and the remainder
+        // becomes the keyword payload). The pre-lift "no leading ASCII
+        // digit" heuristic silently accepted this shape; the sharpened
+        // invariant binds to the substrate's typed classifier so the
+        // shape rejects structurally.
+        struct KeywordMarkerKeyword;
+        impl TataraDomain for KeywordMarkerKeyword {
+            const KEYWORD: &'static str = ":foo";
+            fn compile_from_args(_: &[Sexp]) -> Result<Self> {
+                unreachable!("compile_from_args unreachable — invariant (6) trips first")
+            }
+        }
+        assert_panic_msg_contains("Atom::from_lexeme", || {
+            assert_tatara_domain_well_formed::<KeywordMarkerKeyword>();
+        });
+    }
+
+    #[test]
+    fn assert_tatara_domain_well_formed_panics_on_bool_literal_keyword() {
+        // Negative arm on invariant (6) — a KEYWORD `"#t"` classifies
+        // as `Atom::Bool(true)` via `Atom::from_lexeme`'s bool-literal
+        // arm. The pre-lift heuristic silently accepted this shape
+        // (starts with `#`, not a digit); the sharpened invariant binds
+        // to the substrate's typed classifier so the shape rejects
+        // structurally. Peer coverage to the `:foo` arm above on the
+        // classifier's non-`Symbol` decode paths.
+        struct BoolLiteralKeyword;
+        impl TataraDomain for BoolLiteralKeyword {
+            const KEYWORD: &'static str = "#t";
+            fn compile_from_args(_: &[Sexp]) -> Result<Self> {
+                unreachable!("compile_from_args unreachable — invariant (6) trips first")
+            }
+        }
+        assert_panic_msg_contains("Atom::from_lexeme", || {
+            assert_tatara_domain_well_formed::<BoolLiteralKeyword>();
+        });
+    }
+
+    #[test]
+    fn assert_tatara_domain_well_formed_panics_on_numeric_keyword() {
+        // Negative arm on invariant (6) — a KEYWORD `"42"` classifies
+        // as `Atom::Int(42)` via `Atom::from_lexeme`'s `parse::<i64>`
+        // arm. The pre-lift heuristic caught this via the leading-
+        // digit check; the sharpened invariant catches it via the
+        // classifier's typed decode — a stricter check with a
+        // structurally-named diagnostic.
+        struct NumericKeyword;
+        impl TataraDomain for NumericKeyword {
+            const KEYWORD: &'static str = "42";
+            fn compile_from_args(_: &[Sexp]) -> Result<Self> {
+                unreachable!("compile_from_args unreachable — invariant (6) trips first")
+            }
+        }
+        assert_panic_msg_contains("Atom::from_lexeme", || {
+            assert_tatara_domain_well_formed::<NumericKeyword>();
+        });
+    }
+
+    #[test]
+    fn assert_tatara_domain_well_formed_panics_on_drifted_compile_from_sexp() {
+        // Negative arm on invariant (4) — an override that swallows
+        // the bare-atom form and returns `Ok(_)` drifts the trait's
+        // typed-entry gate; the testkit MUST fire on this drift so
+        // the substrate-wide `NotAListForm` contract stays enforced
+        // across every implementor rather than only across those that
+        // keep the trait default.
+        #[derive(Debug, PartialEq)]
+        struct SwallowsBareAtom;
+        impl TataraDomain for SwallowsBareAtom {
+            const KEYWORD: &'static str = "defbogus";
+            fn compile_from_args(_: &[Sexp]) -> Result<Self> {
+                Ok(SwallowsBareAtom)
+            }
+            fn compile_from_sexp(_form: &Sexp) -> Result<Self> {
+                // Intentionally-broken: this override accepts EVERY
+                // form, including a bare atom — the drift the testkit
+                // catches.
+                Ok(SwallowsBareAtom)
+            }
+        }
+        let result = std::panic::catch_unwind(|| {
+            assert_tatara_domain_well_formed::<SwallowsBareAtom>();
+        });
+        let payload = result.expect_err("expected drifted-override invariant to panic");
+        let msg = payload
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| payload.downcast_ref::<&'static str>().copied())
+            .unwrap_or("");
+        assert!(
+            msg.contains("accepted a bare-atom form"),
+            "expected drifted-override panic message to name the invariant, got {msg:?}",
+        );
     }
 }

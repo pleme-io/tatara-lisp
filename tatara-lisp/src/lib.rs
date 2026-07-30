@@ -43,7 +43,8 @@ pub use compiler_spec::{
     load_from_disk, realize_in_memory, realize_to_disk, CompilerSpec, RealizedCompiler,
 };
 pub use domain::{
-    AttestHandler, AttestableDomain, ComplianceHandler, CompliantDomain, DependentDomain,
+    assert_tatara_domain_well_formed, AttestHandler, AttestableDomain, ComplianceHandler,
+    CompliantDomain, DependentDomain,
     DepsHandler, DocHandler, DocumentedDomain, DomainHandler, HelpDomain, HelpHandler,
     KeywordSexp, LifecycleHandler, LifecycleProtocol, ObservabilityHandler, ObservableDomain,
     RenderHandler, RenderableDomain, RolloutStrategy, SchemaHandler, SchematicDomain,

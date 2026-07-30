@@ -27,6 +27,7 @@ extern crate self as tatara_lisp;
 pub mod ast;
 pub mod compile;
 pub mod compiler_spec;
+pub mod diagnostic;
 pub mod domain;
 pub mod env;
 pub mod error;
@@ -56,6 +57,7 @@ pub use tatara_lisp_derive::{KeywordSexp as DeriveKeywordSexp, TataraDomain as D
 
 pub use ast::{Atom, AtomKind, QuoteForm, Sexp, UnknownAtomKind, UnknownQuoteForm};
 pub use compile::{compile_named, compile_named_from_forms, compile_typed, NamedDefinition};
+pub use diagnostic::{caret_run, format_diagnostic, line_at, line_col, LineCol};
 pub use env::Env;
 pub use error::{
     CompilerSpecIoStage, ExpectedKwargShape, KwargPath, KwargPathKind, LispError, MacroDefHead,

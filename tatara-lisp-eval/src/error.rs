@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use tatara_lisp::Span;
+use tatara_lisp::{caret_run, line_at, Span};
 use thiserror::Error;
 
 use crate::ffi::Arity;
@@ -125,6 +125,27 @@ impl EvalError {
     ///
     /// If the error has no span, or its span is synthetic, renders just
     /// the error message without source context.
+    ///
+    /// The caret line comes from [`tatara_lisp::caret_run`] — the fleet's
+    /// ONE caret renderer — rather than the hand-rolled pad this method
+    /// used to carry. That lift fixed two bugs the local copy had drifted
+    /// into, both of them mis-placing the underline relative to the span
+    /// it names:
+    ///
+    /// * it padded with `" ".repeat(col - 1)`, so a tab-indented source
+    ///   line put one space where the source spent a whole tab-stop and
+    ///   the underline slid left of its span;
+    /// * it sized the underline as `span.end - span.start`, a BYTE count,
+    ///   while padding to a CHAR column — so a multi-byte subform drew
+    ///   more carets than it occupies columns.
+    ///
+    /// `pending-caret-multiline`: a span covering more than one line still
+    /// draws its full char-width of carets under the single line rendered
+    /// above it, overflowing that line's end. Both pre-lift copies did
+    /// this and the shared renderer preserves it deliberately — clamping
+    /// the run to the rendered line is a real output change for every
+    /// whole-form span (which is most of them), so it wants its own
+    /// measured pass rather than riding along inside this consolidation.
     pub fn render(&self, src: &str) -> String {
         let Some(span) = self.span() else {
             return self.to_string();
@@ -134,17 +155,19 @@ impl EvalError {
         }
 
         let (line_no, col) = Span::line_col(src, span.start);
-        let line = find_line(src, span.start);
+        let line = line_at(src, span.start);
         let line_num_str = format!("{line_no}");
         let gutter = " ".repeat(line_num_str.len());
 
-        let col_offset = col.saturating_sub(1);
-        let len = (span.end - span.start).max(1);
-        let caret_line = format!(
-            "{gutter} | {blanks}{carets}",
-            blanks = " ".repeat(col_offset),
-            carets = "^".repeat(len)
-        );
+        // CHARS, not bytes — `caret_run` pads to a char column, so the
+        // width must be counted in the same unit or the two disagree on
+        // any non-ASCII source. `get` rather than direct indexing so a
+        // span landing off a char boundary degrades to a single caret
+        // instead of panicking inside a diagnostic renderer.
+        let width = src
+            .get(span.start..span.end)
+            .map_or(1, |covered| covered.chars().count());
+        let caret_line = format!("{gutter} | {run}", run = caret_run(line, col, width));
 
         let summary = self.short_message();
         format!(
@@ -181,29 +204,64 @@ impl EvalError {
     }
 }
 
-/// Extract the single line of `src` containing the byte offset `pos`.
-fn find_line(src: &str, pos: usize) -> &str {
-    let start = src[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
-    let end = src[pos..].find('\n').map(|i| pos + i).unwrap_or(src.len());
-    &src[start..end]
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn find_line_single_line() {
-        let src = "foo bar baz";
-        assert_eq!(find_line(src, 5), "foo bar baz");
+    fn render_slices_the_span_s_own_line_via_the_shared_slicer() {
+        // Replaces the deleted local `find_line`, which duplicated
+        // `tatara_lisp::line_at`. Pinned through `render` rather than by
+        // calling the slicer directly, so the assertion is about the
+        // artifact operators actually read.
+        let src = "aaa\nbbb\nccc";
+        let rendered = EvalError::unbound("bbb", Span::new(4, 7)).render(src);
+        assert!(
+            rendered.contains("2 | bbb"),
+            "line 2 must be the rendered snippet, got:\n{rendered}"
+        );
+        assert!(
+            !rendered.contains("aaa") && !rendered.contains("ccc"),
+            "only the span's own line may be rendered, got:\n{rendered}"
+        );
     }
 
     #[test]
-    fn find_line_multi_line() {
-        let src = "aaa\nbbb\nccc";
-        assert_eq!(find_line(src, 0), "aaa");
-        assert_eq!(find_line(src, 4), "bbb");
-        assert_eq!(find_line(src, 8), "ccc");
+    fn render_mirrors_a_tab_indent_into_the_caret_pad() {
+        // BUG FIX PIN. Pre-lift this method padded with
+        // `" ".repeat(col - 1)`, so `\tfoo` rendered its underline after
+        // ONE space while the source line spent a whole tab-stop — the
+        // carets landed left of `foo` on every real terminal. Going
+        // through the shared `caret_run` mirrors the tab through.
+        let src = "\tfoo";
+        let rendered = EvalError::unbound("foo", Span::new(1, 4)).render(src);
+        assert!(
+            rendered.contains("\t^^^"),
+            "caret pad must mirror the source tab, got:\n{rendered:?}"
+        );
+        assert!(
+            !rendered.contains(" ^^^"),
+            "a space-padded run is the pre-lift drift, got:\n{rendered:?}"
+        );
+    }
+
+    #[test]
+    fn render_sizes_the_caret_run_in_chars_not_bytes() {
+        // BUG FIX PIN. `éé` is 2 chars but 4 bytes. Pre-lift the width
+        // was `span.end - span.start` (bytes) while the pad counted
+        // chars, so this drew FOUR carets under a two-column symbol.
+        let src = "(+ éé 1)";
+        let start = src.find("éé").expect("fixture contains the symbol");
+        let span = Span::new(start, start + "éé".len());
+        let rendered = EvalError::unbound("éé", span).render(src);
+        assert!(
+            rendered.contains("   ^^\n") || rendered.ends_with("   ^^"),
+            "two chars must draw exactly two carets, got:\n{rendered:?}"
+        );
+        assert!(
+            !rendered.contains("^^^"),
+            "a byte-sized run over-underlines multi-byte source, got:\n{rendered:?}"
+        );
     }
 
     #[test]

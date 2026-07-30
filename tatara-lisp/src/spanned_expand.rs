@@ -17,6 +17,43 @@
 //! `compile_typed` pipeline. This spanned path exists for `tatara-lisp-eval`
 //! REPL + runtime evaluation where good error locations matter more than
 //! throughput.
+//!
+//! ── `pending-expander-unification` (phase 2 step 5c) ──────────────────
+//!
+//! Step 5b unified the READER — one tokenizer, one `Atom::from_lexeme`,
+//! two projections. The EXPANDER is still two, and this file is the
+//! duplicate half: `bind_spanned_args`, `substitute_spanned`,
+//! `spanned_macro_def_from` and `parse_params_spanned` each restate a
+//! `macro_expand.rs` body against `Spanned`. The destination is one
+//! `Expander<S: SpanCarrier>` with `Span::synthetic()` as the no-op
+//! instantiation, `template_eval` (this file's `car`/`cdr`/`cons`/`list`/
+//! `if` metalanguage, which the plain expander does NOT have) hoisted so
+//! both instantiations share ONE semantics.
+//!
+//! Measured 2026-07-30, so the next attempt does not re-derive it:
+//!
+//!   * Dropping A's whole `macro_expand.rs` into this workspace compiles
+//!     with exactly TWO errors, both `unresolved import … Param` — one
+//!     here at line 25, one at `lib.rs:67`. Everything else in that
+//!     21,730-line file already type-checks against the post-5a `Sexp`.
+//!   * `Param` is the entire seam. A replaced B's
+//!     `enum Param { Required, Rest }` with
+//!     `struct MacroParams { required, optional: Vec<OptionalParam>, rest }`
+//!     — i.e. `&optional` with defaults. Fleet blast radius of the type
+//!     itself is ZERO: no repo outside this one names `tatara_lisp::Param`
+//!     or `SpannedExpander` (22,056 .rs files scanned with find|xargs).
+//!     `read_spanned` has three live consumers — escriba-vm, vigy-eval,
+//!     hanshi-core — and step 5b left its signature untouched, so they
+//!     simply get real offsets now.
+//!
+//! Why this was NOT landed as a quick adaptation. Porting A's expander
+//! and merely repointing this file's two param functions at `MacroParams`
+//! forces a choice, and both branches are wrong: teach the spanned path
+//! `&optional` (new, untested binding logic written in passing) or have it
+//! reject a lambda list the plain path accepts. The second is a NEW
+//! split-brain — the same class this consolidation exists to remove, and
+//! introduced inside the crate doing the removing. The unification is the
+//! honest way through, and it is design work, not a copy.
 
 use std::collections::HashMap;
 

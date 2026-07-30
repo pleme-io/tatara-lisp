@@ -18,6 +18,184 @@ use crate::error::{LispError, Result};
 use crate::macro_expand::Expander;
 use crate::reader::read;
 
+/// Typed-keyword dispatchers on the `Expander` surface — the
+/// `T: TataraDomain`-shaped sibling family of
+/// [`Expander::expand_and_collect_calls_to`] (from-forms posture) and
+/// [`Expander::expand_source_and_collect_calls_to`] (from-source posture).
+///
+/// The family is closed across TWO axes: input posture (from-forms +
+/// from-source) × form shape (typed bare-kwargs + named NAME-then-kwargs).
+/// Each cell is ONE typed method on `Expander`, binding `(T::KEYWORD,
+/// projection-for-T)` at the type level through `T`:
+///
+/// |              | typed bare-kwargs            | named NAME-then-kwargs        |
+/// |--------------|------------------------------|-------------------------------|
+/// | from-forms   | [`expand_to_typed`](Self::expand_to_typed)   | [`expand_to_named`](Self::expand_to_named)   |
+/// | from-source  | [`expand_source_to_typed`](Self::expand_source_to_typed) | [`expand_source_to_named`](Self::expand_source_to_named) |
+///
+/// The from-source row composes `crate::reader::read` with its from-forms
+/// row sibling — `read(src)? + <expander>.expand_to_typed::<T>(forms)` —
+/// so the typed-pair `(T::KEYWORD, projection-for-T)` is bound in ONE
+/// place per form shape (the from-forms row), and the from-source row
+/// inherits the binding through delegation. A regression that mis-pairs
+/// `T::KEYWORD` with `U::compile_from_args` (where `T != U`) is
+/// structurally impossible at any site: the type parameter binds both
+/// substitutions together inside ONE method body per form shape.
+impl Expander {
+    /// Macroexpand + project every `(T::KEYWORD :k v …)` form in `forms`
+    /// into a typed `T` — the from-forms posture of the typed bare-kwargs
+    /// dispatcher family, sibling of [`Self::expand_to_named`].
+    ///
+    /// Composes [`Self::expand_and_collect_calls_to`] with `T::KEYWORD`
+    /// as the keyword filter and `T::compile_from_args` as the per-form
+    /// projection — the two-arg `(keyword, projection)` discipline bound
+    /// at the type level through `T` inside ONE method body.
+    ///
+    /// Sibling of [`Self::expand_source_to_typed`] — that method stacks
+    /// a `crate::reader::read` step on top of this one, projecting source
+    /// text through the SAME typed-pair primitive. Consumers that have
+    /// already parsed their forms (macro-expanded subforms, `Sexp`
+    /// loaded from disk, a REPL's already-read top-level buffer) bind
+    /// to this method; consumers that consume source text directly bind
+    /// to the from-source sibling.
+    ///
+    /// Theory anchor: THEORY.md §VI.1 — generation over composition;
+    /// the typed-pair `(T::KEYWORD, T::compile_from_args)` is bound in
+    /// ONE place per form shape (this method) — the from-source sibling
+    /// inherits the binding through delegation rather than re-deriving
+    /// it at its own call site. THEORY.md §II.1 invariant 1 — typed
+    /// entry; the typed-keyword filter paired with `T::compile_from_args`
+    /// IS the from-forms typed-entry-batch gate, named on the `Expander`
+    /// surface. THEORY.md §II.1 invariant 2 — free middle; the from-forms
+    /// posture and the from-source posture route through the SAME typed
+    /// primitive, so a regression that drifts ONE posture's pairing
+    /// from the other becomes structurally impossible.
+    ///
+    /// Frontier inspiration: MLIR's `Region::walk<Op>(callback)` —
+    /// every typed rewriter binds to a region walker that composes the
+    /// typed kind filter with the per-op visitor; the substrate's
+    /// `expand_to_typed::<T>` is the typed-pair peer on the `&[Sexp]`
+    /// algebra, with `T: TataraDomain` standing in for MLIR's `Op` type
+    /// witness.
+    pub fn expand_to_typed<T: TataraDomain>(&mut self, forms: Vec<Sexp>) -> Result<Vec<T>> {
+        self.expand_and_collect_calls_to(forms, T::KEYWORD, T::compile_from_args)
+    }
+
+    /// Macroexpand + project every `(T::KEYWORD NAME :k v …)` form in
+    /// `forms` into a typed [`NamedDefinition<T>`] — the from-forms posture
+    /// of the named NAME-then-kwargs dispatcher family, sibling of
+    /// [`Self::expand_to_typed`].
+    ///
+    /// Routes through the named constant-keyword primitive
+    /// [`Self::expand_and_collect_named_calls_to`] (which itself routes
+    /// through the named typed-decoded classifier primitive
+    /// [`Self::expand_and_collect_named_calls_to_any`] via a constant-
+    /// classifier decoder) with `T::KEYWORD` as the keyword filter and
+    /// a per-form `(name, spec_args) -> Result<NamedDefinition<T>>`
+    /// projection that composes `T::compile_from_args` with the
+    /// `NamedDefinition { name: name.to_string(), spec }` packaging.
+    /// Post-lift the typed (this method, `T::KEYWORD`-baked) and
+    /// untyped (the runtime-keyword sibling
+    /// [`Self::expand_and_collect_named_calls_to`]) constant-keyword
+    /// named cells route through the SAME composition point on the
+    /// `Expander` surface, mirroring how `expand_and_collect_calls_to`
+    /// (bare × constant-keyword × untyped) routes through
+    /// `expand_and_collect_calls_to_any` (bare × classifier) — the
+    /// `split_name_slot` composition lives at ONE site
+    /// (`expand_and_collect_named_calls_to_any` body) for the entire
+    /// named cell, with `crate::compile::named_form_projection`
+    /// remaining a slice-side primitive for callers that have a
+    /// single rest tail.
+    ///
+    /// The named-form structural rejection chain (`NamedFormMissingName`
+    /// for the missing NAME slot, `NamedFormNonSymbolName` for the
+    /// non-symbol NAME slot, `T::compile_from_args`'s typed-entry kwargs
+    /// gate) fires identically across all consumers of the named
+    /// dispatcher family — fresh / preloaded × from-forms / from-source
+    /// × constant / classifier — because every consumer routes through
+    /// the SAME `expand_and_collect_named_calls_to_any` composition that
+    /// composes `split_name_slot` with the per-form projection.
+    ///
+    /// Sibling of [`Self::expand_to_typed`] — both methods route
+    /// through their constant-keyword Expander primitive sibling
+    /// ([`Self::expand_and_collect_calls_to`] for the bare-kwargs row,
+    /// [`Self::expand_and_collect_named_calls_to`] for the named row),
+    /// each binding the per-form projection that fits its typed entry
+    /// shape. Together with their from-source siblings they close the
+    /// typed-from-`Expander` family.
+    ///
+    /// Theory anchor: see [`Self::expand_to_typed`] — the named sibling
+    /// shares the same lift posture, threading the NAME-then-kwargs
+    /// projection through `T` AND routing through the named
+    /// constant-keyword primitive (rather than the bare-kwargs one
+    /// with `named_form_projection::<T>` doing the NAME extraction
+    /// inside the projection). THEORY.md §VI.1 — generation over
+    /// composition; the named-form `split_name_slot` composition lives
+    /// at ONE site post-lift rather than at TWO sites (the bare-kwargs
+    /// path through `named_form_projection<T>` AND the classifier path
+    /// through the `_any` primitive).
+    pub fn expand_to_named<T: TataraDomain>(
+        &mut self,
+        forms: Vec<Sexp>,
+    ) -> Result<Vec<NamedDefinition<T>>> {
+        self.expand_and_collect_named_calls_to(forms, T::KEYWORD, |name, spec_args| {
+            let spec = T::compile_from_args(spec_args)?;
+            Ok(NamedDefinition {
+                name: name.to_string(),
+                spec,
+            })
+        })
+    }
+
+    /// Read + macroexpand + project every `(T::KEYWORD :k v …)` form in
+    /// `src` into a typed `T` — the from-source posture of the typed
+    /// bare-kwargs dispatcher family, sibling of
+    /// [`Self::expand_source_to_named`].
+    ///
+    /// Composes [`crate::reader::read`] with [`Self::expand_to_typed`] —
+    /// the typed-pair `(T::KEYWORD, T::compile_from_args)` is bound in
+    /// ONE place (the from-forms row), and this from-source sibling
+    /// inherits the binding through delegation. The expander posture
+    /// (fresh [`Expander::new()`](crate::macro_expand::Expander::new)
+    /// for one-shot typed compilation, preloaded
+    /// [`self.preloaded.clone()`](crate::compiler_spec::RealizedCompiler)
+    /// for compilation inside a CompilerSpec's macro library) is the
+    /// caller's choice — this method binds the read step and dispatches
+    /// on whichever `Expander` value the caller materialized.
+    ///
+    /// `?`-routing through `read` preserves the structural ordering of
+    /// the rejection chain end-to-end: a reader error (lexer / parser /
+    /// unbalanced-paren / unterminated-string) short-circuits BEFORE
+    /// `expand_to_typed` runs; the from-forms posture's pipeline
+    /// (`expand_program → iter_calls_to → map → collect`) fires
+    /// afterwards exactly as it does for direct from-forms callers.
+    pub fn expand_source_to_typed<T: TataraDomain>(&mut self, src: &str) -> Result<Vec<T>> {
+        let forms = crate::reader::read(src)?;
+        self.expand_to_typed::<T>(forms)
+    }
+
+    /// Read + macroexpand + project every `(T::KEYWORD NAME :k v …)` form
+    /// in `src` into a typed [`NamedDefinition<T>`] — the from-source
+    /// posture of the named NAME-then-kwargs dispatcher family, sibling
+    /// of [`Self::expand_source_to_typed`].
+    ///
+    /// Composes [`crate::reader::read`] with [`Self::expand_to_named`] —
+    /// the typed-pair `(T::KEYWORD, named_form_projection::<T>)` is bound
+    /// in ONE place (the from-forms row), and this from-source sibling
+    /// inherits the binding through delegation. Together with the three
+    /// other cells of the family ([`Self::expand_to_typed`],
+    /// [`Self::expand_to_named`], [`Self::expand_source_to_typed`]) it
+    /// closes the typed-from-`Expander` surface across both input
+    /// postures and both form shapes.
+    pub fn expand_source_to_named<T: TataraDomain>(
+        &mut self,
+        src: &str,
+    ) -> Result<Vec<NamedDefinition<T>>> {
+        let forms = crate::reader::read(src)?;
+        self.expand_to_named::<T>(forms)
+    }
+}
+
 /// A typed definition with a positional name — e.g., `(defpoint NAME …)` →
 /// `NamedDefinition<ProcessSpec> { name, spec }`.
 #[derive(Debug, Clone)]

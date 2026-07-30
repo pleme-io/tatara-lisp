@@ -8,7 +8,9 @@
 
 use std::sync::Arc;
 
-use tatara_lisp::{Atom, MacroDef, Param, Span, Spanned, SpannedExpander, SpannedForm};
+use tatara_lisp::{
+    Atom, MacroDef, MacroParams, Span, Spanned, SpannedExpander, SpannedForm,
+};
 
 use crate::code::{spanned_to_value, value_to_spanned};
 use crate::env::Env;
@@ -1249,41 +1251,32 @@ pub(crate) fn apply_external<H: 'static>(
     apply(callee, args, call_span, registry, expander, host)
 }
 
-/// Bind macro parameters onto the macro-time env. Required params each
-/// take one arg, lowered Spanned→Value. The optional `&rest` param
-/// takes the remainder as a `Value::List` of lowered args.
+/// Bind macro parameters onto the macro-time env.
+///
+/// The positional binding itself is NOT restated here: it runs the one
+/// shared `MacroParams::bind_carrier` over the `Spanned` carrier — the same
+/// loop the plain and span-preserving expanders use — and this function only
+/// lowers the resulting per-index values Spanned→Value and defines them.
+/// Before that lift this was a third copy of the loop, and the only one of
+/// the three that knew nothing about `&optional`.
 fn bind_macro_args(
     env: &mut Env,
     macro_name: &str,
-    params: &[Param],
+    params: &MacroParams,
     args: &[Spanned],
     call_span: Span,
 ) -> Result<()> {
-    let mut cursor = 0usize;
-    for p in params {
-        match p {
-            Param::Required(name) => {
-                let arg = args.get(cursor).ok_or_else(|| {
-                    EvalError::native_fn(
-                        Arc::<str>::from(format!("macro {macro_name}")),
-                        format!("missing required arg: {name}"),
-                        call_span,
-                    )
-                })?;
-                env.define(Arc::<str>::from(name.as_str()), spanned_to_value(arg));
-                cursor += 1;
-            }
-            Param::Rest(name) => {
-                let rest: Vec<Value> = args
-                    .get(cursor..)
-                    .unwrap_or(&[])
-                    .iter()
-                    .map(spanned_to_value)
-                    .collect();
-                env.define(Arc::<str>::from(name.as_str()), Value::list(rest));
-                cursor = args.len();
-            }
-        }
+    let bound = params
+        .bind_carrier(macro_name, args, call_span)
+        .map_err(|e| {
+            EvalError::native_fn(
+                Arc::<str>::from(format!("macro {macro_name}")),
+                e.to_string(),
+                call_span,
+            )
+        })?;
+    for (name, value) in params.names().into_iter().zip(bound.iter()) {
+        env.define(Arc::<str>::from(name), spanned_to_value(value));
     }
     Ok(())
 }

@@ -18,50 +18,79 @@
 //! REPL + runtime evaluation where good error locations matter more than
 //! throughput.
 //!
-//! ── `pending-expander-unification` (phase 2 step 5c) ──────────────────
+//! ── expander unification (phase 2 step 5c) ────────────────────────────
 //!
 //! Step 5b unified the READER — one tokenizer, one `Atom::from_lexeme`,
-//! two projections. The EXPANDER is still two, and this file is the
-//! duplicate half: `bind_spanned_args`, `substitute_spanned`,
-//! `spanned_macro_def_from` and `parse_params_spanned` each restate a
-//! `macro_expand.rs` body against `Spanned`. The destination is one
-//! `Expander<S: SpanCarrier>` with `Span::synthetic()` as the no-op
-//! instantiation, `template_eval` (this file's `car`/`cdr`/`cons`/`list`/
-//! `if` metalanguage, which the plain expander does NOT have) hoisted so
-//! both instantiations share ONE semantics.
+//! two projections. Step 5c unified the DEFINITION and BINDING halves of
+//! the expander. What used to be four duplicate bodies in this file is
+//! now:
 //!
-//! Measured 2026-07-30, so the next attempt does not re-derive it:
+//!   * `parse_params_spanned` — **deleted**. Lambda lists are pure syntax
+//!     and a `MacroDef` retains no spans, so there is one parser.
+//!   * `spanned_macro_def_from` — a head-keyword pre-check plus a call to
+//!     `macro_expand::macro_def_from`. One recognizer, one error taxonomy.
+//!   * `bind_spanned_args` — a zip of the shared
+//!     `MacroParams::bind_carrier` against `names()`. One binding loop,
+//!     generic over the value carrier via `MacroArgCarrier`.
+//!   * `substitute_spanned` + `template_eval` — still this file's own, and
+//!     deliberately so; see the residue note below.
 //!
-//!   * Dropping A's whole `macro_expand.rs` into this workspace compiles
-//!     with exactly TWO errors, both `unresolved import … Param` — one
-//!     here at line 25, one at `lib.rs:67`. Everything else in that
-//!     21,730-line file already type-checks against the post-5a `Sexp`.
-//!   * `Param` is the entire seam. A replaced B's
-//!     `enum Param { Required, Rest }` with
-//!     `struct MacroParams { required, optional: Vec<OptionalParam>, rest }`
-//!     — i.e. `&optional` with defaults. Fleet blast radius of the type
-//!     itself is ZERO: no repo outside this one names `tatara_lisp::Param`
-//!     or `SpannedExpander` (22,056 .rs files scanned with find|xargs).
-//!     `read_spanned` has three live consumers — escriba-vm, vigy-eval,
-//!     hanshi-core — and step 5b left its signature untouched, so they
-//!     simply get real offsets now.
+//! Adopting A's `MacroParams` gave this path `&optional` (with per-param
+//! defaults) and the too-many-args rejection it never had, with A's
+//! semantics rather than a second implementation written in passing —
+//! which is exactly the split-brain the pre-5c note refused to create.
 //!
-//! Why this was NOT landed as a quick adaptation. Porting A's expander
-//! and merely repointing this file's two param functions at `MacroParams`
-//! forces a choice, and both branches are wrong: teach the spanned path
-//! `&optional` (new, untested binding logic written in passing) or have it
-//! reject a lambda list the plain path accepts. The second is a NEW
-//! split-brain — the same class this consolidation exists to remove, and
-//! introduced inside the crate doing the removing. The unification is the
-//! honest way through, and it is design work, not a copy.
+//! ── `pending-template-eval-unification` (residue) ─────────────────────
+//!
+//! `template_eval` — the `car`/`cdr`/`cons`/`list`/`null?`/`pair?`/
+//! `list?`/`length`/`if` metalanguage that lives inside `,expr` — is
+//! still one-sided: the plain `Expander` does NOT have it, and rejects
+//! any `,expr` whose target is not a bare bound symbol.
+//!
+//! Measured 2026-07-30, so the next attempt does not re-derive it: this
+//! is NOT a copy, it is a semantic ADDITION to the canonical path. The
+//! plain expander's default strategy compiles each template to a linear
+//! bytecode (`TemplateOp::{Literal, Subst(idx), Splice(idx), BeginList,
+//! EndList}`) in which an unquote is an INDEX into the bound-arg vec —
+//! `compile_node` resolves `,x` through `unquote_target_symbol` +
+//! `resolve_param_index`, both of which structurally require a symbol.
+//! A `,(car x)` has no index to compile to. Hoisting `template_eval`
+//! therefore means a new `TemplateOp` variant carrying an unevaluated
+//! `Sexp` plus an evaluator run at apply time, and it widens the accepted
+//! language of every existing consumer of the plain path. That is a
+//! design change to A's canonical semantics, not a consolidation of two
+//! copies of one semantics — so it is deliberately NOT bundled into the
+//! step that removes duplicates.
+//!
+//! The remaining duplication is `substitute_spanned`'s walk, which mirrors
+//! `macro_expand::substitute`. It cannot collapse before `template_eval`
+//! does: the two walks differ precisely at the unquote arm, where this one
+//! calls `template_eval` and the plain one looks up a name.
 
 use std::collections::HashMap;
 
 use crate::ast::Sexp;
-use crate::error::{LispError, Result};
-use crate::macro_expand::{MacroDef, Param};
+use crate::error::{LispError, MacroDefHead, Result};
+use crate::macro_expand::{macro_def_from, MacroArgCarrier, MacroDef};
 use crate::span::Span;
 use crate::spanned::{Spanned, SpannedForm};
+
+impl MacroArgCarrier for Spanned {
+    /// The macro CALL SITE. A value the call never supplied — an unfilled
+    /// `&optional` slot's default form, or the synthesized `&rest` list —
+    /// has no source position of its own, so it wears the span of the call
+    /// that caused it to exist. That is the position an error about such a
+    /// value should point at.
+    type Site = Span;
+
+    fn lift_default(default: &Sexp, site: Span) -> Self {
+        Spanned::from_sexp_at(default, site)
+    }
+
+    fn collect_rest(items: Vec<Self>, site: Span) -> Self {
+        Spanned::new(site, SpannedForm::List(items))
+    }
+}
 
 /// Span-preserving macro expander.
 #[derive(Clone, Default)]
@@ -145,50 +174,43 @@ impl SpannedExpander {
     /// Apply one macro definition at `call_span` to its spanned arguments.
     fn apply(&self, def: &MacroDef, call_span: Span, args: &[Spanned]) -> Result<Spanned> {
         let bindings = bind_spanned_args(&def.name, &def.params, args, call_span)?;
-        let body = match &def.body {
-            Sexp::Quasiquote(inner) => inner.as_ref(),
-            other => other,
-        };
-        substitute_spanned(body, &bindings, call_span)
+        substitute_spanned(def.template_body(), &bindings, call_span)
     }
 }
 
 /// Per-call binding from param name to spanned argument tree.
-type Bindings = HashMap<String, Binding>;
+///
+/// A `&rest` binding is an ordinary `SpannedForm::List` value rather than a
+/// distinguished variant: `template_eval` already projected the old
+/// `Binding::Rest` to exactly that list, and `splice_into` already flattened
+/// any list value. Collapsing the enum is what lets the shared
+/// [`MacroParams::bind_carrier`](crate::macro_expand::MacroParams::bind_carrier)
+/// produce these bindings directly.
+type Bindings = HashMap<String, Spanned>;
 
-#[derive(Clone, Debug)]
-enum Binding {
-    Single(Spanned),
-    /// Rest parameter — holds a list of spanned arguments.
-    Rest(Vec<Spanned>),
-}
-
+/// Bind a macro call's spanned args through the ONE shared positional binder
+/// on [`MacroParams`](crate::macro_expand::MacroParams), then zip the result
+/// against `names()` into the name-keyed map `substitute_spanned` /
+/// `template_eval` look substitutions up in — the span-carrying mirror of
+/// `macro_expand::bind_args`.
+///
+/// The lambda-list semantics (required run, `&optional` run with per-param
+/// defaults, at-most-one `&rest`, too-few and too-many arity rejections) are
+/// no longer restated here; this path and the plain `Sexp` path cannot
+/// disagree about them because they run the same loop.
 fn bind_spanned_args(
     macro_name: &str,
-    params: &[Param],
+    params: &crate::macro_expand::MacroParams,
     args: &[Spanned],
-    _call_span: Span,
+    call_span: Span,
 ) -> Result<Bindings> {
-    let mut bindings: Bindings = HashMap::new();
-    let mut i = 0;
-    for param in params {
-        match param {
-            Param::Required(name) => {
-                let arg = args.get(i).cloned().ok_or_else(|| LispError::Compile {
-                    form: format!("call to {macro_name}"),
-                    message: format!("missing required arg: {name}"),
-                })?;
-                bindings.insert(name.clone(), Binding::Single(arg));
-                i += 1;
-            }
-            Param::Rest(name) => {
-                let rest: Vec<Spanned> = args.get(i..).unwrap_or(&[]).to_vec();
-                bindings.insert(name.clone(), Binding::Rest(rest));
-                i = args.len();
-            }
-        }
-    }
-    Ok(bindings)
+    let vals = params.bind_carrier(macro_name, args, call_span)?;
+    Ok(params
+        .names()
+        .into_iter()
+        .map(String::from)
+        .zip(vals)
+        .collect())
 }
 
 /// Walk a plain-Sexp template body, substituting `,name` / `,@name` with
@@ -240,6 +262,17 @@ fn substitute_spanned(template: &Sexp, bindings: &Bindings, call_span: Span) -> 
 /// / `defcheck` form and lower it to the plain `MacroDef` the registry
 /// expects. Span information on the definition itself is not retained —
 /// macros are keyed by name.
+///
+/// The recognition itself is delegated to
+/// [`macro_expand::macro_def_from`](crate::macro_expand::macro_def_from), so
+/// the `defmacro`-head set, the lambda-list grammar (including `&optional`
+/// with defaults) and the definition-site error taxonomy are shared with the
+/// plain expander rather than restated here. Since a `MacroDef` retains no
+/// spans, lowering the form loses nothing.
+///
+/// The head-keyword pre-check is not redundant: `try_register_macro` runs on
+/// EVERY top-level form, and it is what keeps the `to_sexp()` lowering off
+/// the path of ordinary (non-definition) forms.
 fn spanned_macro_def_from(form: &Spanned) -> Result<Option<MacroDef>> {
     let Some(list) = form.as_list() else {
         return Ok(None);
@@ -247,29 +280,10 @@ fn spanned_macro_def_from(form: &Spanned) -> Result<Option<MacroDef>> {
     let Some(head) = list.first().and_then(Spanned::as_symbol) else {
         return Ok(None);
     };
-    if !matches!(head, "defmacro" | "defpoint-template" | "defcheck") {
+    if MacroDefHead::from_keyword(head).is_none() {
         return Ok(None);
     }
-    if list.len() < 4 {
-        return Err(LispError::Compile {
-            form: head.to_string(),
-            message: "(defmacro name (params) body) required".into(),
-        });
-    }
-    let name = list[1]
-        .as_symbol()
-        .ok_or_else(|| LispError::Compile {
-            form: head.to_string(),
-            message: "expected name symbol".into(),
-        })?
-        .to_string();
-    let param_list = list[2].as_list().ok_or_else(|| LispError::Compile {
-        form: head.to_string(),
-        message: "expected param list".into(),
-    })?;
-    let params = parse_params_spanned(param_list)?;
-    let body = list[3].to_sexp();
-    Ok(Some(MacroDef { name, params, body }))
+    macro_def_from(&form.to_sexp())
 }
 
 /// Splice `evaluated` into the surrounding list builder. List values
@@ -304,12 +318,12 @@ fn splice_into(evaluated: &Spanned, out: &mut Vec<Spanned>) {
 fn template_eval(expr: &Sexp, bindings: &Bindings, call_span: Span) -> Result<Spanned> {
     match expr {
         Sexp::Atom(crate::ast::Atom::Symbol(name)) => {
-            // Bare symbol — look up in bindings.
+            // Bare symbol — look up in bindings. A `&rest` binding is
+            // already a `SpannedForm::List` stamped at the call site by
+            // `MacroArgCarrier::collect_rest`, so there is no rest-specific
+            // arm to take here.
             match bindings.get(name) {
-                Some(Binding::Single(val)) => Ok(val.clone()),
-                Some(Binding::Rest(items)) => {
-                    Ok(Spanned::new(call_span, SpannedForm::List(items.clone())))
-                }
+                Some(val) => Ok(val.clone()),
                 None => Err(LispError::Compile {
                     form: format!(",{name}"),
                     message: "unbound in macro template".into(),
@@ -498,31 +512,6 @@ fn require_spanned_list<'a>(s: &'a Spanned, fn_name: &'static str) -> Result<&'a
     }
 }
 
-fn parse_params_spanned(list: &[Spanned]) -> Result<Vec<Param>> {
-    let mut out = Vec::new();
-    let mut i = 0;
-    while i < list.len() {
-        let s = list[i].as_symbol().ok_or_else(|| LispError::Compile {
-            form: "defmacro params".into(),
-            message: "expected symbol".into(),
-        })?;
-        if s == "&rest" {
-            let name = list
-                .get(i + 1)
-                .and_then(Spanned::as_symbol)
-                .ok_or_else(|| LispError::Compile {
-                    form: "defmacro params".into(),
-                    message: "&rest needs a name".into(),
-                })?;
-            out.push(Param::Rest(name.to_string()));
-            return Ok(out);
-        }
-        out.push(Param::Required(s.to_string()));
-        i += 1;
-    }
-    Ok(out)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -635,6 +624,116 @@ mod tests {
         let mut e = SpannedExpander::new();
         let out = e.expand_program(forms).unwrap();
         assert_eq!(out[0].to_sexp(), parse("(list 1)"));
+    }
+
+    /// `&optional` with a declared default reaches this path at all — it
+    /// could not before step 5c, because `parse_params_spanned` knew only
+    /// required and `&rest` and would have rejected `&optional` as a param
+    /// NAME. Pins both arms of `OptionalParam::resolved_default` through
+    /// `MacroArgCarrier::lift_default`: supplied wins, absent falls back.
+    #[test]
+    fn optional_param_default_agrees_with_plain_expander() {
+        use crate::macro_expand::Expander;
+
+        let src = "
+            (defmacro greet (name &optional (greeting \"hi\") punct)
+              `(list ,greeting ,name ,punct))
+            (greet bob)
+            (greet bob \"yo\")
+            (greet bob \"yo\" bang)
+        ";
+        let plain_out = Expander::new().expand_program(read(src).unwrap()).unwrap();
+        let spanned_out = SpannedExpander::new()
+            .expand_program(read_spanned(src).unwrap())
+            .unwrap();
+
+        assert_eq!(plain_out.len(), 3);
+        assert_eq!(plain_out.len(), spanned_out.len());
+        for (p, s) in plain_out.iter().zip(spanned_out.iter()) {
+            assert_eq!(p, &s.to_sexp());
+        }
+        // The declared default fills the absent slot; the bare optional
+        // falls to the `Sexp::Nil` floor (which is NOT the empty list — an
+        // authored `()` reads as `Sexp::List(vec![])`).
+        let listed = |trailing: Sexp| {
+            Sexp::List(vec![
+                Sexp::symbol("list"),
+                Sexp::string("hi"),
+                Sexp::symbol("bob"),
+                trailing,
+            ])
+        };
+        assert_eq!(plain_out[0], listed(Sexp::Nil));
+        // A supplied arg wins over the declared default.
+        assert_eq!(
+            plain_out[1],
+            Sexp::List(vec![
+                Sexp::symbol("list"),
+                Sexp::string("yo"),
+                Sexp::symbol("bob"),
+                Sexp::Nil,
+            ])
+        );
+        assert_eq!(plain_out[2], parse("(list \"yo\" bob bang)"));
+    }
+
+    /// A value the CALL never supplied has no source position of its own,
+    /// so `MacroArgCarrier::lift_default` stamps it at the call site rather
+    /// than leaving it synthetic. Pins the `Site = Span` choice.
+    #[test]
+    fn absent_optional_default_wears_the_call_site_span() {
+        let src = "(defmacro f (a &optional (b 7)) `(list ,a ,b)) (f 1)";
+        let out = SpannedExpander::new()
+            .expand_program(read_spanned(src).unwrap())
+            .unwrap();
+        let SpannedForm::List(children) = &out[0].form else {
+            panic!("expected a list")
+        };
+        let call_start = src.rfind("(f 1)").unwrap();
+        let call_span = Span::new(call_start, call_start + "(f 1)".len());
+        // `,b` was never supplied — it wears the call span, not a synthetic
+        // one, and not the definition-site span of the `7` literal.
+        assert_eq!(children[2].to_sexp(), Sexp::int(7));
+        assert!(!children[2].span.is_synthetic());
+        assert_eq!(children[2].span, call_span);
+    }
+
+    /// Surplus args against a rest-less param list are a rejection on BOTH
+    /// paths. Before step 5c the spanned binder silently dropped them while
+    /// the plain binder raised `TooManyMacroArgs` — the exact class of
+    /// two-implementations divergence the shared binder removes.
+    #[test]
+    fn surplus_args_rejected_like_plain_expander() {
+        use crate::macro_expand::Expander;
+
+        let src = "(defmacro two (a b) `(list ,a ,b)) (two 1 2 3)";
+        let plain = Expander::new().expand_program(read(src).unwrap());
+        let spanned = SpannedExpander::new().expand_program(read_spanned(src).unwrap());
+        assert!(plain.is_err(), "plain expander accepted a surplus arg");
+        assert!(spanned.is_err(), "spanned expander accepted a surplus arg");
+    }
+
+    /// A malformed lambda list is rejected identically on both paths,
+    /// because there is exactly one `parse_params`.
+    #[test]
+    fn malformed_lambda_list_rejected_like_plain_expander() {
+        use crate::macro_expand::Expander;
+
+        for src in [
+            // `&rest` with no name.
+            "(defmacro f (a &rest) `(list ,a))",
+            // tokens trailing the `&rest` name.
+            "(defmacro f (a &rest r junk) `(list ,a))",
+            // `(name default)` optional spec with no default.
+            "(defmacro f (&optional (b)) `(list ,b))",
+            // non-symbol in the required run.
+            "(defmacro f (1) `(list))",
+        ] {
+            let plain = Expander::new().expand_program(read(src).unwrap());
+            let spanned = SpannedExpander::new().expand_program(read_spanned(src).unwrap());
+            assert!(plain.is_err(), "plain expander accepted: {src}");
+            assert!(spanned.is_err(), "spanned expander accepted: {src}");
+        }
     }
 
     #[test]

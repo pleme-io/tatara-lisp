@@ -64,7 +64,10 @@ pub use error::{
     UnknownKwargPathKind, UnknownMacroDefHead, UnknownSexpShape, UnknownStructuralKind,
     UnknownUnquoteForm, UnquoteForm,
 };
-pub use macro_expand::{Expander, MacroDef, Param};
+pub use macro_expand::{
+    Expander, MacroArgCarrier, MacroDef, MacroParams, OptionalParam, ResourceLimits,
+    DEFAULT_RESOURCE_LIMITS, UNBOUNDED_RESOURCE_LIMITS,
+};
 pub use reader::{read, read_spanned};
 pub use span::Span;
 pub use spanned::{Spanned, SpannedForm};

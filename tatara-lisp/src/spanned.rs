@@ -8,7 +8,7 @@
 //! The plain `Sexp` AST is unaffected. `Spanned::to_sexp` projects away the
 //! span information when a consumer wants the canonical spanless form.
 
-use crate::ast::{Atom, Sexp};
+use crate::ast::{Atom, QuoteForm, Sexp};
 use crate::span::Span;
 
 /// An S-expression node with source position.
@@ -29,6 +29,36 @@ pub enum SpannedForm {
     Quasiquote(Box<Spanned>),
     Unquote(Box<Spanned>),
     UnquoteSplice(Box<Spanned>),
+}
+
+impl SpannedForm {
+    /// Project a typed [`QuoteForm`] marker into its `SpannedForm` wrapper
+    /// variant — the span-carrying dual of [`QuoteForm::wrap`].
+    ///
+    /// The reader's spanned quote arm routes through here for the same
+    /// reason its plain arm routes through `QuoteForm::wrap`: the
+    /// (marker, constructor) pairing binds at ONE site on the closed-set
+    /// algebra rather than at four per-arm constructor literals, so adding
+    /// a fifth homoiconic prefix extends [`QuoteForm`] AND both wrap
+    /// tables in lockstep, with rustc binding the extension through
+    /// exhaustiveness over the closed enum.
+    ///
+    /// Duality law, pinned by
+    /// `spanned_form_wrap_is_the_span_carrying_dual_of_quote_form_wrap`:
+    /// `SpannedForm::wrap(qf, s).to_sexp() == qf.wrap(s.to_sexp())` for
+    /// every `qf` in `QuoteForm::ALL`. This is a real equivalence over the
+    /// closed set, not the `assert!(true)`-shaped claim the pre-
+    /// consolidation spanned expander made about its own duplicate.
+    #[must_use]
+    pub fn wrap(qf: QuoteForm, inner: Spanned) -> Self {
+        let boxed = Box::new(inner);
+        match qf {
+            QuoteForm::Quote => Self::Quote(boxed),
+            QuoteForm::Quasiquote => Self::Quasiquote(boxed),
+            QuoteForm::Unquote => Self::Unquote(boxed),
+            QuoteForm::UnquoteSplice => Self::UnquoteSplice(boxed),
+        }
+    }
 }
 
 impl Spanned {
@@ -159,6 +189,25 @@ mod tests {
             panic!("expected inner list")
         };
         assert!(inner[0].span.is_synthetic());
+    }
+
+    #[test]
+    fn spanned_form_wrap_is_the_span_carrying_dual_of_quote_form_wrap() {
+        // The duality law `SpannedForm::wrap` documents, swept over the
+        // whole closed set rather than sampled. A regression that crosses
+        // two arms (`Quote` built where `Quasiquote` was asked for) fails
+        // here; the pre-consolidation spanned expander's equivalent claim
+        // could not, because it compared a path against itself.
+        let inner_plain = Sexp::symbol("payload");
+        for qf in QuoteForm::ALL {
+            let inner = Spanned::from_sexp_at(&inner_plain, Span::new(1, 8));
+            let wrapped = Spanned::new(Span::new(0, 8), SpannedForm::wrap(qf, inner));
+            assert_eq!(
+                wrapped.to_sexp(),
+                qf.wrap(inner_plain.clone()),
+                "QuoteForm::{qf:?} — SpannedForm::wrap drifted from QuoteForm::wrap"
+            );
+        }
     }
 
     #[test]

@@ -1011,7 +1011,6 @@ name = "tatara-closed-set"
 version = "0.3.4"
 dependencies = [
  "tatara-closed-set-derive",
- "tatara-lisp",
  "thiserror 2.0.18",
 ]
 
@@ -1090,6 +1089,7 @@ dependencies = [
  "blake3",
  "serde",
  "serde_json",
+ "tatara-closed-set",
  "tatara-lisp-derive",
  "thiserror 2.0.18",
 ]

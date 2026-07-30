@@ -105,11 +105,28 @@
 //!
 //! This crate is `pleme-io/tatara`'s `tatara-lisp/src/closed_set.rs` moved
 //! verbatim, per `theory/TATARA-LISP-CONSOLIDATION.md` phase 2 step 1.
-//! `tatara-lisp` neither carries nor re-exports `ClosedSet`: that is the
-//! property that keeps the published `tatara-lisp` small enough for the
-//! phase-3 facade, and it is enforced structurally — this crate depends on
-//! `tatara-lisp` (for the one shared `domain::suggest` metric), so the
-//! reverse edge would be a cargo dependency cycle and cannot be written.
+//! `tatara-lisp` neither carries nor re-exports `ClosedSet`, which keeps the
+//! published `tatara-lisp` small enough for the phase-3 facade.
+//!
+//! **That property is a CONVENTION, not a structural guarantee — read this
+//! before assuming otherwise.** Step 1 landed with the edge pointing
+//! `tatara-closed-set → tatara-lisp` (for `domain::suggest`) and celebrated
+//! the resulting cycle as the enforcement mechanism: the reverse edge "cannot
+//! be written". That framing was load-bearing and is now false. Step 2 needs
+//! `tatara-lisp` to carry the ~45 `LispError` variants whose payloads are
+//! `ClosedSet` implementors, which requires exactly that reverse edge, so
+//! phase 2 was structurally blocked by its own step 1.
+//!
+//! The edge was therefore INVERTED (patamar's cheapest verb, chosen on an
+//! edge census of **one**): `suggest` moved here, `tatara-closed-set` dropped
+//! its `tatara-lisp` dependency and became a true leaf, and `tatara-lisp`
+//! now depends on this crate. The metric was never a `tatara-lisp` primitive
+//! to begin with — step 1 pulled it forward from A *because closed-set needed
+//! it*, and it had zero other callers in this workspace, so inverting put it
+//! back with its only consumer rather than moving it away from callers.
+//!
+//! Consequence to respect: nothing now makes `tatara-lisp` re-exporting
+//! `ClosedSet` a compile error. Keeping it out is a review-time rule.
 //!
 //! The trait body is byte-identical to its pre-split form apart from
 //! `crate::domain::suggest` → `tatara_lisp::domain::suggest` and the
@@ -124,6 +141,110 @@
 // DeriveClosedSet` re-export, so a consumer switching crates changes the
 // import path and nothing else.
 pub use tatara_closed_set_derive::ClosedSet as DeriveClosedSet;
+
+// ── Near-match suggestion ──────────────────────────────────────────
+//
+// Homed here because this crate is its only consumer. Phase 2 step 1 pulled
+// it forward from A's `tatara-lisp/src/domain.rs:983-1073` into `tatara-lisp`
+// specifically so `suggest_closest` could compose it, which created the
+// `tatara-closed-set → tatara-lisp` edge that then blocked step 2. It had no
+// other caller in `tatara-lisp`, so the INVERT is a relocation to its only
+// call site, not a move away from callers.
+//
+// `tatara-lisp` re-exports `suggest` from here, so `tatara_lisp::domain::suggest`
+// still resolves for A-side parity and for step 3's `unknown_kwarg` hint.
+
+/// Suggest the candidate closest to `needle` by Levenshtein distance,
+/// when the closest candidate is within a bounded edit distance.
+///
+/// The bound scales with `needle`'s character length:
+///   - len ≤ 3: bound 1 (single-character typo on a short identifier)
+///   - len ≤ 7: bound 2 (insertion + transposition, two typos)
+///   - len ≥ 8: bound 3 (longer identifiers absorb more drift)
+///
+/// Returns the closest candidate within the bound. Ties are broken
+/// lexicographically so two operators on two machines see the same hint
+/// for the same input — diagnostics are deterministic. An exact match in
+/// `candidates` is excluded (the caller already has the keyword; the
+/// suggestion exists for near-misses only). Empty `candidates` returns
+/// `None`.
+///
+/// One named primitive lifts the substrate's understanding of "near-match
+/// across a candidate set" out of any per-call-site implementation. The
+/// unknown-kwarg diagnostic in `reject_unknown_kwargs` is the first
+/// consumer; future consumers — `LispError::HeadMismatch`'s "did you
+/// mean a registered domain?" hint, `tatara-check`'s registry-dispatch
+/// suggestions, the LSP's completion-failure fallback — bind to one
+/// helper rather than re-implementing edit distance.
+///
+/// Theory anchor: THEORY.md §V.1 — "Knowable platform … Render Anywhere."
+/// Naming the likely intended candidate is the floor of a constructive
+/// diagnostic. THEORY.md §VI.1 — generation over composition: every
+/// near-match suggestion in the substrate routes through ONE primitive.
+///
+/// Frontier inspiration: rustc's `find_best_match_for_name`, Idris's
+/// "did you mean …?" elaborator hint, Roslyn's `SymbolMatcher` — bounded
+/// edit distance over a symbol table. Translation through pleme-io
+/// primitives: a pure function over `&[&str]`, no new error variant, no
+/// new IR layer, no new dep.
+#[must_use]
+pub fn suggest<'a>(needle: &str, candidates: &[&'a str]) -> Option<&'a str> {
+    let bound = suggestion_bound(needle);
+    let mut best: Option<(usize, &'a str)> = None;
+    for &candidate in candidates {
+        if candidate == needle {
+            continue;
+        }
+        let dist = levenshtein(needle, candidate);
+        if dist > bound {
+            continue;
+        }
+        match best {
+            None => best = Some((dist, candidate)),
+            Some((bd, bc)) if dist < bd || (dist == bd && candidate < bc) => {
+                best = Some((dist, candidate));
+            }
+            _ => {}
+        }
+    }
+    best.map(|(_, c)| c)
+}
+
+fn suggestion_bound(needle: &str) -> usize {
+    let n = needle.chars().count();
+    if n <= 3 {
+        1
+    } else if n <= 7 {
+        2
+    } else {
+        3
+    }
+}
+
+/// Classic two-row Levenshtein. Operates on `char`s so multibyte input
+/// (e.g. a domain authored with non-ASCII identifiers) measures
+/// character-distance, not byte-distance.
+fn levenshtein(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    if a.is_empty() {
+        return b.len();
+    }
+    if b.is_empty() {
+        return a.len();
+    }
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    let mut curr: Vec<usize> = vec![0; b.len() + 1];
+    for (i, ca) in a.iter().enumerate() {
+        curr[0] = i + 1;
+        for (j, cb) in b.iter().enumerate() {
+            let cost = usize::from(ca != cb);
+            curr[j + 1] = (prev[j + 1] + 1).min(curr[j] + 1).min(prev[j] + cost);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[b.len()]
+}
 
 /// The closed-set-enum idiom as a typed witness.
 ///
@@ -1224,10 +1345,10 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// table threaded into the parse-rejection diagnostic. Translation
     /// through pleme-io primitives: a pure default method composing
     /// the trait's [`Self::labels`] iterator with the substrate's
-    /// existing [`tatara_lisp::domain::suggest`] metric.
+    /// existing [`suggest`] metric.
     fn suggest_closest(needle: &str) -> Option<Self> {
         let candidates = Self::labels();
-        let target = tatara_lisp::domain::suggest(needle, &candidates)?;
+        let target = suggest(needle, &candidates)?;
         Self::find_by_label(target)
     }
 

@@ -108,20 +108,22 @@ fn derive_honours_the_operator_pinned_set_label() {
 }
 
 #[test]
-fn suggest_closest_reaches_the_shared_tatara_lisp_suggest_metric() {
-    // The ONE code edit in the moved trait body: `crate::domain::suggest` ->
-    // `tatara_lisp::domain::suggest`. If the crate had grown its own copy
-    // instead, this would still pass — so pin the delegation explicitly by
-    // asserting the two agree on the same input.
+fn suggest_closest_reaches_the_shared_suggest_metric() {
+    // `suggest_closest` must DELEGATE to the crate's one `suggest` metric,
+    // not carry its own inline scoring. Pinned by asserting the two agree on
+    // the same input — a private reimplementation would drift here.
+    //
+    // The metric used to live in `tatara-lisp` and this assertion named
+    // `tatara_lisp::domain::suggest`. Phase 2 INVERTed that edge (this crate
+    // is now a leaf), so it names the local definition. `tatara-lisp`
+    // re-exports it, so `tatara_lisp::domain::suggest` is still the same
+    // function — it just cannot be referenced from here any more.
     assert_eq!(
         <ChannelKind as ClosedSet>::suggest_closest("Stdou"),
         Some(ChannelKind::Stdout)
     );
     let labels = <ChannelKind as ClosedSet>::labels();
-    assert_eq!(
-        tatara_lisp::domain::suggest("Stdou", &labels),
-        Some("Stdout")
-    );
+    assert_eq!(tatara_closed_set::suggest("Stdou", &labels), Some("Stdout"));
 }
 
 #[test]

@@ -16,12 +16,18 @@ workspace = true
 # tatara-lisp-derive is: this derive EMITS `::tatara_closed_set::ClosedSet`
 # paths, so the pair is one artifact wearing two crate names.
 tatara-closed-set-derive.workspace = true
-# For the ONE shared primitive: `domain::suggest`, the substrate's bounded
-# edit-distance metric that `ClosedSet::suggest_closest` composes. Copying
-# it here would be the duplication the PRIME DIRECTIVE calls a bug, and the
-# edge only goes this way — `tatara-lisp` must never depend on this crate
-# (see the crate docs).
-tatara-lisp.workspace = true
+# NO `tatara-lisp` dependency — this crate is a LEAF, deliberately.
+#
+# The edge used to point this way, for the one shared `domain::suggest`
+# metric that `ClosedSet::suggest_closest` composes. That made the reverse
+# edge a cargo cycle, which phase 2 step 1 recorded as an enforced invariant
+# — and which then blocked step 2, since `tatara-lisp` must carry the ~45
+# LispError variants whose payloads are ClosedSet implementors.
+#
+# INVERTed on an edge census of ONE call site: `suggest` moved into this
+# crate (its only consumer; it had zero callers inside `tatara-lisp`) and
+# `tatara-lisp` now depends on us, re-exporting `suggest` for parity.
+# Adding `tatara-lisp` back here re-creates the cycle — don't.
 
 [dev-dependencies]
 # The generated parse-rejection carrier derives `::thiserror::Error`, so a

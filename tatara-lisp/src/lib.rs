@@ -37,9 +37,6 @@ pub mod span;
 pub mod spanned;
 pub mod spanned_expand;
 
-#[cfg(feature = "iac-forge")]
-pub mod interop;
-
 pub use compiler_spec::{
     load_from_disk, realize_in_memory, realize_to_disk, CompilerSpec, RealizedCompiler,
 };

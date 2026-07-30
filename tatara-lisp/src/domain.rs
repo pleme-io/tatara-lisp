@@ -11,8 +11,10 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
-use crate::ast::Sexp;
-use crate::error::{LispError, Result};
+use serde::de::DeserializeOwned;
+
+use crate::ast::{Atom, Sexp};
+use crate::error::{ExpectedKwargShape, KwargPath, LispError, Result, SexpShape, SexpWitness};
 
 /// Phase F: a Rust type (typically a unit-only enum) whose variants map to
 /// a single Lisp keyword atom — e.g., `Role::Master` ↔ `:master`. Used by
@@ -35,40 +37,180 @@ pub trait TataraDomain: Sized {
 
     /// Parse a complete form; validates the head symbol matches `KEYWORD`.
     fn compile_from_sexp(form: &Sexp) -> Result<Self> {
-        let list = form.as_list().ok_or_else(|| LispError::Compile {
-            form: Self::KEYWORD.to_string(),
-            message: "expected list form".into(),
-        })?;
-        let head = list
+        let list = form
+            .as_list()
+            .ok_or_else(|| not_a_list_form_err(Self::KEYWORD))?;
+        // The two sub-modes of "head can't be projected to a symbol" — empty
+        // list (`first()` is `None`) vs. present-but-not-a-symbol
+        // (`as_symbol()` is `None`) — share ONE structural variant
+        // (`MissingHeadSymbol { keyword, got }`) but bind to distinct
+        // `got` payloads (`None` vs. `Some(<sexp display>)`). This lets
+        // an authoring tool render "your form is empty" vs. "your
+        // form's head is `5`, not a symbol" without re-parsing the
+        // source — the legacy `Compile`-shaped diagnostic collapsed
+        // both into one message.
+        let head_sexp = list
             .first()
-            .and_then(|s| s.as_symbol())
-            .ok_or_else(|| LispError::Compile {
-                form: Self::KEYWORD.to_string(),
-                message: "missing head symbol".into(),
-            })?;
+            .ok_or_else(|| missing_head_err(Self::KEYWORD, None))?;
+        let head = head_sexp
+            .as_symbol()
+            .ok_or_else(|| missing_head_err(Self::KEYWORD, Some(head_sexp.witness())))?;
         if head != Self::KEYWORD {
-            return Err(LispError::Compile {
-                form: Self::KEYWORD.to_string(),
-                message: format!("expected ({} ...), got ({} ...)", Self::KEYWORD, head),
-            });
+            return Err(head_mismatch(Self::KEYWORD, head.to_string()));
         }
         Self::compile_from_args(&list[1..])
     }
+}
+
+// ── compile_from_sexp diagnostics — the form-shape gate primitives ─
+//
+// `compile_from_sexp` (the trait default) gates every `TataraDomain`
+// invocation that takes a complete `(KEYWORD …)` form: ProcessSpec,
+// MonitorSpec, AlertPolicySpec, every hand-written impl. Three failure
+// modes — not a list, missing head symbol, wrong head — used to be
+// inline `LispError::Compile { form: KEYWORD.to_string(), message: …}`
+// triples in the trait default. The three-times-rule signal
+// (THEORY.md §VI.1) calls for one named primitive per shape; these
+// are them.
+//
+// All three are now structural: `not_a_list_form_err` returns
+// `LispError::NotAListForm`, `missing_head_err` returns
+// `LispError::MissingHeadSymbol { keyword, got }` (`got: None` for
+// empty list, `got: Some(<sexp display>)` for present-but-not-symbol),
+// and `head_mismatch` returns `LispError::HeadMismatch`. Each carries
+// its distinguishing data (the offending head's display projection,
+// the keyword) as first-class variant fields so authoring tools
+// pattern-match structurally instead of substring-grepping the
+// rendered message. The entire `compile_from_sexp` rejection chain
+// — bare-atom → empty/not-symbol head → wrong-keyword head — is
+// closed: every distinct typed-entry rejection at the form-shape
+// gate binds to ONE structural variant of `LispError`.
+
+/// `T::compile_from_sexp` was passed something that isn't a list.
+/// One named primitive every TataraDomain impl shares — returns the
+/// dedicated `LispError::NotAListForm { keyword }` variant so
+/// authoring surfaces (REPL, LSP, `tatara-check`) bind to the
+/// first-class `keyword` field instead of substring-parsing the
+/// rendered message. Display matches the legacy `Compile`-shaped
+/// diagnostic byte-for-byte (`"compile error in {keyword}: expected
+/// list form"`), so existing `format!("{err}").contains("expected
+/// list form")` assertions pass unchanged.
+///
+/// Theory anchor: THEORY.md §V.1 — knowable platform. The legacy
+/// `Compile { form, message }` shape required consumers to
+/// pattern-match on `message == "expected list form"` to recognize
+/// this specific gate (versus the sibling `missing head symbol`
+/// gate, which produces the same `Compile` shape with a different
+/// message). After this lift the discriminator is the variant
+/// itself — a regression that drifts the message string can no
+/// longer drift the gate's identity. THEORY.md §II.1 invariant 1 —
+/// typed entry; a non-list form is exactly the failure mode the
+/// typed-entry gate exists to reject, and the gate's identity is
+/// now load-bearing in the type system.
+#[must_use]
+pub fn not_a_list_form_err(keyword: &'static str) -> LispError {
+    LispError::NotAListForm { keyword }
+}
+
+/// `T::compile_from_sexp` was passed `()` or a list whose first
+/// element isn't a symbol — there's nothing to dispatch on. One named
+/// primitive every `TataraDomain` impl shares; returns the dedicated
+/// `LispError::MissingHeadSymbol { keyword, got }` variant so authoring
+/// surfaces (REPL, LSP, `tatara-check`) bind to the first-class
+/// `keyword` and `got` fields instead of substring-parsing the
+/// rendered message. `got: None` for the empty-list case (`()`),
+/// `got: Some(SexpWitness)` for the present-but-not-symbol case
+/// (`(5 …)`, `(:foo …)`, `("x" …)`, `((nested) …)`) — the legacy
+/// `Compile`-shaped diagnostic collapsed both into one message; this
+/// builder bifurcates them structurally so the renderable detail
+/// names which sub-mode fired. The `Some` arm carries the typed
+/// joint identity (`SexpShape` + `Sexp::Display`) routed through
+/// `sexp_witness(_)` so authoring tools that want to surface a
+/// structural autofix — "you wrote `:foo` at the head slot where a
+/// symbol was expected (did you mean `foo`?)" — bind on
+/// `got.shape == SexpShape::Keyword` directly, no substring-grep on
+/// the rendered display required.
+///
+/// Display matches the legacy `Compile`-shaped diagnostic byte-for-
+/// byte for the prefix (`"compile error in {keyword}: missing head
+/// symbol"`); the structural detail is appended in a parenthetical
+/// (`(empty list)` for `None`, `(got {g})` for `Some(g)`), parallel
+/// to how `RestParamMissingName` appends `(rest marker at position
+/// {n}, {got|none provided})` and how `SpliceOutsideList` appends
+/// `(got ,@{got})`. The `{g}` slot flows through `SexpWitness::Display`,
+/// which writes only the `display` field, so existing
+/// `format!("{err}").contains("missing head symbol")` assertions pass
+/// unchanged.
+///
+/// Theory anchor: THEORY.md §V.1 — knowable platform. The legacy
+/// `Compile { form, message }` shape required consumers to
+/// pattern-match on `message == "missing head symbol"` to recognize
+/// this specific gate (versus the sibling `expected list form` and
+/// head-mismatch gates, which produced different `message` strings
+/// in the same `Compile` shape). After this lift the discriminator
+/// is the variant itself — a regression that drifts the message
+/// string can no longer drift the gate's identity, AND the two
+/// distinct sub-modes (empty vs. present-but-not-symbol) are
+/// structurally addressable. THEORY.md §II.1 invariant 1 — typed
+/// entry; an empty form / non-symbol-head form is exactly the
+/// failure mode the typed-entry gate exists to reject, and the
+/// gate's identity is now load-bearing in the type system.
+#[must_use]
+pub fn missing_head_err(keyword: &'static str, got: Option<SexpWitness>) -> LispError {
+    LispError::MissingHeadSymbol { keyword, got }
+}
+
+/// Structural head-mismatch builder. Returns the dedicated
+/// `LispError::HeadMismatch` variant so authoring surfaces (REPL, LSP,
+/// `tatara-check`) bind to first-class `keyword`/`got` fields instead
+/// of substring-parsing the rendered message. Display matches the
+/// legacy `Compile`-shaped diagnostic byte-for-byte, so existing
+/// `format!("{err}").contains("expected ({KEYWORD}")` assertions pass
+/// unchanged.
+///
+/// Theory anchor: THEORY.md §V.1 — knowable platform. A diagnostic
+/// whose `got` is embedded in a free-form message is structurally
+/// incomplete; an authoring surface that wants to render
+/// "did-you-mean" suggestions on the offending head must re-parse
+/// the message. After this lift the slot exists in the variant's
+/// data shape itself.
+#[must_use]
+pub fn head_mismatch(keyword: &'static str, got: String) -> LispError {
+    LispError::HeadMismatch { keyword, got }
 }
 
 // ── kwarg parsing + typed extractors used by the derive macro ──────
 
 pub type Kwargs<'a> = HashMap<String, &'a Sexp>;
 
+/// Parse `:k v :k v …` into a kwargs map. Rejects duplicate keywords so the
+/// typed-entry gate fires on `(defX :name "a" :name "b")` instead of silently
+/// keeping the last value — same posture `reject_unknown_kwargs` takes for
+/// typo'd kwargs. A duplicate is ill-typed input: the author either meant
+/// distinct keys (typo) or a list (`:tags ("a" "b")`).
+///
+/// Odd-length kwargs lists fail with `LispError::OddKwargs { dangling }`,
+/// where `dangling` is the offending element's `Sexp::Display` projection
+/// — `:query` for a keyword whose value got lost, or the literal form of a
+/// stray non-keyword. Naming the dangling element keeps the diagnostic
+/// structurally complete instead of merely flagging "odd number"; authoring
+/// surfaces (REPL, LSP, `tatara-check`) render the mismatch without
+/// re-reading the source.
+///
+/// Theory anchor: THEORY.md §II.1 invariant 1 — "Typed entry. Ill-typed input
+/// errors before the value exists." THEORY.md §V.1 — "knowable platform"
+/// requires the diagnostic to name what was passed, not only what was
+/// expected.
 pub fn parse_kwargs(args: &[Sexp]) -> Result<Kwargs<'_>> {
     let mut kw = HashMap::new();
     let mut i = 0;
     while i + 1 < args.len() {
-        let key = args[i].as_keyword().ok_or_else(|| LispError::Compile {
-            form: "kwargs".into(),
-            message: format!("expected keyword at position {i}"),
+        let key = args[i].as_keyword().ok_or_else(|| {
+            type_mismatch(kwargs_pos_form(i), ExpectedKwargShape::Keyword, &args[i])
         })?;
-        kw.insert(key.to_string(), &args[i + 1]);
+        if kw.insert(key.to_string(), &args[i + 1]).is_some() {
+            return Err(duplicate_kwarg(key));
+        }
         i += 2;
     }
     if i < args.len() {
@@ -79,95 +221,479 @@ pub fn parse_kwargs(args: &[Sexp]) -> Result<Kwargs<'_>> {
     Ok(kw)
 }
 
+/// Reject any keyword in `kw` that isn't in `allowed`. Closes the typed-entry
+/// hole where typos like `:tthreshold 0.99` would otherwise parse silently
+/// with the field unset. Emitted by `#[derive(TataraDomain)]` after
+/// `parse_kwargs` so every derived domain rejects unknown kwargs by default.
+///
+/// When the offending keyword is a near-miss of an allowed kwarg (bounded
+/// edit distance via `suggest`), the diagnostic prepends a `did you mean
+/// :X?` hint so the operator goes straight to the fix without scanning the
+/// allowed-list. The hint is purely additive — `unknown keyword` and the
+/// full allowed list still appear — so existing assertions
+/// (`msg.contains("unknown keyword")`, `msg.contains(":threshold")`) pass
+/// unchanged.
+///
+/// Returns the structural `LispError::UnknownKwarg { key, hint, allowed }`
+/// variant — same posture as the `OddKwargs` / `DuplicateKwarg` /
+/// `MissingKwarg` siblings. After this lift every distinct typed-entry
+/// kwarg-gate failure mode binds to ONE structural variant of `LispError`,
+/// not a `Compile`-shaped substring.
+///
+/// Theory anchor: THEORY.md §II.1 invariant 1 (typed entry — "Ill-typed input
+/// errors before the value exists"); §V.1 ("knowable platform … Render
+/// Anywhere" — naming the likely intended keyword is the floor of a
+/// constructive diagnostic).
+pub fn reject_unknown_kwargs(kw: &Kwargs<'_>, allowed: &[&str]) -> Result<()> {
+    for key in kw.keys() {
+        if !allowed.contains(&key.as_str()) {
+            return Err(unknown_kwarg(key, allowed));
+        }
+    }
+    Ok(())
+}
+
+/// Parse `:k v :k v …` AND gate the result against a closed allowed-key set —
+/// the fused typed-entry kwargs gate. ONE named primitive every
+/// `TataraDomain` impl shares for "compile-from-args header": every
+/// `#[derive(TataraDomain)]`-generated `compile_from_args` body emitted by
+/// `tatara-lisp-derive` begins with this single call, and every hand-
+/// written impl in the forge / lattice / tameshi crates that wants the
+/// substrate's closed-set kwargs posture binds to ONE function instead of
+/// remembering to call [`parse_kwargs`] AND [`reject_unknown_kwargs`] in
+/// that order.
+///
+/// Before this lift the derive emitted the two-call sequence
+/// `let kw = parse_kwargs(args)?; reject_unknown_kwargs(&kw, ALLOWED)?;`
+/// verbatim at every consumer's `compile_from_args` body — well past the
+/// ≥2 PRIME-DIRECTIVE trigger once the fleet's seven-plus
+/// `#[derive(TataraDomain)]` consumers (ProcessSpec, EphemeralSpec,
+/// MonitorSpec, NotifySpec, AlertPolicySpec, EscalationStep, CompilerSpec,
+/// and every future derived domain) inline the same two lines through the
+/// proc-macro emitter. The two-call sequence is structurally one
+/// operation — "parse the keyword/value run, then assert every key sits
+/// in the static allowed-set" — and a regression that drifts ONE
+/// consumer's gate from the others (e.g. the derive emits one call but a
+/// hand-written impl emits only the other, or a future emitter swaps the
+/// order so `reject_unknown_kwargs` runs against an unparsed slice) is
+/// the silent typed-entry hole this primitive closes by construction.
+///
+/// The two stages are composed in the canonical order:
+///   1. [`parse_kwargs`] runs first — odd-length input, non-keyword at a
+///      key position, and duplicate keys surface as their structural
+///      variants ([`LispError::OddKwargs`] / [`LispError::TypeMismatch`]
+///      with `form = kwargs_pos_form(i)` / [`LispError::DuplicateKwarg`]).
+///   2. Only on `Ok(kw)` does [`reject_unknown_kwargs`] run — keys
+///      outside `allowed` surface as [`LispError::UnknownKwarg`] with the
+///      typed `hint` / `allowed` slots populated.
+///
+/// This ordering is structural: `reject_unknown_kwargs` cannot inspect
+/// an unparsed `&[Sexp]`, so parse-stage rejection MUST precede
+/// reject-stage rejection. A call with BOTH an odd-length tail AND an
+/// unknown kwarg surfaces as `OddKwargs` (parse-stage), never as
+/// `UnknownKwarg` (reject-stage) — the gate is single-pass and the
+/// stages compose in exactly one order. Naming the composition makes
+/// that order load-bearing data on the substrate, not a discipline the
+/// derive's emit template happens to encode correctly.
+///
+/// Theory anchor: THEORY.md §II.1 invariant 1 — "Typed entry. Ill-typed
+/// input errors before the value exists." The kwargs gate is the
+/// typed-entry boundary for every derived domain; closing the gate
+/// behind ONE primitive lifts the closed-set posture from the derive's
+/// emit template to the substrate's typed surface. THEORY.md §VI.1 —
+/// generation over composition; the two-call sequence in the derive's
+/// emit template, multiplied across every consumer in the fleet, is
+/// well past the three-times rule once the structural shape is named.
+/// THEORY.md §V.1 — knowable platform; authoring tools (REPL, LSP,
+/// `tatara-check`) that want to surface "this form's kwargs gate
+/// rejected because …" bind to the unified primitive's call site
+/// instead of guessing which of the two component functions the
+/// rejection came from. THEORY.md §II.1 invariant 2 (free middle) —
+/// every consumer routes through the SAME composition, so a regression
+/// that drifts the order or skips a stage on one path can never reach
+/// the substrate's runtime: the type system binds every consumer to
+/// the fused primitive's single emission shape.
+///
+/// Lifetime: the returned [`Kwargs<'a>`] borrows from `args` (the typed
+/// alias is `HashMap<String, &'a Sexp>`), so the call site keeps the
+/// `&[Sexp]` slice alive for the lifetime of the parsed map — same
+/// posture as [`parse_kwargs`]. The fused primitive does not allocate
+/// beyond [`parse_kwargs`]'s map: [`reject_unknown_kwargs`] is a pure
+/// `O(allowed.len() · kw.len())` scan that returns `Ok(())` on success.
+pub fn parse_kwargs_strict<'a>(args: &'a [Sexp], allowed: &[&str]) -> Result<Kwargs<'a>> {
+    let kw = parse_kwargs(args)?;
+    reject_unknown_kwargs(&kw, allowed)?;
+    Ok(kw)
+}
+
+/// Structural unknown-kwarg builder. Returns the dedicated
+/// `LispError::UnknownKwarg` variant so authoring surfaces (REPL, LSP,
+/// `tatara-check`) bind to first-class `key` / `hint` / `allowed`
+/// fields instead of substring-parsing the rendered message. Display
+/// matches the legacy `Compile { form: kwarg_form(key), message:
+/// "unknown keyword (...)" }` rendering byte-for-byte
+/// (`"compile error in :{key}: unknown keyword (did you mean :{hint}?;
+/// allowed: :a, :b, :c)"` with a hint, `"compile error in :{key}:
+/// unknown keyword (allowed: :a, :b, :c)"` without), so existing
+/// `msg.contains("unknown keyword")` / `msg.contains(":threshold")` /
+/// `msg.contains("did you mean :threshold?")` assertions keep
+/// passing.
+///
+/// Encapsulates the three otherwise-inline steps every unknown-kwarg
+/// site shares: (1) ranking the near-miss via `suggest`, (2) sorting
+/// the allowed-set lexicographically so two operators on two machines
+/// see the same message for the same input — diagnostics are
+/// deterministic, (3) materializing the allowed-set as owned
+/// `Vec<String>` so the variant lives independent of the call frame
+/// and crosses thread boundaries cleanly. A future "registry-aware
+/// near-miss for unknown registry-dispatched forms" path
+/// (`tatara-check`'s unknown-keyword fallthrough) binds to this
+/// helper rather than re-formatting the shape per call site.
+///
+/// `reject_unknown_kwargs` is the first consumer; hand-written
+/// `TataraDomain` impls in the forge / lattice / tameshi crates that
+/// don't fit the derive's closed-field-type set bind to the
+/// substrate's primitive instead of inline `LispError::Compile { … }`
+/// assembly. After this lift `reject_unknown_kwargs` is no longer the
+/// last `LispError::Compile { ... }` site in the kwarg-gate's
+/// diagnostic surface — every distinct kwarg-gate failure mode is now
+/// a structural variant of `LispError`.
+///
+/// Theory anchor: THEORY.md §V.1 — "Knowable platform … Render
+/// Anywhere." A diagnostic whose offending `key` / hint / allowed-set
+/// are embedded in a free-form message is structurally incomplete; an
+/// authoring surface that wants to render a squiggly under the typo
+/// or surface the allowed-set as completions must re-parse the
+/// message. After this lift the slots exist in the variant's data
+/// shape itself. THEORY.md §II.1 invariant 1 (typed entry) — an
+/// unknown kwarg is exactly the failure mode the typed-entry gate
+/// exists to reject; naming it structurally is the typed posture for
+/// that gate's diagnostic. THEORY.md §VI.1 (generation over
+/// composition — one named primitive per structural shape).
+#[must_use]
+pub fn unknown_kwarg(key: &str, allowed: &[&str]) -> LispError {
+    let hint = suggest(key, allowed).map(String::from);
+    let mut sorted: Vec<String> = allowed.iter().map(|s| (*s).to_string()).collect();
+    sorted.sort();
+    LispError::UnknownKwarg {
+        key: key.to_string(),
+        hint,
+        allowed: sorted,
+    }
+}
+
+/// The typed-entry kwargs-gate's OPTIONAL lookup primitive — `Some(&Sexp)`
+/// when `key` is present in `kw`, `None` when absent. ONE named projection
+/// on the substrate's `Kwargs<'a>` algebra every optional-kwarg consumer
+/// (`extract_optional_atom`, `extract_list`, `extract_optional_via_serde`)
+/// routes through, and the sibling [`required`](self::required) composes
+/// directly atop it as `optional(kw, key).ok_or_else(|| missing_kwarg(key))`.
+/// Before this lift the same `kw.get(key).copied()` projection — turning
+/// `Option<&&'a Sexp>` (the raw `HashMap::get` return) into the consumer-
+/// shaped `Option<&'a Sexp>` — was inlined verbatim at FOUR sites: once
+/// inside `required`'s composition, and once inside each of the three
+/// optional consumers' absence-handling preludes. After this lift the
+/// projection lives in ONE place; `required` becomes the closed-form
+/// composition `optional + ok_or_else(missing_kwarg)`, and the three
+/// optional consumers read through `optional(kw, key)` without re-stating
+/// the `Option<&&Sexp>` → `Option<&Sexp>` projection at each call site.
+///
+/// Sibling pair with [`required`](self::required): together the two close
+/// the substrate's typed-entry kwargs-LOOKUP surface — `required` is the
+/// mandatory-presence path returning `Result<&Sexp>` (absence → typed
+/// `LispError::MissingKwarg`); `optional` is the may-be-absent path
+/// returning `Option<&Sexp>` (absence → `None`, the consumer decides
+/// what default behavior absence triggers — `None` for atoms, empty `Vec`
+/// for lists, `Sexp::Nil` for params). The TWO primitives between them
+/// cover every consumer's kwargs-lookup posture; a third would be a
+/// structural extension the type system would surface at every call site.
+/// The composition `required = optional + ok_or_else(missing_kwarg)` is
+/// the structural identity binding the two — `required(kw, key)` and
+/// `optional(kw, key).ok_or_else(|| missing_kwarg(key))` are
+/// observationally identical, and naming the composition makes the
+/// identity a substrate-owned theorem rather than a hand-inlined
+/// duplication discipline four sites had to keep in lockstep.
+///
+/// The returned `&'a Sexp` carries the SAME lifetime contract as
+/// [`required`](self::required)'s `Ok(&'a Sexp)` — the projection borrows
+/// from the kwargs map's value slot via `.copied()`, so the optional
+/// consumers can hold the reference through their absence-arm match
+/// without an intermediate clone. `'a` is the outer borrow lifetime
+/// (mirroring `required`); the inner `'_` is free so call sites with
+/// `Kwargs<'a>` (the typical `parse_kwargs` output binding) and
+/// `Kwargs<'static>` (a future static-bound shape) both type-check
+/// uniformly.
+///
+/// Theory anchor: THEORY.md §VI.1 — generation over composition; four
+/// inline copies of one structural projection past the three-times rule
+/// once the structural shape is named. THEORY.md §V.1 — knowable
+/// platform; the substrate's typed-entry kwargs-lookup surface is now
+/// the named PAIR `{required, optional}` — authoring tools (REPL, LSP,
+/// `tatara-check`) that want to surface "this domain reads kwarg X as
+/// optional" bind to the `optional` primitive's signature, not the
+/// HashMap-level `get` chain. THEORY.md §II.1 invariant 1 — typed entry;
+/// the kwargs-lookup gate's two postures (required vs. optional) are
+/// now structurally named, so a future fourth posture (e.g. "required
+/// with non-empty constraint") extends the pair as a peer rather than
+/// silently piggybacking on the inlined `get(key).copied()` chain.
+/// THEORY.md §II.1 invariant 2 — free middle; the typed-entry kwargs
+/// gate's lookup shape is uniform across every derived domain (and
+/// every hand-written `TataraDomain` impl), so a future emitter that
+/// wants to instrument the lookup (a span-aware lookup, a debug-mode
+/// lookup logger) wraps ONE function rather than four inline sites.
+#[must_use]
+pub fn optional<'a>(kw: &'a Kwargs<'_>, key: &str) -> Option<&'a Sexp> {
+    kw.get(key).copied()
+}
+
+/// The typed-entry kwargs-gate's REQUIRED lookup primitive — `Ok(&Sexp)`
+/// when `key` is present in `kw`, `Err(LispError::MissingKwarg)` when
+/// absent. Composes [`optional`](self::optional) (the may-be-absent
+/// lookup) with [`missing_kwarg`](self::missing_kwarg) (the canonical
+/// rejection on absence) so the substrate's typed-entry kwargs-lookup
+/// surface is named as the PAIR `{required, optional}` with `required`
+/// expressed as the closed-form composition of its two sibling
+/// primitives. Sibling pair documented in [`optional`](self::optional).
 pub fn required<'a>(kw: &'a Kwargs<'_>, key: &str) -> Result<&'a Sexp> {
-    kw.get(key).copied().ok_or_else(|| LispError::Compile {
-        form: format!(":{key}"),
-        message: "required but not provided".into(),
-    })
+    optional(kw, key).ok_or_else(|| missing_kwarg(key))
 }
 
-fn type_err(key: &str, expected: &str) -> LispError {
-    LispError::Compile {
-        form: format!(":{key}"),
-        message: format!("expected {expected}"),
-    }
+/// Canonical typed `form:` value for a kwarg-level `LispError::TypeMismatch`.
+/// Every typed-entry diagnostic that names a kwarg (`required`, `type_err`,
+/// `deserialize_err`, the duplicate-keyword paths in `parse_kwargs` and
+/// `sexp_to_json`, the unknown-keyword path in `reject_unknown_kwargs`,
+/// the non-list path in `extract_vec_via_serde`) routes through this one
+/// helper, so authoring surfaces (REPL, LSP, `tatara-check`) bind to a
+/// single named primitive rather than seven inline `format!(":{key}")`
+/// copies.
+///
+/// Returns the typed `crate::error::KwargPath::Named(key.to_string())` value
+/// directly — consumers feed it into `LispError::TypeMismatch.form: KwargPath`
+/// where it is structurally bound via pattern-match (`KwargPath::Named(_)`),
+/// not substring-matched. The canonical `:<key>` literal lives in ONE place
+/// (`KwargPath`'s Display match arm) alongside its sibling shapes
+/// `kwarg_item_form` / `kwargs_pos_form`, so a typo in any of the three
+/// can never drift independent of the others.
+///
+/// Theory anchor: THEORY.md §VI.1 — "Generation over composition.
+/// Three-times rule: when a pattern repeats three times, extract an
+/// archetype/backend/synthesizer and generate from it." Seven inline
+/// copies in one module is the textbook signal. THEORY.md §V.1 —
+/// knowable platform; the typed `KwargPath` enum encodes the closed set
+/// of three reachable path shapes at the type level so authoring tools
+/// bind to path-shape identity rather than substring-matching the
+/// rendered prefix. THEORY.md §II.1 invariant 1 (typed entry) — the
+/// kwargs-path identity is now load-bearing data on the variant rather
+/// than a projection-to-String.
+#[must_use]
+pub fn kwarg_form(key: &str) -> crate::error::KwargPath {
+    crate::error::KwargPath::named(key)
 }
 
-pub fn extract_string<'a>(kw: &'a Kwargs<'a>, key: &str) -> Result<&'a str> {
-    required(kw, key)?
-        .as_string()
-        .ok_or_else(|| type_err(key, "string"))
+/// Canonical `form:` label for a failure inside the Nth item of a
+/// list-typed kwarg — `:steps[1]` when the second item of `:steps` fails
+/// to deserialize, `:tags[2]` when the third tag isn't a string. The
+/// substrate names the item-path so the operator sees both *which kwarg*
+/// and *which element* misfired without re-counting from the source.
+///
+/// Frontier inspiration: JSON Pointer (`/steps/1`) and jq path
+/// expressions — lossless paths through value projections so downstream
+/// tooling (LSP underlines, structural rewrites) bind to the path
+/// instead of parsing the diagnostic message. Translation through
+/// pleme-io primitives: the surface syntax authors already write
+/// (`:<key>` + `[idx]`), no new error variant, no new IR layer. When a
+/// future run gives `Sexp` source spans, the indexed form gains a
+/// position the same way `kwarg_form` will — one helper, every consumer
+/// inherits.
+///
+/// Theory anchor: THEORY.md §V.1 — "Knowable platform … Render
+/// Anywhere." A diagnostic that names the kwarg but loses the item index
+/// is structurally incomplete; the path completes it.
+///
+/// Returns the typed `crate::error::KwargPath::Item { key, idx }` value
+/// directly — consumers feed it into `LispError::TypeMismatch.form: KwargPath`
+/// where it is structurally bound via pattern-match (`KwargPath::Item { .. }`),
+/// not substring-matched. The canonical `:<key>[<idx>]` literal lives in ONE
+/// place alongside `kwarg_form` / `kwargs_pos_form`. See `kwarg_form` for the
+/// typed-enum's role.
+#[must_use]
+pub fn kwarg_item_form(key: &str, idx: usize) -> crate::error::KwargPath {
+    crate::error::KwargPath::item(key, idx)
 }
 
-pub fn extract_optional_string<'a>(kw: &'a Kwargs<'a>, key: &str) -> Result<Option<&'a str>> {
-    match kw.get(key) {
-        None => Ok(None),
-        Some(v) => match v.as_string() {
-            Some(s) => Ok(Some(s)),
-            None => Err(type_err(key, "string")),
-        },
-    }
+/// Canonical `form:` label for a kwargs-list slot whose key position is
+/// not yet known — the slot itself failed the
+/// "this-position-must-be-a-keyword" gate, so there is no `:<key>` to
+/// hang the path off. Renders `kwargs[<idx>]` — parallel to
+/// `kwarg_item_form`'s `:<key>[<idx>]` shape, rooted at the kwargs
+/// slice rather than at a named kwarg.
+///
+/// Used by `parse_kwargs` to label the structural type-mismatch when
+/// the element at an even position isn't a `Sexp::Atom(Keyword(_))`.
+/// Pairing this label with the existing `LispError::TypeMismatch`
+/// variant (`expected: "keyword"`, `got: sexp_type_name(_)`) means
+/// authoring surfaces (REPL, LSP, `tatara-check`) bind to ONE variant
+/// identity for every typed-entry mismatch — `:<key>` for kwarg-level
+/// failures, `:<key>[<idx>]` for per-item failures, and now
+/// `kwargs[<idx>]` for not-a-keyword-yet failures. When a future run
+/// gives `Sexp` source spans, the slot-form gains a position the same
+/// way `kwarg_form` / `kwarg_item_form` will — one helper, every
+/// consumer inherits.
+///
+/// Theory anchor: THEORY.md §VI.1 (generation over composition — the
+/// fourth `form:`-label primitive after `kwarg_form`,
+/// `kwarg_item_form`, and the registry-keyword path; one helper per
+/// distinct path shape so the substrate's diagnostic surface stays
+/// structurally complete).
+///
+/// Returns the typed `crate::error::KwargPath::Slot(idx)` value directly —
+/// consumers feed it into `LispError::TypeMismatch.form: KwargPath` where it
+/// is structurally bound via pattern-match (`KwargPath::Slot(_)`), not
+/// substring-matched. The canonical `kwargs[<idx>]` literal lives in ONE
+/// place alongside `kwarg_form` / `kwarg_item_form`. See `kwarg_form` for
+/// the typed-enum's role.
+#[must_use]
+pub fn kwargs_pos_form(idx: usize) -> crate::error::KwargPath {
+    crate::error::KwargPath::Slot(idx)
 }
 
-pub fn extract_string_list(kw: &Kwargs<'_>, key: &str) -> Result<Vec<String>> {
-    let v = kw.get(key).copied();
-    let Some(v) = v else {
-        return Ok(vec![]);
-    };
-    let list = v
-        .as_list()
-        .ok_or_else(|| type_err(key, "list of strings"))?;
-    list.iter()
-        .map(|s| {
-            s.as_string()
-                .map(String::from)
-                .ok_or_else(|| type_err(key, "list of strings"))
-        })
-        .collect()
+/// Typed projection of a `Sexp`'s outermost shape into the closed-set
+/// `SexpShape` enum — the twelve reachable shapes the reader can produce.
+/// Used by the typed extractors to thread the observed shape into
+/// `LispError::TypeMismatch.got: SexpShape` /
+/// `LispError::NamedFormNonSymbolName.got: SexpShape` so a typed-entry
+/// gate's rejection-shape identity is load-bearing data in the type
+/// system, not a `&'static str` projection at the helper boundary.
+/// Consumers (REPL, LSP, `tatara-check`) pattern-match on
+/// `SexpShape::Int` etc. directly rather than substring-matching the
+/// rendered `got` literal.
+///
+/// Theory anchor: THEORY.md §V.1 — knowable platform. An error that names
+/// only the expected side leaves the operator to guess what was passed;
+/// naming both is the floor of constructive diagnostics. The typed
+/// projection extends that posture: not just naming both sides, but
+/// encoding the observed shape's identity as a TYPE so a regression that
+/// drifts the label becomes a compile error, not a runtime substring
+/// drift. When a future run gives `Sexp` source spans, this helper is
+/// the single site that learns to thread `got Y at <pos>`; today's call
+/// sites pick up the span automatically.
+/// Free-function delegate to the [`Sexp::shape`] inherent method on the
+/// `Sexp` algebra. Retained for backwards compatibility with consumers
+/// that import this helper by name (no callers reach in through the
+/// module path post-lift); the inherent method is the canonical site
+/// for the (Sexp variant, SexpShape variant) projection family —
+/// `Atom::kind().sexp_shape()` (atomic axis), `as_quote_form().map(|(qf,
+/// _)| qf.sexp_shape())` (quote-family axis), with `Nil` / `List`
+/// arms projecting to their own `SexpShape` variants directly. See
+/// [`Sexp::shape`]'s docstring for the closed-set composition law and
+/// the THEORY anchors.
+#[must_use]
+pub fn sexp_shape(s: &Sexp) -> SexpShape {
+    s.shape()
 }
 
-pub fn extract_int(kw: &Kwargs<'_>, key: &str) -> Result<i64> {
-    required(kw, key)?
-        .as_int()
-        .ok_or_else(|| type_err(key, "int"))
+/// Thin delegate to [`Sexp::type_name`] retained for callers that
+/// want the free-function reach — the canonical site is now the
+/// inherent method on the [`Sexp`] algebra. Stable, human-readable
+/// name of a `Sexp`'s outermost shape — the `&'static str`
+/// projection of `s.shape().label()`. Retained for callers that
+/// want the canonical literal directly (e.g. test assertions on the
+/// rendered `expected X, got Y` substring); new code constructing
+/// `LispError::TypeMismatch` / `NamedFormNonSymbolName` passes
+/// through `sexp_shape` directly so the typed identity rides the
+/// variant slot rather than collapsing through the literal at the
+/// helper boundary.
+///
+/// Composition law: `sexp_type_name(s) == s.type_name() ==
+/// s.shape().label()` for every `s: &Sexp`. Pre-lift the dispatcher
+/// lived here as the canonical site; post-lift the inherent method
+/// [`Sexp::type_name`] is the canonical site and this free function
+/// delegates so existing callers continue to compile. Same lift
+/// posture as [`super::domain::sexp_shape`] → [`Sexp::shape`]
+/// (commit 121bb60), [`super::domain::sexp_witness`] →
+/// [`Sexp::witness`] (commit a427e3b), [`super::domain::sexp_to_json`]
+/// → [`Sexp::to_json`] (commit 875ee3b), and
+/// [`super::domain::json_to_sexp`] → [`Sexp::from_json`] (commit
+/// 4a467eb): the algebra-level projection sits on the value, the
+/// free function is a one-line thin delegate. The
+/// `LispError::TypeMismatch.got` projection at
+/// `compile::compile_typed`'s typed-entry rejection site and every
+/// legacy substring-grep rejection-message test routes through
+/// `s.type_name()` after this lift.
+///
+/// Sibling of [`sexp_shape`] (the typed-shape projection feeding
+/// `TypeMismatch.expected` typed slot) and [`sexp_witness`] (the
+/// joint typed-shape + renderable-literal projection feeding
+/// `NamedFormNonSymbolName.got` / `NonSymbolUnquoteTarget.got` /
+/// etc.). [`Sexp::type_name`] is the canonical-label-only
+/// projection — the `&'static str` literal flattened from the
+/// typed identity for substring-grep callers and the
+/// `TypeMismatch.got` slot.
+///
+/// Theory anchor: THEORY.md §V.1 — knowable platform / constructive
+/// diagnostics. The canonical-label projection becomes a NAMED
+/// primitive on the substrate's `Sexp` algebra rather than a free
+/// function consumers reach across module boundaries to call.
+/// THEORY.md §VI.1 — generation over composition; the projection now
+/// lives on the typed `Sexp` algebra alongside `Sexp::shape` /
+/// `Sexp::witness` / `Sexp::to_json` / `Sexp::from_json`, so a
+/// future `Sexp` variant lands at the algebra's match site (via
+/// `Sexp::shape`'s exhaustive arm) without a module-path
+/// indirection. THEORY.md §II.1 invariant 1 — typed entry; the
+/// offending Sexp's canonical-label identity is part of the proof
+/// of WHAT the typed-entry gate rejected.
+#[must_use]
+pub fn sexp_type_name(s: &Sexp) -> &'static str {
+    s.type_name()
 }
 
-pub fn extract_optional_int(kw: &Kwargs<'_>, key: &str) -> Result<Option<i64>> {
-    match kw.get(key) {
-        None => Ok(None),
-        Some(v) => v.as_int().map(Some).ok_or_else(|| type_err(key, "int")),
-    }
+/// Thin delegate to [`Sexp::witness`] retained for callers that want
+/// the free-function reach — the canonical site is now the inherent
+/// method on the [`Sexp`] algebra. Pairs the typed [`SexpShape`]
+/// (structural identity) with the renderable [`Sexp::Display`]
+/// projection in ONE owned [`SexpWitness`] value so the variant lives
+/// independent of the call frame and crosses thread boundaries
+/// cleanly.
+///
+/// Composition law: `sexp_witness(s) == s.witness()` for every
+/// `s: &Sexp`. Pre-lift the dispatcher lived here as the canonical
+/// site; post-lift the inherent method [`Sexp::witness`] is the
+/// canonical site and this free function delegates so existing
+/// callers continue to compile. Same lift posture as
+/// [`super::domain::sexp_shape`] → [`Sexp::shape`] (commit 121bb60):
+/// the algebra-level projection sits on the value, the free
+/// function is a one-line thin delegate. The 8 typed-entry
+/// rejection-builder callers in `macro_expand.rs`
+/// (`non_symbol_unquote_target`, `splice_outside_list`,
+/// `non_symbol_param`, `rest_param_missing_name`,
+/// `rest_param_trailing_tokens`, `optional_param_malformed`,
+/// `defmacro_non_symbol_name`, `defmacro_non_list_params`), the
+/// `missing_head_err` invocation in the `TataraDomain` blanket impl
+/// at line 46, and the typed-exit `rewriter_non_list_err` builder
+/// all route through `s.witness()` after this lift.
+///
+/// Sibling of [`sexp_shape`] (the shape-only projection feeding
+/// `TypeMismatch.got` / `NamedFormNonSymbolName.got`) and
+/// [`sexp_type_name`] (the `&'static str`-only projection feeding
+/// legacy substring-grep consumers). [`Sexp::witness`] is the
+/// typed JOINT projection — both halves of the identity bundled
+/// into ONE owned `SexpWitness` value.
+///
+/// Theory anchor: THEORY.md §V.1 — knowable platform / constructive
+/// diagnostics. An error that names only the shape leaves the operator
+/// to guess what they wrote; an error that names only the literal
+/// withholds the structural identity tools want to pattern-match on.
+/// The witness names both. THEORY.md §VI.1 — generation over
+/// composition; the projection now lives on the typed `Sexp` algebra
+/// alongside `Sexp::shape`, so a future `Sexp` variant lands at the
+/// algebra's match site (via `Sexp::shape`'s exhaustive arm) without
+/// a module-path indirection. THEORY.md §II.1 invariant 1 — typed
+/// entry; the offending Sexp's identity is part of the proof of WHAT
+/// the typed-entry gate rejected.
+#[must_use]
+pub fn sexp_witness(s: &Sexp) -> SexpWitness {
+    s.witness()
 }
-
-pub fn extract_float(kw: &Kwargs<'_>, key: &str) -> Result<f64> {
-    required(kw, key)?
-        .as_float()
-        .ok_or_else(|| type_err(key, "number"))
-}
-
-pub fn extract_optional_float(kw: &Kwargs<'_>, key: &str) -> Result<Option<f64>> {
-    match kw.get(key) {
-        None => Ok(None),
-        Some(v) => v
-            .as_float()
-            .map(Some)
-            .ok_or_else(|| type_err(key, "number")),
-    }
-}
-
-pub fn extract_bool(kw: &Kwargs<'_>, key: &str) -> Result<bool> {
-    required(kw, key)?
-        .as_bool()
-        .ok_or_else(|| type_err(key, "bool"))
-}
-
-pub fn extract_optional_bool(kw: &Kwargs<'_>, key: &str) -> Result<Option<bool>> {
-    match kw.get(key) {
-        None => Ok(None),
-        Some(v) => v.as_bool().map(Some).ok_or_else(|| type_err(key, "bool")),
-    }
-}
-
 // ── Near-match suggestion ──────────────────────────────────────────
 //
 // The metric itself lives in `tatara-closed-set`, its only consumer
@@ -188,6 +714,483 @@ pub fn extract_optional_bool(kw: &Kwargs<'_>, key: &str) -> Result<Option<bool>>
 /// Defined in [`tatara_closed_set`] (its only consumer) and re-exported
 /// here so `tatara_lisp::domain::suggest` stays the canonical path.
 pub use tatara_closed_set::suggest;
+
+/// Structural duplicate-kwarg builder. Returns the dedicated
+/// `LispError::DuplicateKwarg` variant so authoring surfaces (REPL, LSP,
+/// `tatara-check`) bind to a first-class `key` field instead of
+/// substring-parsing the rendered message. Display matches the legacy
+/// `Compile { form: kwarg_form(key), message: "duplicate keyword" }`
+/// rendering byte-for-byte (`"compile error in :{key}: duplicate
+/// keyword"`), so existing `msg.contains("duplicate keyword")` /
+/// `msg.contains(":name")` assertions keep passing.
+///
+/// Two inline copies of the same triple — `parse_kwargs`'s top-level
+/// duplicate-keyword path and `sexp_to_json`'s nested-kwargs duplicate-
+/// keyword path — used to assemble this shape by hand. One named
+/// primitive lifts both into the substrate's structural-variant surface,
+/// so every `parse_kwargs` failure mode (`OddKwargs` for odd length,
+/// `TypeMismatch` for not-a-keyword-at-position, `DuplicateKwarg` for
+/// duplicate key) is now a structural variant of `LispError`, not a
+/// `Compile`-shaped substring.
+///
+/// Theory anchor: THEORY.md §V.1 — "Knowable platform … Render
+/// Anywhere." A diagnostic whose offending `key` is embedded in a
+/// free-form message is structurally incomplete; an authoring surface
+/// that wants to render a squiggly under the duplicate or hint a fix
+/// must re-parse the message. After this lift the slot exists in the
+/// variant's data shape itself. THEORY.md §II.1 invariant 1 (typed
+/// entry — "Ill-typed input errors before the value exists") — a
+/// duplicate kwarg is exactly the failure mode the typed-entry gate
+/// exists to reject; naming it structurally is the typed posture for
+/// that gate's diagnostic.
+#[must_use]
+pub fn duplicate_kwarg(key: &str) -> LispError {
+    LispError::DuplicateKwarg {
+        key: key.to_string(),
+    }
+}
+
+/// Structural missing-kwarg builder. Returns the dedicated
+/// `LispError::MissingKwarg` variant so authoring surfaces (REPL, LSP,
+/// `tatara-check`) bind to a first-class `key` field instead of
+/// substring-parsing the rendered message. Display matches the legacy
+/// `Compile { form: kwarg_form(key), message: "required but not
+/// provided" }` rendering byte-for-byte (`"compile error in :{key}:
+/// required but not provided"`), so existing
+/// `msg.contains("required")` / `msg.contains(":threshold")` assertions
+/// keep passing.
+///
+/// `required` (the kwarg lookup helper that fronts every typed
+/// extractor — `extract_string`, `extract_int`, `extract_float`,
+/// `extract_bool`, `extract_via_serde`, plus every hand-written
+/// `TataraDomain` impl in the forge / lattice / tameshi crates) used
+/// to assemble this shape inline. One named primitive lifts that into
+/// the substrate's structural-variant surface, so every kwarg-level
+/// "required-but-absent" failure routes through ONE function instead
+/// of re-formatting the shape per call site. After this lift every
+/// distinct `parse_kwargs` + `required` typed-entry kwarg failure mode
+/// (odd length, not-a-keyword-at-position, duplicate key, missing
+/// required key) is now a structural variant of `LispError`, not a
+/// `Compile`-shaped substring.
+///
+/// Sibling of the pre-existing `Missing(&'static str)` variant —
+/// `MissingKwarg` covers the runtime-key path the kwargs extractors
+/// share (every derive-generated extractor and every hand-written
+/// `TataraDomain` impl); `Missing` stays for compile-time-known names.
+///
+/// Theory anchor: THEORY.md §V.1 — "Knowable platform … Render
+/// Anywhere." A diagnostic whose offending `key` is embedded in a
+/// free-form message is structurally incomplete; an authoring surface
+/// that wants to render a squiggly under the missing kwarg slot or
+/// render a "did you mean :X?" hint must re-parse the message. After
+/// this lift the slot exists in the variant's data shape itself.
+/// THEORY.md §II.1 invariant 1 (typed entry — "Ill-typed input errors
+/// before the value exists") — a missing required kwarg is exactly the
+/// failure mode the typed-entry gate exists to reject; naming it
+/// structurally is the typed posture for that gate's diagnostic.
+#[must_use]
+pub fn missing_kwarg(key: &str) -> LispError {
+    LispError::MissingKwarg {
+        key: key.to_string(),
+    }
+}
+
+/// Structural type-mismatch builder. Pairs a typed `form: KwargPath`
+/// (typically `kwarg_form(_)` / `kwarg_item_form(_, _)` /
+/// `kwargs_pos_form(_)`) with the static `expected` label and the `got`
+/// projection of the offending `Sexp` through `sexp_type_name`. Returns
+/// the dedicated `LispError::TypeMismatch` variant so authoring surfaces
+/// (REPL, LSP, `tatara-check`) bind to first-class `form`/`expected`/`got`
+/// fields — pattern-matching on `KwargPath::Item { .. }` etc. directly —
+/// instead of substring-parsing the rendered message.
+///
+/// Three inline `format!("expected {X}, got {}", sexp_type_name(_))`
+/// copies in this module (`type_err`, `extract_string_list` per-item,
+/// `extract_vec_via_serde` non-list) used to assemble the same shape by
+/// hand; the three-times rule (THEORY.md §VI.1) calls for one named
+/// primitive. This is it. Future runs that thread `pos: Option<usize>`
+/// from `Sexp` spans add ONE field to the variant; every type-mismatch
+/// site inherits positional rendering with no consumer changes.
+#[must_use]
+pub fn type_mismatch(
+    form: crate::error::KwargPath,
+    expected: ExpectedKwargShape,
+    got: &Sexp,
+) -> LispError {
+    LispError::TypeMismatch {
+        form,
+        expected,
+        got: got.shape(),
+    }
+}
+
+fn type_err(key: &str, expected: ExpectedKwargShape, got: &Sexp) -> LispError {
+    type_mismatch(kwarg_form(key), expected, got)
+}
+
+/// Item-indexed sibling of `type_err` — pairs `kwarg_item_form` with
+/// `type_mismatch` so a per-item failure inside a list-typed kwarg names
+/// `KwargPath::Item { key, idx }` plus the structural `expected`/`got` shape.
+/// Used by `extract_string_list`'s per-item path; future per-item type-mismatch
+/// sites (e.g. typed enums-of-strings, typed numeric vecs) bind here
+/// rather than re-inlining the shape.
+fn type_err_at(key: &str, idx: usize, expected: ExpectedKwargShape, got: &Sexp) -> LispError {
+    type_mismatch(kwarg_item_form(key, idx), expected, got)
+}
+
+/// Required atomic-kwarg extractor — fronts every typed-atom public
+/// `extract_X` helper (`extract_string`, `extract_int`, `extract_float`,
+/// `extract_bool`). The four byte-identical inline shapes —
+///
+/// ```ignore
+/// let v = required(kw, key)?;
+/// v.as_X().ok_or_else(|| type_err(key, "<X-name>", v))
+/// ```
+///
+/// — collapse to ONE generic primitive parameterized by the projection
+/// function `project: FnOnce(&'a Sexp) -> Option<T>` and the typed-name
+/// label `expected: &'static str`. The four-times rule (THEORY.md §VI.1)
+/// is decisively crossed; lifting it into ONE primitive means the next
+/// change to the typed-atom failure-projection shape (e.g. threading
+/// `pos: Option<usize>` once `Sexp` carries spans, attaching a structural
+/// `source: SexpTypeMismatch` chain) lands as ONE signature change inside
+/// `extract_atom`, and all four public extractors pick up the upgrade
+/// mechanically — no per-extractor edit, no per-extractor test drift.
+///
+/// `T` is generic so the helper handles both owned (`i64`, `f64`, `bool`)
+/// and borrowed (`&'a str`) projections uniformly — the lifetime
+/// threading `&'a Sexp → Option<&'a str>` works because every
+/// `Sexp::as_*` method is `for<'b> fn(&'b Self) -> Option<…&'b str…>`;
+/// the helper inherits that lifetime quantification through
+/// `FnOnce(&'a Sexp) -> Option<T>`. Calling `extract_atom(kw, key,
+/// "string", Sexp::as_string)` infers `T = &'a str`; calling
+/// `extract_atom(kw, key, "int", Sexp::as_int)` infers `T = i64`.
+///
+/// Sibling of `extract_optional_atom` for the optional kwarg path —
+/// together the two close every distinct typed-atom kwarg extractor's
+/// shape: required vs. optional, returning `Result<T>` vs.
+/// `Result<Option<T>>` from the same underlying projection. Future
+/// extension to additional atomic types (e.g. `Atom::Bytes` if/when
+/// added) is ONE one-line public delegate plus ONE call site — no
+/// new error-path duplication.
+///
+/// Theory anchor: THEORY.md §VI.1 — generation over composition;
+/// three-times rule decisively crossed (four byte-identical
+/// extract+project+type-err shapes across `extract_string`,
+/// `extract_int`, `extract_float`, `extract_bool`). THEORY.md §V.1 —
+/// knowable platform / constructive diagnostics: the typed-atom
+/// kwarg-failure projection lives in ONE primitive so authoring
+/// surfaces (`tatara-check`, REPL, LSP) pick up the diagnostic-shape
+/// promotion mechanically once the variant is structurally extended.
+/// THEORY.md §II.1 invariant 1 — typed entry; the typed-atom
+/// extractor IS the rust-level typed-entry gate for primitive kwargs,
+/// and naming its single shape lifts the gate from four-site
+/// duplication to one rust function the substrate's diagnostic
+/// promotions hang off of.
+fn extract_atom<'a, T, F>(
+    kw: &'a Kwargs<'a>,
+    key: &str,
+    expected: ExpectedKwargShape,
+    project: F,
+) -> Result<T>
+where
+    F: FnOnce(&'a Sexp) -> Option<T>,
+{
+    let v = required(kw, key)?;
+    project(v).ok_or_else(|| type_err(key, expected, v))
+}
+
+/// Optional sibling of `extract_atom` — collapses the four byte-identical
+/// inline shapes of `extract_optional_string`, `extract_optional_int`,
+/// `extract_optional_float`, `extract_optional_bool`:
+///
+/// ```ignore
+/// match kw.get(key) {
+///     None => Ok(None),
+///     Some(v) => v.as_X().map(Some).ok_or_else(|| type_err(key, "<X-name>", v)),
+/// }
+/// ```
+///
+/// into ONE generic primitive. Same `T`/`project`/`expected` shape as
+/// `extract_atom`; the difference is the `kw.get(key)` short-circuit at
+/// the `None` arm — an absent kwarg is not an error for optional
+/// extractors, only a malformed-present one is. The `.copied()` on
+/// `kw.get(key)` projects `Option<&&'a Sexp>` to `Option<&'a Sexp>` so
+/// the `project` call gets the same `&'a Sexp` shape as the required
+/// path — type-checks against the same projection functions
+/// (`Sexp::as_string`, `Sexp::as_int`, etc.) without per-call casts.
+///
+/// Future structural promotion of the type-mismatch diagnostic lands at
+/// ONE call site inside this helper — same property as `extract_atom`.
+fn extract_optional_atom<'a, T, F>(
+    kw: &'a Kwargs<'a>,
+    key: &str,
+    expected: ExpectedKwargShape,
+    project: F,
+) -> Result<Option<T>>
+where
+    F: FnOnce(&'a Sexp) -> Option<T>,
+{
+    match optional(kw, key) {
+        None => Ok(None),
+        Some(v) => project(v)
+            .map(Some)
+            .ok_or_else(|| type_err(key, expected, v)),
+    }
+}
+
+/// List-typed kwarg extractor — fronts every public `extract_*` helper
+/// that reads a kwarg as a `Sexp::List` and projects each element to an
+/// owned `T`. The two byte-identical inline skeletons —
+///
+/// ```ignore
+/// let Some(v) = kw.get(key).copied() else { return Ok(Vec::new()) };
+/// let list = v.as_list().ok_or_else(|| type_err(key, <list-shape>, v))?;
+/// list.iter().enumerate().map(<per-item>).collect()
+/// ```
+///
+/// — `extract_string_list` (each item projected via `as_string`, per-item
+/// failure via `type_err_at`) and `extract_vec_via_serde` (each item via
+/// `from_value_with_path`, per-item failure carrying `KwargPath::item`) —
+/// collapse to ONE generic primitive parameterized by the outer-shape
+/// label `list_shape: ExpectedKwargShape` and the per-element projection
+/// `item: FnMut(usize, &Sexp) -> Result<T>`. The skeleton owns the three
+/// fixed decisions both extractors share: absent kwarg → `Ok(Vec::new())`
+/// (an absent list kwarg is the empty list, never an error — same posture
+/// `extract_optional_atom` takes for absent atoms); present-but-not-a-list
+/// → `type_err(key, list_shape, v)` (the outer-shape gate, labeled by the
+/// caller-supplied `list_shape` so `ListOfStrings` vs. `List` stays a
+/// per-caller decision, not baked into the skeleton); and the
+/// `iter().enumerate().map(item).collect()` per-element walk that threads
+/// the element index into the projection so per-item diagnostics can name
+/// `:<key>[<idx>]` without re-counting from the source.
+///
+/// This is the list-family sibling of `extract_atom` / `extract_optional_atom`
+/// (the atom-family generic projection primitives). Together the three close
+/// every distinct typed-kwarg extractor's outer skeleton: required atom,
+/// optional atom, and list. The per-element projection is `FnMut(usize,
+/// &Sexp) -> Result<T>` — generic over `T` so it handles both the owned-
+/// `String` (`extract_string_list`) and `DeserializeOwned`-`T`
+/// (`extract_vec_via_serde`) element shapes uniformly, and threading the
+/// `usize` index lets the projection construct the item-keyed
+/// `KwargPath::Item { key, idx }` / `type_err_at` path the per-item gate
+/// reports through.
+///
+/// Future structural promotion of the outer not-a-list diagnostic, or a
+/// move to a fallible-streaming collect that short-circuits on the first
+/// bad element with its position, lands at ONE site inside this helper —
+/// both public list extractors pick up the upgrade mechanically, same
+/// property `extract_atom` gives the four atom extractors.
+///
+/// Theory anchor: THEORY.md §VI.1 — generation over composition; the
+/// list-typed extractor skeleton recurs at two sites (the PRIME-DIRECTIVE
+/// ≥2 trigger) and is lifted to one owner, exactly as the atom skeleton was.
+/// THEORY.md §V.1 — knowable platform; the list-kwarg outer gate + per-item
+/// path live in ONE primitive so authoring surfaces (`tatara-check`, REPL,
+/// LSP) pick up diagnostic-shape promotions once, not per-extractor.
+/// THEORY.md §II.1 invariant 1 — typed entry; the list extractor IS the
+/// rust-level typed-entry gate for list-shaped kwargs, and naming its single
+/// skeleton lifts the gate from two-site duplication to one function the
+/// substrate's diagnostic promotions hang off of.
+fn extract_list<T, F>(
+    kw: &Kwargs<'_>,
+    key: &str,
+    list_shape: ExpectedKwargShape,
+    mut item: F,
+) -> Result<Vec<T>>
+where
+    F: FnMut(usize, &Sexp) -> Result<T>,
+{
+    let Some(v) = optional(kw, key) else {
+        return Ok(Vec::new());
+    };
+    let list = v.as_list().ok_or_else(|| type_err(key, list_shape, v))?;
+    list.iter()
+        .enumerate()
+        .map(|(idx, e)| item(idx, e))
+        .collect()
+}
+
+pub fn extract_string<'a>(kw: &'a Kwargs<'a>, key: &str) -> Result<&'a str> {
+    extract_atom(kw, key, ExpectedKwargShape::String, Sexp::as_string)
+}
+
+pub fn extract_optional_string<'a>(kw: &'a Kwargs<'a>, key: &str) -> Result<Option<&'a str>> {
+    extract_optional_atom(kw, key, ExpectedKwargShape::String, Sexp::as_string)
+}
+
+pub fn extract_string_list(kw: &Kwargs<'_>, key: &str) -> Result<Vec<String>> {
+    extract_list(kw, key, ExpectedKwargShape::ListOfStrings, |idx, s| {
+        s.as_string()
+            .map(String::from)
+            .ok_or_else(|| type_err_at(key, idx, ExpectedKwargShape::String, s))
+    })
+}
+
+pub fn extract_int(kw: &Kwargs<'_>, key: &str) -> Result<i64> {
+    extract_atom(kw, key, ExpectedKwargShape::Int, Sexp::as_int)
+}
+
+pub fn extract_optional_int(kw: &Kwargs<'_>, key: &str) -> Result<Option<i64>> {
+    extract_optional_atom(kw, key, ExpectedKwargShape::Int, Sexp::as_int)
+}
+
+pub fn extract_float(kw: &Kwargs<'_>, key: &str) -> Result<f64> {
+    extract_atom(kw, key, ExpectedKwargShape::Number, Sexp::as_float)
+}
+
+pub fn extract_optional_float(kw: &Kwargs<'_>, key: &str) -> Result<Option<f64>> {
+    extract_optional_atom(kw, key, ExpectedKwargShape::Number, Sexp::as_float)
+}
+
+pub fn extract_bool(kw: &Kwargs<'_>, key: &str) -> Result<bool> {
+    extract_atom(kw, key, ExpectedKwargShape::Bool, Sexp::as_bool)
+}
+
+pub fn extract_optional_bool(kw: &Kwargs<'_>, key: &str) -> Result<Option<bool>> {
+    extract_optional_atom(kw, key, ExpectedKwargShape::Bool, Sexp::as_bool)
+}
+
+// ── Universal serde-Deserialize fallthrough (enums, nested structs, …) ──
+//
+// `#[derive(TataraDomain)]` covers `String` / numeric / `bool` / their
+// `Option` and `Vec<String>` shapes with the typed extractors above. Any
+// field type outside that closed set falls through to these helpers, which
+// project the kwarg `Sexp` to canonical JSON via `sexp_to_json` and feed
+// it to `serde_json::from_value` — works for any `serde::Deserialize`.
+//
+// The shape used to live inline in three `quote!` blocks in the derive
+// macro (`Kind::Deserialize`, `Kind::OptionalDeserialize`,
+// `Kind::VecDeserialize`). Lifting them here means:
+//   - Hand-written `TataraDomain` impls share the same error path.
+//   - Future diagnostic upgrades (attaching a source position once `Sexp`
+//     carries spans, richer field-path traces) happen in ONE function,
+//     not three macro-emitted copies.
+//   - The `:<key> deserialize: …` message is a single named primitive in
+//     the substrate — `tatara-check` / LSP / REPL render it uniformly.
+//
+// Both helpers below funnel through the structural
+// `LispError::KwargDeserialize { path: KwargPath, message }` variant —
+// the typed-entry-side `from_value` mirror of the typed-exit-side
+// `to_value` `LispError::DomainSerialize { keyword, message }` lift. The
+// two sites bifurcate via the typed `KwargPath` enum's variant identity:
+// `KwargPath::Named(key)` for kwarg-keyed failures (the
+// `extract_via_serde` / `extract_optional_via_serde` path),
+// `KwargPath::Item { key, idx }` for kwarg-AND-index-keyed failures (the
+// `extract_vec_via_serde` per-item path). After this lift the
+// `from_value` boundary's two distinct rejection modes BOTH bind to ONE
+// structural variant of `LispError`, not a `Compile`-shaped substring;
+// the `(key, idx: Option<usize>)` bifurcation collapses into
+// `KwargPath`'s `Named` vs. `Item` variant identity, so the invalid
+// sibling-slot combination `(key: "", idx: Some(_))` for a scalar path
+// is structurally unrepresentable rather than re-asserted at the helper
+// boundary via runtime `Option::is_some` comparison. Together with
+// `DomainSerialize`, every distinct `serde_json` failure mode at the
+// typed-domain JSON boundary — both directions of the round-trip — is
+// now structurally typed. This is the LAST `LispError::Compile { ... }`
+// construction site in this file.
+//
+// Theory anchor: THEORY.md §VI.1 (generation over composition — the
+// generator must lean on the library, not duplicate the library inline).
+// THEORY.md §II.1 invariant 1 (typed entry) — `from_value` failures are
+// exactly the failure mode the typed-entry JSON gate exists to reject;
+// naming them structurally is the typed posture for that gate's
+// diagnostic.
+
+/// Project a single `&Sexp` through the typed-entry JSON boundary —
+/// `sexp_to_json` canonical-JSON projection + `serde_json::from_value::<T>`
+/// + structural `LispError::KwargDeserialize { path, message }` on failure.
+///
+/// THREE call sites in this module used to assemble this shape inline:
+/// `extract_via_serde` (required scalar kwarg path), `extract_optional_via_serde`
+/// (optional scalar kwarg path), and `extract_vec_via_serde`'s per-item
+/// closure (each item in a `Vec<T>` kwarg). The three byte-identical
+/// `let json = sexp_to_json(sexp)?; serde_json::from_value(json).map_err(|e|
+/// deserialize_*_err(<path-args>, &e))` shapes — modulo the typed
+/// `KwargPath` constructor (`KwargPath::Named` vs. `KwargPath::Item`) —
+/// collapse to ONE primitive parameterized by `path: KwargPath`. The
+/// path's variant identity bifurcates scalar-vs-item rendering inside
+/// `KwargPath`'s Display impl (`:<key>` vs. `:<key>[<idx>]`) so the helper
+/// is shape-of-typed-entry-JSON-boundary, not shape-of-call-site.
+///
+/// After this lift the three-times-rule on the `from_value` projection
+/// shape is decisively crossed; the two prior-run thin `deserialize_err`
+/// / `deserialize_item_err` shims — which encapsulated only the
+/// `KwargPath::named(_)` / `KwargPath::item(_,_)` constructor projection
+/// over an already-extant `serde_json::Error` reference — are subsumed
+/// by this primitive's `map_err` closure. The three extractor entry
+/// points now bind on `from_value_with_path::<T>` directly with their
+/// `KwargPath` constructed at the call boundary; the JSON-boundary's
+/// rejection shape (`LispError::KwargDeserialize { path, message }`)
+/// lives in ONE place — the `map_err` arm here — instead of being
+/// re-asserted at three site-specific shims.
+///
+/// `<T: DeserializeOwned>` is generic so the helper handles every serde-
+/// projectable typed-domain field uniformly — scalar `i64` / `String` /
+/// nested struct / `Vec<Nested>` / enum-by-symbol — same posture as the
+/// `extract_atom` / `extract_optional_atom` generic-projection primitives
+/// for the atom-typed kwarg path. `path: KwargPath` flows into the
+/// variant's typed slot directly (owned), parallel to how `type_mismatch`
+/// threads `KwargPath` into `LispError::TypeMismatch.form`. A future
+/// fourth path shape (e.g. `:<key>.<field>` for nested-struct kwarg
+/// failures) extends `KwargPath` ONCE and rustc-enforces matching at
+/// every projection site; this helper picks up the new shape mechanically
+/// with no signature change.
+///
+/// Theory anchor: THEORY.md §VI.1 — generation over composition; the
+/// three-times rule's load-bearing trigger. THEORY.md §V.1 — knowable
+/// platform; the typed-entry JSON-projection boundary's rejection shape
+/// lives in ONE primitive so authoring surfaces (`tatara-check`, REPL,
+/// LSP) pick up the diagnostic-shape promotion mechanically once the
+/// variant is structurally extended. THEORY.md §II.1 invariant 1 (typed
+/// entry) — a `from_value` failure is exactly the failure mode the
+/// typed-entry JSON gate exists to reject; naming its single shape lifts
+/// the gate from three-site duplication to one rust function the
+/// substrate's diagnostic promotions hang off of.
+fn from_value_with_path<T: DeserializeOwned>(sexp: &Sexp, path: KwargPath) -> Result<T> {
+    // The fork spells this `sexp.to_json()?` against a fallible
+    // `Sexp::to_json`. B's projection is the infallible free function
+    // `sexp_to_json`, so there is no error arm to thread — the
+    // `KwargDeserialize` path below is the only rejection either way.
+    // Unifying the two projections is the ast.rs port's business, not
+    // this step's.
+    let json = sexp_to_json(sexp);
+    serde_json::from_value(json).map_err(|e| LispError::KwargDeserialize {
+        path,
+        message: e.to_string(),
+    })
+}
+
+/// Required field — feeds the kwarg's canonical-JSON projection to
+/// `serde_json::from_value::<T>` via `from_value_with_path` with a
+/// `KwargPath::Named(key)` path slot. Errors carry `:key` so authoring
+/// tools can point at the offending kwarg.
+pub fn extract_via_serde<T: DeserializeOwned>(kw: &Kwargs<'_>, key: &str) -> Result<T> {
+    from_value_with_path(required(kw, key)?, KwargPath::named(key))
+}
+
+/// Optional field — `None` if the kwarg is absent; `Some(T)` after a
+/// successful `from_value_with_path` round-trip with a `KwargPath::Named(key)`
+/// path slot.
+pub fn extract_optional_via_serde<T: DeserializeOwned>(
+    kw: &Kwargs<'_>,
+    key: &str,
+) -> Result<Option<T>> {
+    let Some(sexp) = optional(kw, key) else {
+        return Ok(None);
+    };
+    from_value_with_path(sexp, KwargPath::named(key)).map(Some)
+}
+
+/// `Vec<T>` field — empty vec if the kwarg is absent; otherwise the kwarg
+/// must be a `Sexp::List` and each item flows through `from_value_with_path`
+/// with a `KwargPath::Item { key, idx }` path slot, naming both the outer
+/// kwarg AND the failing item index in any per-item rejection.
+pub fn extract_vec_via_serde<T: DeserializeOwned>(kw: &Kwargs<'_>, key: &str) -> Result<Vec<T>> {
+    extract_list(kw, key, ExpectedKwargShape::List, |idx, item| {
+        from_value_with_path(item, KwargPath::item(key, idx))
+    })
+}
 
 // ── Domain registry (runtime-registered, callable by keyword) ───────
 
@@ -971,7 +1974,6 @@ macro_rules! register_all_capabilities {
 // field type implementing `Deserialize`. Handles enums (via symbol→string),
 // nested structs (via kwargs→object), and `Vec<T>` of either.
 
-use crate::ast::Atom;
 use serde_json::Value as JValue;
 
 /// Convert a Sexp to its canonical JSON form.
@@ -1142,6 +2144,105 @@ mod tests {
     #[test]
     fn derive_emits_correct_keyword() {
         assert_eq!(MonitorSpec::KEYWORD, "defmonitor");
+    }
+
+    // ── The two kwarg gates, each proved to REJECT ──────────────────
+    //
+    // Both of these forms used to compile successfully, which is the
+    // whole reason the helper layer moved: a `HashMap::insert` whose
+    // return value was discarded made a repeated `:key` a silent
+    // last-one-wins, and the total absence of an allowed-set check made
+    // a typo'd `:key` a silent fall-through to the field's default.
+    // Both are now typed rejections at the parse boundary, and both
+    // tests fail (compile succeeds, `unwrap_err` panics) if either gate
+    // is ever removed.
+
+    /// G1 — a repeated `:key` is REJECTED, and the diagnostic names it.
+    #[test]
+    fn duplicate_kwarg_is_rejected_not_silently_last_wins() {
+        let forms = read(
+            r#"(defmonitor
+                 :name "first"
+                 :query "up"
+                 :threshold 0.5
+                 :name "second")"#,
+        )
+        .expect("reads");
+        let err = MonitorSpec::compile_from_sexp(&forms[0])
+            .expect_err("a repeated :name must not parse — pre-fix it silently took \"second\"");
+        assert!(
+            matches!(&err, LispError::DuplicateKwarg { key } if key == "name"),
+            "expected DuplicateKwarg {{ key: \"name\" }}, got {err:?}"
+        );
+    }
+
+    /// G1, the other half — the FIRST binding is not quietly kept either.
+    /// Rejection, not a silent choice of winner, is the contract.
+    #[test]
+    fn duplicate_kwarg_rejects_rather_than_picking_a_winner() {
+        let forms =
+            read(r#"(defmonitor :name "a" :name "a" :query "q" :threshold 1.0)"#).expect("reads");
+        assert!(MonitorSpec::compile_from_sexp(&forms[0]).is_err());
+    }
+
+    /// G2 — an unknown `:key` is REJECTED rather than ignored, and a
+    /// near-miss carries an edit-distance hint.
+    #[test]
+    fn unknown_kwarg_is_rejected_with_a_suggestion() {
+        let forms = read(
+            r#"(defmonitor
+                 :name "prom-up"
+                 :query "up"
+                 :threshold 0.5
+                 :thrshold 0.9)"#,
+        )
+        .expect("reads");
+        let err = MonitorSpec::compile_from_sexp(&forms[0]).expect_err(
+            "a typo'd :thrshold must not parse — pre-fix it was dropped and `threshold` \
+             kept whatever the correctly-spelled slot held",
+        );
+        let LispError::UnknownKwarg { key, hint, .. } = &err else {
+            panic!("expected UnknownKwarg, got {err:?}");
+        };
+        assert_eq!(key, "thrshold");
+        assert_eq!(
+            hint.as_deref(),
+            Some("threshold"),
+            "a one-character transposition is inside the suggestion bound"
+        );
+    }
+
+    /// G2, the far-from-anything case — still rejected, just without a
+    /// hint. A wrong hint is worse than no hint.
+    #[test]
+    fn unknown_kwarg_with_no_near_match_is_still_rejected() {
+        let forms =
+            read(r#"(defmonitor :name "n" :query "q" :threshold 1.0 :zzzzzzzz 1)"#).expect("reads");
+        let err = MonitorSpec::compile_from_sexp(&forms[0]).expect_err("unknown key must reject");
+        let LispError::UnknownKwarg { key, hint, .. } = &err else {
+            panic!("expected UnknownKwarg, got {err:?}");
+        };
+        assert_eq!(key, "zzzzzzzz");
+        assert_eq!(hint.as_deref(), None);
+    }
+
+    /// The gate must not over-reject: every declared field's kebab key —
+    /// including the ones reached through the four extractor branches —
+    /// stays accepted. This is what would fail if the allowed-set were
+    /// collected inside a branch that `continue`s.
+    #[test]
+    fn every_declared_field_key_stays_accepted() {
+        let forms = read(
+            r#"(defmonitor
+                 :name "n"
+                 :query "q"
+                 :threshold 1.0
+                 :window-seconds 30
+                 :tags ("a")
+                 :enabled #f)"#,
+        )
+        .expect("reads");
+        MonitorSpec::compile_from_sexp(&forms[0]).expect("all six declared keys must remain valid");
     }
 
     #[test]

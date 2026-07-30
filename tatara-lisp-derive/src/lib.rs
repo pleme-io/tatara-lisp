@@ -129,9 +129,16 @@ pub fn derive_tatara_domain(input: TokenStream) -> TokenStream {
     };
 
     let mut field_inits: Vec<TokenStream2> = Vec::with_capacity(fields.len());
+    // The allowed-set backing the unknown-kwarg gate below. Collected here,
+    // ABOVE the four extractor branches, so a branch that `continue`s cannot
+    // silently omit its own key from the set — an omission would turn a valid
+    // kwarg into a hard rejection, which is worse than the silent acceptance
+    // the gate replaces.
+    let mut allowed_keys: Vec<String> = Vec::with_capacity(fields.len());
     for field in fields {
         let ident = field.ident.as_ref().expect("named field");
         let kebab = snake_to_kebab(&ident.to_string());
+        allowed_keys.push(kebab.clone());
         let has_default = has_serde_default(field);
         // Phase F: `#[tatara(domain)]` opts the field into the nested
         // TataraDomain path — generate `<T as TataraDomain>::compile_from_sexp`
@@ -166,6 +173,8 @@ pub fn derive_tatara_domain(input: TokenStream) -> TokenStream {
         }
     }
 
+    let allowed_lits = allowed_keys.iter().map(|k| quote! { #k });
+
     let expanded = quote! {
         impl ::tatara_lisp::domain::TataraDomain for #name {
             const KEYWORD: &'static str = #keyword;
@@ -173,7 +182,21 @@ pub fn derive_tatara_domain(input: TokenStream) -> TokenStream {
             fn compile_from_args(
                 args: &[::tatara_lisp::Sexp],
             ) -> ::tatara_lisp::Result<Self> {
-                let kw = ::tatara_lisp::domain::parse_kwargs(args)?;
+                const __TATARA_ALLOWED_KEYWORDS: &[&::core::primitive::str] = &[
+                    #(#allowed_lits),*
+                ];
+                // The fused typed-entry kwargs gate: parse `:k v :k v …` AND
+                // assert every key sits in the static allowed-set, in ONE
+                // call. Emitting the two-call sequence instead would let a
+                // future emitter — or a hand-written impl — keep the parse
+                // and drop the check, which is exactly the state this
+                // replaces: before the fuse, an unknown or typo'd kwarg was
+                // parsed, matched nothing, and the field silently took its
+                // serde default. One function, one call site, one diagnostic.
+                let kw = ::tatara_lisp::domain::parse_kwargs_strict(
+                    args,
+                    __TATARA_ALLOWED_KEYWORDS,
+                )?;
                 Ok(Self {
                     #(#field_inits),*
                 })
@@ -406,45 +429,26 @@ fn extractor_for(ty: &Type, key: &str, has_default: bool) -> Result<TokenStream2
         },
         // Fall-through: anything with `serde::Deserialize` works via the
         // sexp_to_json bridge. Unlocks enums, nested structs, Vec<Struct>.
+        //
+        // The three bodies these arms used to emit — required / optional /
+        // vec, each an inline `sexp_to_json` + `serde_json::from_value` +
+        // `LispError::Compile` shaping — were the same shape written three
+        // times inside a `quote!`, which is the worst place for a
+        // duplicated shape to live: it is invisible to the compiler that
+        // consumes it. They now delegate to the three helpers in
+        // `tatara_lisp::domain`, so a hand-written impl and a derived one
+        // take the identical error path, and the path names the offending
+        // kwarg structurally (`LispError::KwargDeserialize { path, .. }`,
+        // with the item index for the vec arm) instead of shipping a
+        // `Compile { form, message }` an authoring tool has to substring.
         Kind::Deserialize => quote! {
-            {
-                let sexp = ::tatara_lisp::domain::required(&kw, #key)?;
-                let json = ::tatara_lisp::domain::sexp_to_json(sexp);
-                ::serde_json::from_value(json).map_err(|e| ::tatara_lisp::LispError::Compile {
-                    form: #key.to_string(),
-                    message: format!("deserialize: {e}"),
-                })?
-            }
+            ::tatara_lisp::domain::extract_via_serde(&kw, #key)?
         },
         Kind::OptionalDeserialize => quote! {
-            match kw.get(#key) {
-                None => None,
-                Some(sexp) => {
-                    let json = ::tatara_lisp::domain::sexp_to_json(sexp);
-                    Some(::serde_json::from_value(json).map_err(|e| ::tatara_lisp::LispError::Compile {
-                        form: #key.to_string(),
-                        message: format!("deserialize: {e}"),
-                    })?)
-                }
-            }
+            ::tatara_lisp::domain::extract_optional_via_serde(&kw, #key)?
         },
         Kind::VecDeserialize => quote! {
-            match kw.get(#key) {
-                None => ::std::vec::Vec::new(),
-                Some(sexp) => {
-                    let list = sexp.as_list().ok_or_else(|| ::tatara_lisp::LispError::Compile {
-                        form: #key.to_string(),
-                        message: "expected list".into(),
-                    })?;
-                    list.iter().map(|item| {
-                        let json = ::tatara_lisp::domain::sexp_to_json(item);
-                        ::serde_json::from_value(json).map_err(|e| ::tatara_lisp::LispError::Compile {
-                            form: #key.to_string(),
-                            message: format!("deserialize: {e}"),
-                        })
-                    }).collect::<::tatara_lisp::Result<::std::vec::Vec<_>>>()?
-                }
-            }
+            ::tatara_lisp::domain::extract_vec_via_serde(&kw, #key)?
         },
     };
     // Respect `#[serde(default)]` — wrap extractor with a missing-key short-circuit.

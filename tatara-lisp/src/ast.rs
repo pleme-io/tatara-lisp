@@ -264,6 +264,23 @@ impl Sexp {
             }
         }
     }
+
+    /// Project this form to its stable human-readable outer-shape label —
+    /// the `&'static str` axis of [`Self::shape`]. One projection, so a
+    /// diagnostic label and a pattern-matchable shape can never disagree.
+    #[must_use]
+    pub fn type_name(&self) -> &'static str {
+        self.shape().label()
+    }
+
+    /// Project this form to its [`SexpWitness`] — the typed shape paired
+    /// with the owned `Display` rendering, in one value that outlives the
+    /// call frame. This is what the structural `LispError` variants carry
+    /// in their `got` slots.
+    #[must_use]
+    pub fn witness(&self) -> crate::error::SexpWitness {
+        crate::error::SexpWitness::new(self.shape(), self.to_string())
+    }
 }
 
 impl fmt::Display for Sexp {

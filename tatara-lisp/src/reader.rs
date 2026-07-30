@@ -150,11 +150,15 @@ fn parse<I: Iterator<Item = Token>>(it: &mut std::iter::Peekable<I>) -> Result<S
                         return Ok(Sexp::List(xs));
                     }
                     Some(_) => xs.push(parse(it)?),
-                    None => return Err(LispError::UnmatchedOpenParen),
+                    // `pos: 0` is the pre-existing position-free placeholder.
+                    // The unspanned token stream genuinely carries no offset;
+                    // phase 2 step 6 replaces this reader with the spanned one
+                    // and the placeholder dies there.
+                    None => return Err(LispError::UnmatchedOpenParen { pos: 0 }),
                 }
             }
         }
-        Some(Token::RParen) => Err(LispError::UnmatchedParen(0)),
+        Some(Token::RParen) => Err(LispError::UnmatchedParen { pos: 0 }),
         Some(Token::Quote) => {
             let inner = parse(it)?;
             Ok(Sexp::Quote(Box::new(inner)))
@@ -173,7 +177,7 @@ fn parse<I: Iterator<Item = Token>>(it: &mut std::iter::Peekable<I>) -> Result<S
         }
         Some(Token::Str(s)) => Ok(Sexp::Atom(Atom::Str(s))),
         Some(Token::Atom(s)) => Ok(atom_from_str(&s)),
-        None => Err(LispError::Eof),
+        None => Err(LispError::Eof { pos: 0 }),
     }
 }
 
@@ -348,14 +352,14 @@ fn parse_spanned<I: Iterator<Item = SpannedToken>>(
                         ));
                     }
                     Some(_) => xs.push(parse_spanned(it)?),
-                    None => return Err(LispError::UnmatchedOpenParen),
+                    None => return Err(LispError::UnmatchedOpenParen { pos: 0 }),
                 }
             }
         }
         Some(SpannedToken {
             kind: Token::RParen,
             ..
-        }) => Err(LispError::UnmatchedParen(0)),
+        }) => Err(LispError::UnmatchedParen { pos: 0 }),
         Some(SpannedToken {
             kind: Token::Quote,
             span: q_span,
@@ -399,7 +403,7 @@ fn parse_spanned<I: Iterator<Item = SpannedToken>>(
             kind: Token::Atom(s),
             span,
         }) => Ok(Spanned::new(span, spanned_atom_from_str(&s))),
-        None => Err(LispError::Eof),
+        None => Err(LispError::Eof { pos: 0 }),
     }
 }
 

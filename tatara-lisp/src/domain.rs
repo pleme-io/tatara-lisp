@@ -72,7 +72,9 @@ pub fn parse_kwargs(args: &[Sexp]) -> Result<Kwargs<'_>> {
         i += 2;
     }
     if i < args.len() {
-        return Err(LispError::OddKwargs);
+        return Err(LispError::OddKwargs {
+            dangling: args[i].to_string(),
+        });
     }
     Ok(kw)
 }

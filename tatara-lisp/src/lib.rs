@@ -53,10 +53,16 @@ pub use domain::{
 // macros vs. types), so they coexist cleanly under one import.
 pub use tatara_lisp_derive::{KeywordSexp as DeriveKeywordSexp, TataraDomain as DeriveTataraDomain};
 
-pub use ast::{Atom, Sexp};
+pub use ast::{Atom, AtomKind, QuoteForm, Sexp, UnknownAtomKind, UnknownQuoteForm};
 pub use compile::{compile_named, compile_named_from_forms, compile_typed, NamedDefinition};
 pub use env::Env;
-pub use error::{LispError, Result};
+pub use error::{
+    CompilerSpecIoStage, ExpectedKwargShape, KwargPath, KwargPathKind, LispError, MacroDefHead,
+    OptionalParamMalformedReason, Result, SexpShape, SexpWitness, StructuralKind,
+    TemplateInvariantKind, UnknownCompilerSpecIoStage, UnknownExpectedKwargShape,
+    UnknownKwargPathKind, UnknownMacroDefHead, UnknownSexpShape, UnknownStructuralKind,
+    UnknownUnquoteForm, UnquoteForm,
+};
 pub use macro_expand::{Expander, MacroDef, Param};
 pub use reader::{read, read_spanned};
 pub use span::Span;

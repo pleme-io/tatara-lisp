@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use tatara_lisp::{caret_run, line_at, Span};
+use tatara_lisp::{caret_run, line_at, span_width_chars, Span};
 use thiserror::Error;
 
 use crate::ffi::Arity;
@@ -161,13 +161,17 @@ impl EvalError {
 
         // CHARS, not bytes — `caret_run` pads to a char column, so the
         // width must be counted in the same unit or the two disagree on
-        // any non-ASCII source. `get` rather than direct indexing so a
-        // span landing off a char boundary degrades to a single caret
-        // instead of panicking inside a diagnostic renderer.
-        let width = src
-            .get(span.start..span.end)
-            .map_or(1, |covered| covered.chars().count());
-        let caret_line = format!("{gutter} | {run}", run = caret_run(line, col, width));
+        // any non-ASCII source. That conversion is
+        // [`tatara_lisp::span_width_chars`], the same one
+        // `format_diagnostic` goes through, rather than a second copy of
+        // the expression here: two hand-rolls of a unit conversion are
+        // exactly how the byte-vs-char drift this comment describes got
+        // in. It also carries the off-char-boundary degrade-to-1 guard,
+        // so a diagnostic renderer never panics.
+        let caret_line = format!(
+            "{gutter} | {run}",
+            run = caret_run(line, col, span_width_chars(src, span))
+        );
 
         let summary = self.short_message();
         format!(

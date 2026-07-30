@@ -3,9 +3,20 @@
 //! ONE tokenizer, two projections. Source positions are byte offsets into
 //! the original `&str`; every token carries the `Span` of its own lexeme,
 //! and reader-level errors (`UnmatchedParen`, `UnmatchedOpenParen`, `Eof`,
-//! `UnterminatedString`) report a real offset so downstream tools
-//! (`tatara-lispc`, `tatara-check`, REPL, future LSP) can pinpoint the
-//! failure in the source.
+//! `UnterminatedString`) report a real `Span` — a `[start, end)` RANGE,
+//! not a point — so downstream tools (`tatara-lispc`, `tatara-check`,
+//! REPL, future LSP) can pinpoint AND underline the failure in the source.
+//!
+//! The reader's error currency is [`Span`], uniformly. Pre-lift those four
+//! variants carried a bare `pos: usize`, which was strictly less than what
+//! the tokenizer already knew: every token here is built with both ends of
+//! its lexeme in hand, and the parser holds the open-paren token while it
+//! reads a form's children. Throwing the end away meant
+//! `crate::diagnostic::format_diagnostic` could only ever pass width 1 to
+//! `caret_run`, so an unclosed `(a (b c` pointed one caret at the `(`
+//! instead of underlining `(b c`. The end offsets below are the ones the
+//! reader genuinely knows — see [`SourceTail`] for why an unclosed form
+//! ends at the last TOKEN rather than at `src.len()`.
 //!
 //! Pre-consolidation this file carried TWO tokenizers and TWO atom
 //! classifiers — a "plain" pair that threw positions away and a "spanned"
@@ -61,14 +72,58 @@ struct SpannedToken {
     span: Span,
 }
 
+/// The two end-of-input offsets a reader error can need, carried as ONE
+/// value so the two parsers cannot thread different ends of the source.
+///
+/// They differ, and the difference is what makes an unclosed-form
+/// underline readable:
+///
+/// * `eof` is `src.len()` — where an [`LispError::Eof`] points, because
+///   "input ran out" is a fact about the input, not about any token.
+/// * `last_token_end` is the end of the LAST lexeme in the stream. An
+///   unclosed `(` is reported as the span `[open, last_token_end)`: the
+///   extent of the partial form. Using `eof` there would drag trailing
+///   whitespace, newlines and comments under the caret run — `"(a b   "`
+///   would underline seven columns to name a four-column form.
+///
+/// `last_token_end` is 0 for an empty token stream, which is unreachable
+/// from a parse: `read`/`read_spanned` only enter `parse` when the stream
+/// has a token, and every recursive entry is preceded by one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SourceTail {
+    eof: usize,
+    last_token_end: usize,
+}
+
+impl SourceTail {
+    fn of(src: &str, tokens: &[SpannedToken]) -> Self {
+        Self {
+            eof: src.len(),
+            last_token_end: tokens.last().map_or(0, |t| t.span.end),
+        }
+    }
+
+    /// Span for an unclosed `(` opened at `open_start` — the partial
+    /// form's extent.
+    fn unclosed_from(self, open_start: usize) -> Span {
+        Span::new(open_start, self.last_token_end)
+    }
+
+    /// Zero-width span AT end-of-input. There is no text to underline;
+    /// `caret_run` clamps the width up to a single caret.
+    fn eof_span(self) -> Span {
+        Span::new(self.eof, self.eof)
+    }
+}
+
 /// Read a full program (sequence of top-level forms) into a `Vec<Sexp>`.
 pub fn read(src: &str) -> Result<Vec<Sexp>> {
     let tokens = tokenize(src)?;
-    let eof_pos = src.len();
+    let tail = SourceTail::of(src, &tokens);
     let mut it = tokens.into_iter().peekable();
     let mut forms = Vec::new();
     while it.peek().is_some() {
-        forms.push(parse(&mut it, eof_pos)?);
+        forms.push(parse(&mut it, tail)?);
     }
     Ok(forms)
 }
@@ -80,11 +135,11 @@ pub fn read(src: &str) -> Result<Vec<Sexp>> {
 /// additive in what it carries.
 pub fn read_spanned(src: &str) -> Result<Vec<Spanned>> {
     let tokens = tokenize(src)?;
-    let eof_pos = src.len();
+    let tail = SourceTail::of(src, &tokens);
     let mut it = tokens.into_iter().peekable();
     let mut forms = Vec::new();
     while it.peek().is_some() {
-        forms.push(parse_spanned(&mut it, eof_pos)?);
+        forms.push(parse_spanned(&mut it, tail)?);
     }
     Ok(forms)
 }
@@ -212,7 +267,15 @@ fn tokenize(src: &str) -> Result<Vec<SpannedToken>> {
                             break;
                         }
                         Some((_, ch)) => s.push(ch),
-                        None => return Err(LispError::UnterminatedString(pos)),
+                        // The unterminated run reaches end-of-input by
+                        // construction — this arm fires only when the char
+                        // iterator is exhausted — so `src.len()` is the
+                        // exact end of what the tokenizer consumed, and
+                        // the span underlines the whole dangling literal
+                        // rather than pointing at its opening quote.
+                        None => {
+                            return Err(LispError::UnterminatedString(Span::new(pos, src.len())))
+                        }
                     }
                 }
                 out.push(SpannedToken {
@@ -257,7 +320,7 @@ fn tokenize(src: &str) -> Result<Vec<SpannedToken>> {
 
 fn parse<I: Iterator<Item = SpannedToken>>(
     it: &mut std::iter::Peekable<I>,
-    eof_pos: usize,
+    tail: SourceTail,
 ) -> Result<Sexp> {
     match it.next() {
         Some(SpannedToken {
@@ -274,10 +337,10 @@ fn parse<I: Iterator<Item = SpannedToken>>(
                         it.next();
                         return Ok(Sexp::List(xs));
                     }
-                    Some(_) => xs.push(parse(it, eof_pos)?),
+                    Some(_) => xs.push(parse(it, tail)?),
                     None => {
                         return Err(LispError::UnmatchedOpenParen {
-                            pos: open_span.start,
+                            span: tail.unclosed_from(open_span.start),
                         })
                     }
                 }
@@ -286,7 +349,7 @@ fn parse<I: Iterator<Item = SpannedToken>>(
         Some(SpannedToken {
             kind: Token::RParen,
             span,
-        }) => Err(LispError::UnmatchedParen { pos: span.start }),
+        }) => Err(LispError::UnmatchedParen { span }),
         // The four pre-lift `Token::Quote*` arms collapse to ONE arm
         // routing through the typed `QuoteForm` marker — the (Token
         // variant, `Sexp::*` constructor) pairing binds at the closed-set
@@ -295,7 +358,7 @@ fn parse<I: Iterator<Item = SpannedToken>>(
         Some(SpannedToken {
             kind: Token::Quoted(qf),
             ..
-        }) => read_quoted(it, eof_pos, qf),
+        }) => read_quoted(it, tail, qf),
         Some(SpannedToken {
             kind: Token::Str(s),
             ..
@@ -311,7 +374,9 @@ fn parse<I: Iterator<Item = SpannedToken>>(
             kind: Token::Atom(s),
             ..
         }) => Ok(Sexp::Atom(Atom::from_lexeme(&s))),
-        None => Err(LispError::Eof { pos: eof_pos }),
+        None => Err(LispError::Eof {
+            span: tail.eof_span(),
+        }),
     }
 }
 
@@ -334,16 +399,16 @@ fn parse<I: Iterator<Item = SpannedToken>>(
 /// [`SpannedForm::wrap`] over the SAME marker.
 fn read_quoted<I: Iterator<Item = SpannedToken>>(
     it: &mut std::iter::Peekable<I>,
-    eof_pos: usize,
+    tail: SourceTail,
     qf: QuoteForm,
 ) -> Result<Sexp> {
-    let inner = parse(it, eof_pos)?;
+    let inner = parse(it, tail)?;
     Ok(qf.wrap(inner))
 }
 
 fn parse_spanned<I: Iterator<Item = SpannedToken>>(
     it: &mut std::iter::Peekable<I>,
-    eof_pos: usize,
+    tail: SourceTail,
 ) -> Result<Spanned> {
     match it.next() {
         Some(SpannedToken {
@@ -364,10 +429,10 @@ fn parse_spanned<I: Iterator<Item = SpannedToken>>(
                             SpannedForm::List(xs),
                         ));
                     }
-                    Some(_) => xs.push(parse_spanned(it, eof_pos)?),
+                    Some(_) => xs.push(parse_spanned(it, tail)?),
                     None => {
                         return Err(LispError::UnmatchedOpenParen {
-                            pos: open_span.start,
+                            span: tail.unclosed_from(open_span.start),
                         })
                     }
                 }
@@ -376,11 +441,11 @@ fn parse_spanned<I: Iterator<Item = SpannedToken>>(
         Some(SpannedToken {
             kind: Token::RParen,
             span,
-        }) => Err(LispError::UnmatchedParen { pos: span.start }),
+        }) => Err(LispError::UnmatchedParen { span }),
         Some(SpannedToken {
             kind: Token::Quoted(qf),
             span,
-        }) => read_quoted_spanned(it, eof_pos, qf, span),
+        }) => read_quoted_spanned(it, tail, qf, span),
         Some(SpannedToken {
             kind: Token::Str(s),
             span,
@@ -392,7 +457,9 @@ fn parse_spanned<I: Iterator<Item = SpannedToken>>(
             span,
             SpannedForm::Atom(Atom::from_lexeme(&s)),
         )),
-        None => Err(LispError::Eof { pos: eof_pos }),
+        None => Err(LispError::Eof {
+            span: tail.eof_span(),
+        }),
     }
 }
 
@@ -401,11 +468,11 @@ fn parse_spanned<I: Iterator<Item = SpannedToken>>(
 /// marker, then widens the span to cover the prefix AND the datum.
 fn read_quoted_spanned<I: Iterator<Item = SpannedToken>>(
     it: &mut std::iter::Peekable<I>,
-    eof_pos: usize,
+    tail: SourceTail,
     qf: QuoteForm,
     prefix_span: Span,
 ) -> Result<Spanned> {
-    let inner = parse_spanned(it, eof_pos)?;
+    let inner = parse_spanned(it, tail)?;
     let full = Span::new(prefix_span.start, inner.span.end.max(prefix_span.end));
     Ok(Spanned::new(full, SpannedForm::wrap(qf, inner)))
 }
@@ -469,20 +536,30 @@ mod tests {
 
     // ── Source-position fidelity ────────────────────────────────────────
     //
-    // The four reader-level errors carry byte offsets so authoring tools
-    // can render them at the right place. Pre-consolidation the PLAIN
-    // parser could not: it consumed an unspanned token stream and spelled
-    // `UnmatchedOpenParen { pos: 0 }` / `UnmatchedParen { pos: 0 }` /
-    // `Eof { pos: 0 }`. Those three hardcodes are what these tests are
-    // here to keep dead — a regression that re-splits the tokenizer makes
-    // them fail rather than silently re-report byte 0 for everything.
+    // The four reader-level errors carry `Span`s — RANGES — so authoring
+    // tools can render them at the right place AND underline the right
+    // extent. Two regressions are kept dead here.
+    //
+    // First: pre-consolidation the PLAIN parser consumed an unspanned
+    // token stream and spelled `UnmatchedOpenParen { pos: 0 }` /
+    // `UnmatchedParen { pos: 0 }` / `Eof { pos: 0 }` — three hardcodes. A
+    // regression that re-splits the tokenizer makes these fail rather
+    // than silently re-report byte 0 for everything.
+    //
+    // Second: pre-span-lift these variants carried only `start`, so every
+    // reader diagnostic could render exactly one caret no matter how much
+    // source the failure covered. The `end` assertions below are what
+    // keep the widths honest — see `SourceTail` for why an unclosed form
+    // ends at the last TOKEN and not at `src.len()`.
 
     #[test]
     fn unmatched_closing_paren_reports_byte_offset() {
-        // `   )` — the stray `)` is at byte 3.
+        // `   )` — the stray `)` is at byte 3, and the span is exactly
+        // that one-byte token: a stray closer names itself, so this
+        // renders as a single caret both before and after the span lift.
         let err = read("   )").unwrap_err();
         match err {
-            LispError::UnmatchedParen { pos } => assert_eq!(pos, 3),
+            LispError::UnmatchedParen { span } => assert_eq!(span, Span::new(3, 4)),
             other => panic!("expected UnmatchedParen, got {other:?}"),
         }
     }
@@ -491,10 +568,12 @@ mod tests {
     fn unmatched_opening_paren_reports_offset_of_open() {
         // `(a (b c` — the inner `(` is at byte 3 and stays unclosed; the
         // outer `(` at byte 0 is also unclosed but the deepest unclosed
-        // open is what the parser hits first.
+        // open is what the parser hits first. The span runs to byte 7,
+        // the end of the last token (`c`), so the partial form `(b c` is
+        // the underlined extent.
         let err = read("(a (b c").unwrap_err();
         match err {
-            LispError::UnmatchedOpenParen { pos } => assert_eq!(pos, 3),
+            LispError::UnmatchedOpenParen { span } => assert_eq!(span, Span::new(3, 7)),
             other => panic!("expected UnmatchedOpenParen, got {other:?}"),
         }
     }
@@ -506,8 +585,53 @@ mod tests {
         // test above pins a NON-zero offset for the same variant.
         let err = read("(a b").unwrap_err();
         match err {
-            LispError::UnmatchedOpenParen { pos } => assert_eq!(pos, 0),
+            LispError::UnmatchedOpenParen { span } => assert_eq!(span, Span::new(0, 4)),
             other => panic!("expected UnmatchedOpenParen, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unmatched_open_span_ends_at_last_token_not_at_eof() {
+        // THE reason `SourceTail` carries two offsets. `(a b` followed by
+        // trailing whitespace and a comment: the form's extent is still
+        // `[0, 4)` — bytes 4..15 are trailing trivia the tokenizer emitted
+        // no token for. Ending the span at `src.len()` instead would
+        // underline eleven columns of nothing to name a four-column form.
+        let src = "(a b   ; tail\n";
+        assert_eq!(src.len(), 14);
+        let err = read(src).unwrap_err();
+        match err {
+            LispError::UnmatchedOpenParen { span } => assert_eq!(span, Span::new(0, 4)),
+            other => panic!("expected UnmatchedOpenParen, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unterminated_string_span_covers_the_dangling_literal() {
+        // `(a "bc` — the `"` opens at byte 3 and the tokenizer consumes to
+        // end-of-input looking for a closer, so the span is the whole
+        // dangling literal `"bc` rather than a point at the quote.
+        let src = "(a \"bc";
+        let err = read(src).unwrap_err();
+        match err {
+            LispError::UnterminatedString(span) => assert_eq!(span, Span::new(3, src.len())),
+            other => panic!("expected UnterminatedString, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn eof_span_is_zero_width_at_end_of_input() {
+        // "input ran out" names a point, not a range — there is no text to
+        // underline. `caret_run` clamps zero width up to one caret, which
+        // is why the rendered EOF diagnostic is unchanged by the lift.
+        let src = "(a b) '";
+        let err = read(src).unwrap_err();
+        match err {
+            LispError::Eof { span } => {
+                assert_eq!(span, Span::new(src.len(), src.len()));
+                assert_eq!(span.end - span.start, 0, "EOF span must be zero-width");
+            }
+            other => panic!("expected Eof, got {other:?}"),
         }
     }
 
@@ -517,7 +641,7 @@ mod tests {
         let src = "(a b) '";
         let err = read(src).unwrap_err();
         match err {
-            LispError::Eof { pos } => assert_eq!(pos, src.len()),
+            LispError::Eof { span } => assert_eq!(span.start, src.len()),
             other => panic!("expected Eof, got {other:?}"),
         }
     }
@@ -526,9 +650,12 @@ mod tests {
     fn spanned_parser_reports_the_same_offsets_as_the_plain_one() {
         // ONE-TOKENIZER CONTRACT, error axis. `read` and `read_spanned`
         // share `tokenize`, so a malformed source must produce the SAME
-        // typed error with the SAME offset through both projections. The
+        // typed error with the SAME span through both projections. The
         // pre-consolidation pair could not satisfy this: the plain side
-        // reported 0 for every one of these.
+        // reported 0 for every one of these. Comparing the `Debug`
+        // rendering means the assertion tightened for free when the
+        // variants went from `pos: usize` to `span: Span` — it now pins
+        // both ends of every reader error, through both parsers.
         for src in ["   )", "(a (b c", "(a b", "(a b) '", "\"unterminated"] {
             let plain = read(src).unwrap_err();
             let spanned = read_spanned(src).unwrap_err();
@@ -615,7 +742,7 @@ mod tests {
         let src = "'";
         let err = read(src).unwrap_err();
         match err {
-            LispError::Eof { pos } => assert_eq!(pos, src.len()),
+            LispError::Eof { span } => assert_eq!(span, Span::new(src.len(), src.len())),
             other => panic!("expected Eof, got {other:?}"),
         }
     }
@@ -696,7 +823,9 @@ mod tests {
     fn read_quoted_propagates_unmatched_open_paren_for_quoted_list() {
         let err = read("'(a b").unwrap_err();
         match err {
-            LispError::UnmatchedOpenParen { pos } => assert_eq!(pos, 1),
+            // `(` at byte 1, last token `b` ends at 5 — the quote prefix
+            // is NOT part of the unclosed form's extent.
+            LispError::UnmatchedOpenParen { span } => assert_eq!(span, Span::new(1, 5)),
             other => panic!("expected UnmatchedOpenParen, got {other:?}"),
         }
     }

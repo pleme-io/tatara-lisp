@@ -1,5 +1,7 @@
 use thiserror::Error;
 
+use crate::span::Span;
+
 pub type Result<T> = std::result::Result<T, LispError>;
 
 // Compile-time pairwise-distinctness witnesses — one `const _: () =
@@ -807,14 +809,31 @@ const _: () = crate::ast::assert_str_array_slice_equals_str_array::<2, 2, 0>(
 pub enum LispError {
     #[error("unexpected character {0:?} at position {1}")]
     UnexpectedChar(char, usize),
-    #[error("unterminated string literal at position {0}")]
-    UnterminatedString(usize),
-    #[error("unmatched closing paren at position {pos}")]
-    UnmatchedParen { pos: usize },
-    #[error("unmatched opening paren at position {pos}")]
-    UnmatchedOpenParen { pos: usize },
-    #[error("unexpected end of input at position {pos}")]
-    Eof { pos: usize },
+    /// Unterminated string literal. The span runs from the opening `"`
+    /// to end-of-input — the whole run the tokenizer consumed looking
+    /// for a closer — so the rendered diagnostic underlines the
+    /// unterminated literal rather than pointing at its opening quote.
+    #[error("unterminated string literal at position {}", .0.start)]
+    UnterminatedString(Span),
+    /// A `)` with no matching `(`. The span is the offending token — one
+    /// byte — so this renders as a single caret, same as pre-lift.
+    #[error("unmatched closing paren at position {}", .span.start)]
+    UnmatchedParen { span: Span },
+    /// A `(` the reader never found a closer for. The span runs from the
+    /// unclosed `(` to the END OF THE LAST TOKEN read, i.e. the extent of
+    /// the partial form — NOT to `src.len()`, which would drag trailing
+    /// whitespace and comments under the underline. This is the variant
+    /// the `Span` lift buys the most: pre-lift it named the `(` byte and
+    /// rendered one caret, post-lift it underlines the form that was left
+    /// open.
+    #[error("unmatched opening paren at position {}", .span.start)]
+    UnmatchedOpenParen { span: Span },
+    /// Input ran out where a datum was required. A zero-width span AT the
+    /// end offset — there is no text to underline, so `caret_run`'s
+    /// clamp-up-to-one renders the single caret one column past the last
+    /// visible char, exactly as pre-lift.
+    #[error("unexpected end of input at position {}", .span.start)]
+    Eof { span: Span },
     #[error("invalid number literal {0:?}")]
     InvalidNumber(String),
     #[error("unknown symbol: {0}")]
@@ -9301,18 +9320,46 @@ fn unknown_domain_keyword_suffix(hint: Option<&str>, registered: &[String]) -> S
 impl LispError {
     /// Byte offset of the failure into the source, when locatable.
     ///
-    /// Variants without a position (`Type`, `Compile`, etc.) return `None`,
-    /// so callers can render a snippet only when the substrate has the
-    /// information to do so. New positional variants gain editor-ready
-    /// rendering (via `crate::diagnostic::format_diagnostic`) by adding a
-    /// branch here — no consumer changes required.
+    /// A PROJECTION of [`LispError::span`] — `span().map(|s| s.start)` and
+    /// nothing else. Pre-lift this carried its own copy of the exhaustive
+    /// positional/non-positional classification, so a new variant had to
+    /// be classified TWICE and the two matches were free to disagree about
+    /// whether an error is locatable. Post-lift `span` is the single
+    /// classification site; this is the point-shaped view of it, kept
+    /// because `format_diagnostic`'s `--> label:line:col` header names one
+    /// byte, not a range.
     #[must_use]
     pub fn position(&self) -> Option<usize> {
+        self.span().map(|span| span.start)
+    }
+
+    /// Source `Span` of the failure, when locatable.
+    ///
+    /// THE classification site: a variant is locatable iff it appears in
+    /// the `Some(..)` arms below. Variants without a location (`Type`,
+    /// `Compile`, …) return `None`, so callers render a snippet only when
+    /// the substrate has the information to do so; adding a variant
+    /// without classifying it here is a non-exhaustive-match build
+    /// failure, not a silently-positionless error.
+    ///
+    /// The range — not just the start — is what lets
+    /// `crate::diagnostic::format_diagnostic` underline the offending
+    /// FORM rather than its first byte. A zero-width span is legal and
+    /// means "point here" (see `Eof`); `caret_run` clamps it up to one
+    /// caret.
+    #[must_use]
+    pub fn span(&self) -> Option<Span> {
         match self {
-            Self::UnexpectedChar(_, pos) | Self::UnterminatedString(pos) => Some(*pos),
-            Self::UnmatchedParen { pos } | Self::UnmatchedOpenParen { pos } | Self::Eof { pos } => {
-                Some(*pos)
-            }
+            // `UnexpectedChar` predates the span lift and is not
+            // constructed anywhere in the workspace today (measured: the
+            // declaration, this arm, and one unit pin). Its span is
+            // nonetheless exact rather than invented — a `char` occupies
+            // `len_utf8()` bytes from the offset it was found at.
+            Self::UnexpectedChar(c, pos) => Some(Span::new(*pos, pos + c.len_utf8())),
+            Self::UnterminatedString(span) => Some(*span),
+            Self::UnmatchedParen { span }
+            | Self::UnmatchedOpenParen { span }
+            | Self::Eof { span } => Some(*span),
             Self::InvalidNumber(_)
             | Self::UnknownSymbol(_)
             | Self::Type { .. }
@@ -9368,14 +9415,94 @@ mod tests {
         StructuralKind, TemplateInvariantKind, UnknownExpectedKwargShape, UnknownKwargPathKind,
         UnknownMacroDefHead, UnknownSexpShape, UnknownUnquoteForm, UnquoteForm,
     };
+    use crate::span::Span;
 
     #[test]
     fn position_extracts_offset_from_positional_variants() {
         assert_eq!(LispError::UnexpectedChar('?', 7).position(), Some(7));
-        assert_eq!(LispError::UnterminatedString(11).position(), Some(11));
-        assert_eq!(LispError::UnmatchedParen { pos: 3 }.position(), Some(3));
-        assert_eq!(LispError::UnmatchedOpenParen { pos: 0 }.position(), Some(0));
-        assert_eq!(LispError::Eof { pos: 42 }.position(), Some(42));
+        assert_eq!(
+            LispError::UnterminatedString(Span::new(11, 15)).position(),
+            Some(11)
+        );
+        assert_eq!(
+            LispError::UnmatchedParen {
+                span: Span::new(3, 4)
+            }
+            .position(),
+            Some(3)
+        );
+        assert_eq!(
+            LispError::UnmatchedOpenParen {
+                span: Span::new(0, 6)
+            }
+            .position(),
+            Some(0)
+        );
+        assert_eq!(
+            LispError::Eof {
+                span: Span::new(42, 42)
+            }
+            .position(),
+            Some(42)
+        );
+    }
+
+    #[test]
+    fn span_carries_the_full_range_position_projects_the_start_of() {
+        // `position()` is now `span().map(|s| s.start)` — one
+        // classification, two views. Pin BOTH views on the same values so
+        // a regression that re-splits them (a variant locatable through
+        // one accessor but not the other) fails here rather than showing
+        // up as a diagnostic that renders a header without a caret.
+        let cases = [
+            (
+                LispError::UnterminatedString(Span::new(11, 15)),
+                Span::new(11, 15),
+            ),
+            (
+                LispError::UnmatchedParen {
+                    span: Span::new(3, 4),
+                },
+                Span::new(3, 4),
+            ),
+            (
+                LispError::UnmatchedOpenParen {
+                    span: Span::new(0, 6),
+                },
+                Span::new(0, 6),
+            ),
+            (
+                LispError::Eof {
+                    span: Span::new(42, 42),
+                },
+                Span::new(42, 42),
+            ),
+            // `UnexpectedChar` still stores a bare offset; its span is
+            // derived from the char's own UTF-8 width, so a multi-byte
+            // char reports the bytes it actually occupies.
+            (LispError::UnexpectedChar('?', 7), Span::new(7, 8)),
+            (LispError::UnexpectedChar('é', 7), Span::new(7, 9)),
+        ];
+        for (err, expected) in cases {
+            assert_eq!(err.span(), Some(expected), "span mismatch for {err:?}");
+            assert_eq!(
+                err.position(),
+                Some(expected.start),
+                "position must project span.start for {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn span_is_none_exactly_where_position_is_none() {
+        // The other half of the one-classification invariant: a
+        // non-locatable error is non-locatable through both views.
+        let err = LispError::Compile {
+            form: ":threshold".into(),
+            message: "expected number".into(),
+        };
+        assert_eq!(err.span(), None);
+        assert_eq!(err.position(), None);
     }
 
     #[test]

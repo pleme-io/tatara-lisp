@@ -54,7 +54,7 @@ pub use tatara_lisp_derive::{KeywordSexp as DeriveKeywordSexp, TataraDomain as D
 
 pub use ast::{Atom, AtomKind, QuoteForm, Sexp, UnknownAtomKind, UnknownQuoteForm};
 pub use compile::{compile_named, compile_named_from_forms, compile_typed, NamedDefinition};
-pub use diagnostic::{caret_run, format_diagnostic, line_at, line_col, LineCol};
+pub use diagnostic::{caret_run, format_diagnostic, line_at, line_col, span_width_chars, LineCol};
 pub use env::Env;
 pub use error::{
     CompilerSpecIoStage, ExpectedKwargShape, KwargPath, KwargPathKind, LispError, MacroDefHead,

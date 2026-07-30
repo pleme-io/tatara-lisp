@@ -1,21 +1,28 @@
 //! Source-position rendering for `LispError`.
 //!
-//! `tatara-lisp` errors carry byte offsets through the reader (see
-//! `reader.rs` and `LispError::position`). This module is the projection
-//! step: it converts a byte offset into a 1-based `(line, column)` and
-//! renders a rustc-style diagnostic with a caret pointing at the
-//! failure. `tatara-lispc`, `tatara-check`, the REPL, and the future
+//! `tatara-lisp` errors carry source `Span`s through the reader (see
+//! `reader.rs` and `LispError::span`). This module is the projection
+//! step: it converts a span into a 1-based `(line, column)` plus a
+//! caret RUN as wide as the span, and renders a rustc-style diagnostic
+//! around them. `tatara-lispc`, `tatara-check`, the REPL, and the future
 //! LSP all funnel through `format_diagnostic` so authoring surfaces
-//! point at the byte that broke instead of leaving the operator to
+//! underline the source that broke instead of leaving the operator to
 //! hunt for it.
+//!
+//! `LispError::position` (the span's `start`) still names the single
+//! byte that goes in the `--> label:line:col` header; the span's `end`
+//! is what the underline is sized from.
 //!
 //! Theory grounding: THEORY.md §V.1 — knowable platform / constructive
 //! diagnostics. An error whose location cannot be projected to source
-//! is not knowable. Inspiration: rustc's `DiagnosticBuilder` snippet
-//! format; translation through pleme-io primitives is byte-offset
-//! spans on the existing `LispError`, no new IR layer.
+//! is not knowable, and one that points at a byte when it means a form
+//! is only half-knowable. Inspiration: rustc's `DiagnosticBuilder`
+//! snippet format; translation through pleme-io primitives is the
+//! byte-range `Span` already on the existing `LispError`, no new IR
+//! layer.
 
 use crate::error::LispError;
+use crate::span::Span;
 
 /// `writeln!` into a writer whose `fmt::Write` impl is infallible.
 ///
@@ -193,6 +200,27 @@ pub fn caret_run(line_text: &str, column: usize, width: usize) -> String {
     out
 }
 
+/// Count how many CHARS a `Span` covers in `src` — the unit
+/// [`caret_run`]'s `width` parameter is documented in.
+///
+/// The distinction is load-bearing and has already been a bug once: a
+/// span is a BYTE range, `caret_run` pads to a CHAR column, so passing
+/// `span.end - span.start` over-underlines any non-ASCII source (see the
+/// second drift documented on [`caret_run`]). Every caller that turns a
+/// span into a caret width goes through here so the two units cannot
+/// disagree again — this module's [`format_diagnostic`] and
+/// `tatara_lisp_eval::EvalError::render`, which were the two independent
+/// hand-rolls of this same three-line expression.
+///
+/// A span that does not land on char boundaries (or runs past the end of
+/// `src`) degrades to `1` rather than panicking — a diagnostic renderer
+/// must not be the thing that takes the process down.
+#[must_use]
+pub fn span_width_chars(src: &str, span: Span) -> usize {
+    src.get(span.start..span.end)
+        .map_or(1, |covered| covered.chars().count())
+}
+
 /// Render a `LispError` as a rustc-style diagnostic with a caret.
 ///
 /// ```text
@@ -208,25 +236,45 @@ pub fn caret_run(line_text: &str, column: usize, width: usize) -> String {
 /// (the REPL, an in-memory string) and the location renders as
 /// `--> line N, column M`.
 ///
-/// Errors whose `position()` is `None` (`Type`, `Compile`, …) render
+/// Errors whose `span()` is `None` (`Type`, `Compile`, …) render
 /// as a single `error: <msg>` line — there is nothing to point at.
-/// As more variants gain positions, those errors automatically pick
+/// As more variants gain spans, those errors automatically pick
 /// up the snippet rendering with no consumer changes.
+///
+/// The underline is as wide as the error's span, in chars. The four
+/// reader errors carry real `[start, end)` ranges (see `reader.rs`), so
+/// an unclosed `(a (b c` underlines `(b c` rather than pointing one
+/// caret at the `(`. Point-shaped spans — the stray `)`, end-of-input —
+/// are zero- or one-wide and render exactly as they did before spans
+/// reached the reader.
+///
+/// `pending-caret-multiline` (recorded on `caret_run` and on
+/// `tatara_lisp_eval::EvalError::render`): a span covering more than one
+/// line draws its full char width under the SINGLE line rendered above
+/// it, overflowing that line's end. The reader's `UnmatchedOpenParen`
+/// and `UnterminatedString` spans can now reach that case (a form left
+/// open across a newline), where pre-lift every `LispError` was width 1
+/// and could not. This is a widening of an EXISTING residue's reach, not
+/// a new defect class, and it is deliberately not fixed here — clamping
+/// the run to the rendered line changes output for every whole-form span
+/// in the eval renderer too, so it wants its own measured pass. Pinned
+/// by `format_diagnostic_multiline_unclosed_form_overflows_its_line`.
 #[must_use]
 pub fn format_diagnostic(src: &str, err: &LispError, label: Option<&str>) -> String {
     let mut out = format!("error: {err}");
-    let Some(pos) = err.position() else {
+    let Some(span) = err.span() else {
         return out;
     };
+    let pos = span.start;
     let LineCol { line, column } = line_col(src, pos);
     let line_text = line_at(src, pos);
     let line_str = line.to_string();
     let gutter = " ".repeat(line_str.len());
-    // A `LispError` names a single byte, not a range — hence width 1.
+    // Width comes from the span, in CHARS — the unit `caret_run` pads in.
     // The width parameter is what lets `EvalError::render`, whose errors
-    // DO carry a `[start, end)` span, share this exact renderer instead
+    // also carry a `[start, end)` span, share this exact renderer instead
     // of hand-rolling a second one.
-    let caret = caret_run(line_text, column, 1);
+    let caret = caret_run(line_text, column, span_width_chars(src, span));
 
     out.push('\n');
     match label {
@@ -242,10 +290,53 @@ pub fn format_diagnostic(src: &str, err: &LispError, label: Option<&str>) -> Str
 #[cfg(test)]
 mod tests {
     use super::{
-        caret_run, format_diagnostic, line_at, line_col, mirror_source_prefix_as_pad, LineCol,
+        caret_run, format_diagnostic, line_at, line_col, mirror_source_prefix_as_pad,
+        span_width_chars, LineCol,
     };
     use crate::error::LispError;
     use crate::reader::read;
+    use crate::span::Span;
+
+    // ── span_width_chars ────────────────────────────────────────────
+    //
+    // The byte-range → char-width conversion both caret consumers go
+    // through. It exists because the two of them each hand-rolled it and
+    // the eval copy got the unit wrong (see `caret_run`'s doc). These
+    // pins are the unit's definition.
+
+    #[test]
+    fn span_width_chars_counts_ascii_as_one_per_byte() {
+        assert_eq!(span_width_chars("(a (b c", Span::new(3, 7)), 4);
+        assert_eq!(span_width_chars("(a b)", Span::new(0, 1)), 1);
+    }
+
+    #[test]
+    fn span_width_chars_counts_chars_not_bytes() {
+        // `é` is two bytes, one column. A byte-count would say 2 here and
+        // draw twice the underline the source occupies — the exact bug
+        // the eval-side copy shipped.
+        assert_eq!(span_width_chars("é", Span::new(0, 2)), 1);
+        assert_eq!(span_width_chars("(éé)", Span::new(1, 5)), 2);
+    }
+
+    #[test]
+    fn span_width_chars_is_zero_for_an_empty_range() {
+        // Zero is the honest answer; the clamp-up-to-one caret lives in
+        // `caret_run`, not here, so callers that want a range length get
+        // a range length.
+        assert_eq!(span_width_chars("(a b)", Span::new(2, 2)), 0);
+    }
+
+    #[test]
+    fn span_width_chars_degrades_to_one_off_char_boundary_or_past_eof() {
+        // A diagnostic renderer must never be the thing that panics. A
+        // span slicing into the middle of a multi-byte char, or running
+        // past the end of the source, yields a single caret instead of a
+        // `byte index is not a char boundary` panic.
+        assert_eq!(span_width_chars("é", Span::new(0, 1)), 1);
+        assert_eq!(span_width_chars("abc", Span::new(0, 99)), 1);
+        assert_eq!(span_width_chars("abc", Span::new(3, 3)), 0);
+    }
 
     // ── line_col ────────────────────────────────────────────────────
 
@@ -338,8 +429,19 @@ error: unmatched closing paren at position 15
     }
 
     #[test]
-    fn format_diagnostic_unmatched_open_points_at_the_unclosed_paren() {
+    fn format_diagnostic_unmatched_open_underlines_the_unclosed_form() {
         // `(a (b c` — inner `(` at byte 3 is the deepest unclosed open.
+        //
+        // THE payoff of giving the reader's errors a `Span` instead of a
+        // `pos`. Pre-lift every `LispError` was a point, so this rendered
+        // ONE caret under the `(` and left the operator to work out how
+        // much of the line the unclosed form covered:
+        //
+        //     1 | (a (b c
+        //       |    ^
+        //
+        // Post-lift the error carries `[3, 7)` — the `(` through the end
+        // of the last token read — so the underline names the form.
         let src = "(a (b c";
         let err = read(src).unwrap_err();
         let rendered = format_diagnostic(src, &err, Some("open.lisp"));
@@ -348,7 +450,95 @@ error: unmatched opening paren at position 3
  --> open.lisp:1:4
   |
 1 | (a (b c
-  |    ^";
+  |    ^^^^";
+        assert_eq!(rendered, expected, "got:\n{rendered}");
+    }
+
+    #[test]
+    fn format_diagnostic_unmatched_open_underline_stops_at_the_last_token() {
+        // Companion to the test above, pinning the OTHER end of the span:
+        // trailing trivia is not part of the unclosed form. `(a b` plus
+        // three spaces and a comment still underlines four columns, not
+        // the eleven bytes to end-of-input. A regression that builds the
+        // span from `src.len()` (the obvious wrong end) fails HERE with a
+        // caret run that runs off past `b`.
+        let src = "(a b   ; tail";
+        let err = read(src).unwrap_err();
+        let rendered = format_diagnostic(src, &err, Some("trivia.lisp"));
+        let expected = "\
+error: unmatched opening paren at position 0
+ --> trivia.lisp:1:1
+  |
+1 | (a b   ; tail
+  | ^^^^";
+        assert_eq!(rendered, expected, "got:\n{rendered}");
+    }
+
+    #[test]
+    fn format_diagnostic_unterminated_string_underlines_the_dangling_literal() {
+        // Second variant the span lift widens: the tokenizer consumes to
+        // end-of-input hunting for a closing `"`, so the span covers the
+        // whole dangling literal instead of pointing at the opening quote.
+        let src = "(a \"bc";
+        let err = read(src).unwrap_err();
+        let rendered = format_diagnostic(src, &err, Some("str.lisp"));
+        let expected = "\
+error: unterminated string literal at position 3
+ --> str.lisp:1:4
+  |
+1 | (a \"bc
+  |    ^^^";
+        assert_eq!(rendered, expected, "got:\n{rendered}");
+    }
+
+    #[test]
+    fn format_diagnostic_stray_close_paren_still_renders_exactly_one_caret() {
+        // The point-shaped half of the lift. A stray `)` names one byte,
+        // so its span is one byte wide and the render is byte-identical
+        // to pre-lift. Pinned so a future "spans mean wide underlines"
+        // change cannot quietly widen an error that has nothing more to
+        // underline.
+        let src = "(a b) )";
+        let err = read(src).unwrap_err();
+        let rendered = format_diagnostic(src, &err, Some("stray.lisp"));
+        let expected = "\
+error: unmatched closing paren at position 6
+ --> stray.lisp:1:7
+  |
+1 | (a b) )
+  |       ^";
+        assert_eq!(rendered, expected, "got:\n{rendered}");
+    }
+
+    #[test]
+    fn format_diagnostic_multiline_unclosed_form_overflows_its_line() {
+        // `pending-caret-multiline`, MEASURED rather than asserted.
+        //
+        // `caret_run` does not clamp its width to the length of the line
+        // rendered above it, so a span crossing a newline draws carets
+        // past that line's end. This is a pre-existing residue of the
+        // shared renderer (recorded on `caret_run` and on
+        // `tatara_lisp_eval::EvalError::render`, where whole-form spans
+        // hit it routinely). The reader's `UnmatchedOpenParen` span can
+        // now reach it too — pre-lift every `LispError` was width 1 and
+        // structurally could not.
+        //
+        // This pin records the CURRENT output, warts included, so the
+        // reach is visible in-tree instead of living only in a comment.
+        // Fixing it is a separate measured pass: clamping changes output
+        // for every whole-form span in the eval renderer as well, so it
+        // does not ride along inside this consolidation.
+        let src = "(a\n b";
+        let err = read(src).unwrap_err();
+        let rendered = format_diagnostic(src, &err, Some("multi.lisp"));
+        // Span is `[0, 5)` — five chars — but line 1 is only `(a`, two
+        // chars. Three of the five carets hang past the end of the line.
+        let expected = "\
+error: unmatched opening paren at position 0
+ --> multi.lisp:1:1
+  |
+1 | (a
+  | ^^^^^";
         assert_eq!(rendered, expected, "got:\n{rendered}");
     }
 
@@ -626,6 +816,10 @@ error: unmatched closing paren at position 1
         // spaces, the tab stays a tab. A regression that homogenizes
         // the prefix to all-spaces fails HERE with a visible mismatch
         // on the tab position.
+        //
+        // The underline is four wide because the error's span covers the
+        // unclosed form `(a b`; the tab-mirror invariant this test exists
+        // for is about the PAD, and holds identically at any width.
         let src = " \t (a b";
         let err = read(src).unwrap_err();
         let rendered = format_diagnostic(src, &err, Some("mixed.lisp"));
@@ -635,7 +829,7 @@ error: unmatched opening paren at position 3
  --> mixed.lisp:1:4
   |
 1 |  \t (a b
-  |  \t ^";
+  |  \t ^^^^";
         assert_eq!(rendered, expected, "got:\n{rendered}");
     }
 }

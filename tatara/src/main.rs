@@ -216,10 +216,14 @@ fn run_platform_checks(verbose: bool) -> Result<ExitCode> {
     // New catalog crates added: include them here. (A future
     // `tatara-platform-registry` crate could collapse this list
     // into a single `register_all()` for further compounding.)
-    tatara_gateway_api::register();
-    tatara_cilium::register();
-    tatara_prometheus_operator::register();
-    tatara_ebpf::register();
+    // A refusal here means two of these catalog crates claim one keyword in
+    // ONE binary — the ambiguity is in this process's crate graph, so the
+    // honest response is to stop, not to run the invariant walk against a
+    // registry whose winner was decided by the order of these four lines.
+    tatara_gateway_api::register()?;
+    tatara_cilium::register()?;
+    tatara_prometheus_operator::register()?;
+    tatara_ebpf::register()?;
 
     let invariants = tatara_platform_checks::default_invariants();
     let run = tatara_platform_checks::run_all(&invariants);

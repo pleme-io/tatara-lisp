@@ -1,0 +1,28 @@
+[package]
+name = "tatara-keywords"
+description = "tatara-keywords — the tatara-lisp keyword namespace, checked. Scans a source tree for `#[tatara(keyword = \"…\")]` declarations, refuses two different types claiming one keyword, and checks a tree against a dated reservation ledger so a keyword taken in another repo cannot be silently re-taken here. `register()` can only see collisions inside one linked process; this sees them across a tree."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+categories.workspace = true
+keywords.workspace = true
+
+[lib]
+name = "tatara_keywords"
+path = "src/lib.rs"
+
+[[bin]]
+name = "tatara-keywords"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+tatara-lisp.workspace = true
+serde = { version = "1", features = ["derive"] }

@@ -1083,6 +1083,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "tatara-keywords"
+version = "0.3.12"
+dependencies = [
+ "serde",
+ "tatara-lisp",
+]
+
+[[package]]
 name = "tatara-lisp"
 version = "0.3.12"
 dependencies = [

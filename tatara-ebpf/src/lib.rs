@@ -288,10 +288,14 @@ impl tatara_lisp::LifecycleProtocol for BpfPolicySpec {
 /// Register every keyword form this domain exposes onto the host
 /// interpreter, plus its non-compile capability metadata. Embedders
 /// call this once during boot.
-pub fn register() {
-    tatara_lisp::domain::register::<BpfProgramSpec>();
-    tatara_lisp::domain::register::<BpfMapSpec>();
-    tatara_lisp::domain::register::<BpfPolicySpec>();
+pub fn register() -> Result<(), tatara_lisp::KeywordCollision> {
+    // Handler registrations first, and each `?`-propagated: they are the ones
+    // that decide WHICH struct a `(defbpf… …)` form compiles to. The capability
+    // layers below are metadata about an already-adjudicated keyword and stay
+    // infallible.
+    tatara_lisp::domain::register::<BpfProgramSpec>()?;
+    tatara_lisp::domain::register::<BpfMapSpec>()?;
+    tatara_lisp::domain::register::<BpfPolicySpec>()?;
     // Doc layer — markdown hover help / catalog browser.
     tatara_lisp::domain::register_doc::<BpfProgramSpec>();
     tatara_lisp::domain::register_doc::<BpfMapSpec>();
@@ -328,4 +332,5 @@ pub fn register() {
     tatara_lisp::domain::register_stability::<BpfProgramSpec>();
     tatara_lisp::domain::register_stability::<BpfMapSpec>();
     tatara_lisp::domain::register_stability::<BpfPolicySpec>();
+    Ok(())
 }

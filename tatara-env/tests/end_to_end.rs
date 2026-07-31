@@ -10,10 +10,10 @@ use tatara_lisp::read;
 
 fn register_test_domains() {
     // Tatara-env's own keyword.
-    register();
+    register().expect("keyword namespace must be free in this test binary");
     // Two real catalog domains pulled in via dev-deps.
-    tatara_gateway_api::register();
-    tatara_ebpf::register();
+    tatara_gateway_api::register().expect("keyword namespace must be free in this test binary");
+    tatara_ebpf::register().expect("keyword namespace must be free in this test binary");
 }
 
 const SAMPLE_PROGRAM: &str = r#"

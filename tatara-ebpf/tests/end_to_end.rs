@@ -57,7 +57,7 @@ const SAMPLE_POLICY: &str = r#"
 
 #[test]
 fn end_to_end_ebpf_authoring_pipeline() {
-    register();
+    register().expect("keyword namespace must be free in this test binary");
     let kws = tatara_lisp::domain::registered_keywords();
     for required in ["defbpf-program", "defbpf-map", "defbpf-policy"] {
         assert!(

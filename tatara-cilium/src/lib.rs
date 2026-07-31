@@ -1797,9 +1797,9 @@ impl tatara_lisp::SchematicDomain for CiliumNetworkPolicySpec {
 
 /// Register every keyword form this domain exposes onto the host
 /// interpreter. Embedders call this once during boot.
-pub fn register() {
-    tatara_lisp::register_all_capabilities!(CiliumNetworkPolicySpec);
+pub fn register() -> Result<(), tatara_lisp::KeywordCollision> {
     tatara_lisp::domain::register_render::<CiliumNetworkPolicySpec>();
     tatara_lisp::domain::register_schema::<CiliumNetworkPolicySpec>();
     tatara_lisp::domain::register_attest::<CiliumNetworkPolicySpec>();
+    tatara_lisp::register_all_capabilities!(CiliumNetworkPolicySpec)
 }

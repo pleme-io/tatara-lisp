@@ -1489,8 +1489,48 @@ pub fn extract_vec_via_serde<T: DeserializeOwned>(kw: &Kwargs<'_>, key: &str) ->
 /// surface — every `TataraDomain` derives `serde::Serialize` by convention.
 pub struct DomainHandler {
     pub keyword: &'static str,
+    /// `type_name` of the Rust type that holds this keyword. Carried so a
+    /// collision can NAME the incumbent, and so [`registrations`] can render a
+    /// census an operator can read. Without it, "who already owns
+    /// `defplugin`?" is answerable only by reading every crate that links in.
+    pub owner: &'static str,
     pub compile: fn(args: &[Sexp]) -> Result<serde_json::Value>,
 }
+
+/// A second, DIFFERENT type tried to claim a keyword that is already held.
+///
+/// This is the typed form of a defect that used to be a discarded `insert`
+/// return value. `register` writes into a process-global map; before this type
+/// existed, a colliding registration silently displaced the incumbent and every
+/// subsequent `lookup` compiled the wrong struct — no error, no log, no
+/// diagnostic, and the winner decided by link and call order rather than by
+/// anything an author wrote.
+///
+/// Not a [`LispError`] variant on purpose: nothing here is a source-level
+/// mistake in a `.tlisp` file. It is a fact about how one *process* was
+/// assembled, and a caller that hits it must fix its crate graph, not its Lisp.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KeywordCollision {
+    /// The contested keyword, e.g. `"defplugin"`.
+    pub keyword: &'static str,
+    /// `type_name` of the type that got there first and KEPT the keyword.
+    pub incumbent: &'static str,
+    /// `type_name` of the type that was turned away.
+    pub challenger: &'static str,
+}
+
+impl std::fmt::Display for KeywordCollision {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "keyword `{}` is already registered to `{}`; `{}` was refused \
+             (one keyword, one type, per process)",
+            self.keyword, self.incumbent, self.challenger
+        )
+    }
+}
+
+impl std::error::Error for KeywordCollision {}
 
 static REGISTRY: OnceLock<Mutex<HashMap<&'static str, DomainHandler>>> = OnceLock::new();
 
@@ -1499,22 +1539,75 @@ fn registry() -> &'static Mutex<HashMap<&'static str, DomainHandler>> {
 }
 
 /// Register a `TataraDomain` type with the global dispatcher.
-/// Idempotent — repeated registrations overwrite.
-pub fn register<T>()
+///
+/// **First writer wins, and the loser is told.** Three outcomes, exhaustively:
+///
+/// | registry state | result |
+/// |---|---|
+/// | keyword free | inserted, `Ok(())` |
+/// | keyword held by `T` itself | no-op, `Ok(())` — the documented idempotency |
+/// | keyword held by a different type | registry UNCHANGED, `Err(KeywordCollision)` |
+///
+/// The middle row is why this is not simply "reject a second insert": several
+/// crates call `Foo::register()` from more than one entry point (a `register_all`
+/// seed plus a lazy path), and that has always been legitimate. Only the third
+/// row is the defect, and it used to be spelled `insert` — displacing the
+/// incumbent and discarding it.
+///
+/// `#[must_use]`: a discarded result is now a compiler warning at every call
+/// site, which is the point. It is deliberately a warning and not a hard break
+/// — every one of the call sites measured across the pleme-io tree on
+/// 2026-07-31 (165 `domain::register::<…>` sites, 0 of them in tail position)
+/// is a statement ending in `;`, so widening the return type from `()` to
+/// `Result` compiles unchanged everywhere and merely gets loud.
+///
+/// **Tier-honest.** This makes a collision *impossible to be silent within one
+/// process*: the value exists, it is typed, and it is `#[must_use]`. It does
+/// NOT make a collision unrepresentable — a caller may still write `let _ =
+/// register::<T>();`, and two crates in two repos can still declare the same
+/// `#[tatara(keyword = "…")]` and never be linked together, so nothing here
+/// observes them. Catching *that* needs a source-level census across the tree,
+/// which is what `tatara-keywords` does; this function covers only what one
+/// running process can see.
+#[must_use = "a refused registration means this keyword is already held by another type; \
+              ignoring the result restores the silent-overwrite defect"]
+pub fn register<T>() -> std::result::Result<(), KeywordCollision>
 where
     T: TataraDomain + serde::Serialize,
 {
-    let handler = DomainHandler {
-        keyword: T::KEYWORD,
-        compile: |args| {
-            let v = T::compile_from_args(args)?;
-            serde_json::to_value(&v).map_err(|e| LispError::Compile {
-                form: T::KEYWORD.to_string(),
-                message: format!("serialize: {e}"),
-            })
+    let owner = std::any::type_name::<T>();
+    let mut reg = registry().lock().unwrap();
+
+    if let Some(existing) = reg.get(T::KEYWORD) {
+        // Same type re-registering: the documented idempotency, kept.
+        if existing.owner == owner {
+            return Ok(());
+        }
+        // Different type: refuse, and leave the incumbent exactly where it is.
+        // Reporting a rejection while still mutating would be strictly worse
+        // than the overwrite it replaces.
+        return Err(KeywordCollision {
+            keyword: T::KEYWORD,
+            incumbent: existing.owner,
+            challenger: owner,
+        });
+    }
+
+    reg.insert(
+        T::KEYWORD,
+        DomainHandler {
+            keyword: T::KEYWORD,
+            owner,
+            compile: |args| {
+                let v = T::compile_from_args(args)?;
+                serde_json::to_value(&v).map_err(|e| LispError::Compile {
+                    form: T::KEYWORD.to_string(),
+                    message: format!("serialize: {e}"),
+                })
+            },
         },
-    };
-    registry().lock().unwrap().insert(T::KEYWORD, handler);
+    );
+    Ok(())
 }
 
 /// Look up a handler by keyword.
@@ -1522,6 +1615,7 @@ pub fn lookup(keyword: &str) -> Option<DomainHandler> {
     let reg = registry().lock().unwrap();
     reg.get(keyword).map(|h| DomainHandler {
         keyword: h.keyword,
+        owner: h.owner,
         compile: h.compile,
     })
 }
@@ -1529,6 +1623,22 @@ pub fn lookup(keyword: &str) -> Option<DomainHandler> {
 /// List currently registered keywords.
 pub fn registered_keywords() -> Vec<&'static str> {
     registry().lock().unwrap().keys().copied().collect()
+}
+
+/// The live census: every registered keyword paired with the `type_name` of the
+/// type holding it, sorted by keyword.
+///
+/// The queryable form of "who owns what" inside a running process. A binary that
+/// links two crates claiming one keyword can print this and see exactly one row
+/// for the contested keyword, naming the winner — where before, the losing
+/// handler had been dropped with nothing recording that it ever existed.
+#[must_use]
+pub fn registrations() -> Vec<(&'static str, &'static str)> {
+    let reg = registry().lock().unwrap();
+    let mut rows: Vec<(&'static str, &'static str)> =
+        reg.values().map(|h| (h.keyword, h.owner)).collect();
+    rows.sort_unstable();
+    rows
 }
 
 // ── Capability registries — compounding metadata layer ────────────
@@ -2243,10 +2353,17 @@ macro_rules! impl_default_capabilities {
 /// every domain has them — hand-written ebpf doesn't have render
 /// metadata). Adding a new always-present layer means updating
 /// this macro and `impl_default_capabilities!` once.
+///
+/// Expands to an **expression** of type `Result<(), KeywordCollision>`, not a
+/// statement block: the handler registry is the only one of the nine layers
+/// that can refuse, and swallowing that refusal inside the macro would put the
+/// silent overwrite back one level down where it is harder to see. The eight
+/// capability layers still overwrite — they carry metadata about a keyword
+/// whose ownership the handler registry has already adjudicated, so a second
+/// writer there cannot change which struct a form compiles to.
 #[macro_export]
 macro_rules! register_all_capabilities {
-    ($Spec:ty) => {
-        $crate::domain::register::<$Spec>();
+    ($Spec:ty) => {{
         $crate::domain::register_doc::<$Spec>();
         $crate::domain::register_deps::<$Spec>();
         $crate::domain::register_validate::<$Spec>();
@@ -2255,7 +2372,8 @@ macro_rules! register_all_capabilities {
         $crate::domain::register_observability::<$Spec>();
         $crate::domain::register_help::<$Spec>();
         $crate::domain::register_stability::<$Spec>();
-    };
+        $crate::domain::register::<$Spec>()
+    }};
 }
 
 // ── Sexp ↔ serde_json bridge (universal type support) ──────────────
@@ -2549,7 +2667,7 @@ mod tests {
 
     #[test]
     fn registry_dispatches_by_keyword() {
-        register::<MonitorSpec>();
+        register::<MonitorSpec>().expect("keyword namespace must be free in this test binary");
         assert!(registered_keywords().contains(&"defmonitor"));
         let handler = lookup("defmonitor").expect("registered");
         assert_eq!(handler.keyword, "defmonitor");

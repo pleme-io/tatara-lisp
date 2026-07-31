@@ -5,9 +5,9 @@ use tatara_lisp::read;
 use tatara_rollout::{diff_envs, ordered_apply, Change};
 
 fn register_all() {
-    register_env();
-    tatara_gateway_api::register();
-    tatara_ebpf::register();
+    register_env().expect("keyword namespace must be free in this test binary");
+    tatara_gateway_api::register().expect("keyword namespace must be free in this test binary");
+    tatara_ebpf::register().expect("keyword namespace must be free in this test binary");
 }
 
 const ENV_V1: &str = r#"

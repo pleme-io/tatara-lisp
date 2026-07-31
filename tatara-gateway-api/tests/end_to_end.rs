@@ -23,7 +23,7 @@ fn registering_gateway_api_domain_unlocks_defgateway_form() {
     // Step 1: register every keyword form this domain exposes.
     // After this call, the global domain registry has `defgateway`
     // wired to `GatewaySpec`'s compile fn.
-    tatara_gateway_api::register();
+    tatara_gateway_api::register().expect("keyword namespace must be free in this test binary");
 
     // Step 2: confirm the keyword landed in the registry.
     let keywords = tatara_lisp::domain::registered_keywords();
@@ -77,7 +77,7 @@ fn registering_gateway_api_domain_unlocks_defgateway_form() {
 
 #[test]
 fn missing_required_field_errors_loudly() {
-    tatara_gateway_api::register();
+    tatara_gateway_api::register().expect("keyword namespace must be free in this test binary");
     let src = "(defgateway :listeners (list))";
     let forms = read(src).unwrap();
     let list = forms[0].as_list().unwrap();

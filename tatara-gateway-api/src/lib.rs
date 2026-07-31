@@ -533,9 +533,9 @@ impl tatara_lisp::SchematicDomain for GatewaySpec {
 
 /// Register every keyword form this domain exposes onto the host
 /// interpreter. Embedders call this once during boot.
-pub fn register() {
-    tatara_lisp::register_all_capabilities!(GatewaySpec);
+pub fn register() -> Result<(), tatara_lisp::KeywordCollision> {
     tatara_lisp::domain::register_render::<GatewaySpec>();
     tatara_lisp::domain::register_schema::<GatewaySpec>();
     tatara_lisp::domain::register_attest::<GatewaySpec>();
+    tatara_lisp::register_all_capabilities!(GatewaySpec)
 }

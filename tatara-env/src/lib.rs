@@ -70,6 +70,11 @@ pub use validate::{validate, ValidationError};
 /// Register the `(defenv …)` keyword form. Embedders call this
 /// once during boot, alongside their other domain `register()`
 /// calls.
-pub fn register() {
-    tatara_lisp::domain::register::<EnvSpec>();
+///
+/// Fallible since 0.3.13: `defenv` is one of the fleet's measured keyword
+/// collisions — `frost/crates/frost-lisp/src/env.rs` declares it too — so an
+/// embedder that links both crates gets a typed `KeywordCollision` naming the
+/// incumbent instead of whichever `EnvSpec` happened to register last.
+pub fn register() -> Result<(), tatara_lisp::KeywordCollision> {
+    tatara_lisp::domain::register::<EnvSpec>()
 }

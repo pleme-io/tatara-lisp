@@ -44,7 +44,8 @@ pub use domain::{
     assert_tatara_domain_well_formed, AttestHandler, AttestableDomain, ComplianceHandler,
     CompliantDomain, DependentDomain,
     DepsHandler, DocHandler, DocumentedDomain, DomainHandler, HelpDomain, HelpHandler,
-    KeywordSexp, LifecycleHandler, LifecycleProtocol, ObservabilityHandler, ObservableDomain,
+    KeywordCollision, KeywordSexp, LifecycleHandler, LifecycleProtocol, ObservabilityHandler,
+    ObservableDomain,
     RenderHandler, RenderableDomain, RolloutStrategy, SchemaHandler, SchematicDomain,
     StabilityHandler, StableDomain, TataraDomain, ValidateHandler, ValidatedDomain,
 };

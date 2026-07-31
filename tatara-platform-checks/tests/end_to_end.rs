@@ -6,10 +6,10 @@
 use tatara_platform_checks::{default_invariants, run_all, Outcome};
 
 fn register_full_catalog() {
-    tatara_gateway_api::register();
-    tatara_cilium::register();
-    tatara_prometheus_operator::register();
-    tatara_ebpf::register();
+    tatara_gateway_api::register().expect("keyword namespace must be free in this test binary");
+    tatara_cilium::register().expect("keyword namespace must be free in this test binary");
+    tatara_prometheus_operator::register().expect("keyword namespace must be free in this test binary");
+    tatara_ebpf::register().expect("keyword namespace must be free in this test binary");
 }
 
 #[test]

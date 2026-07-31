@@ -4,8 +4,8 @@
 use tatara_doc::{fully_registered_keywords, render_catalog, render_one};
 
 fn register_all() {
-    tatara_gateway_api::register();
-    tatara_ebpf::register();
+    tatara_gateway_api::register().expect("keyword namespace must be free in this test binary");
+    tatara_ebpf::register().expect("keyword namespace must be free in this test binary");
 }
 
 #[test]

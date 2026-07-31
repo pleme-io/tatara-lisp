@@ -289,14 +289,33 @@ pub fn emit_lib_rs(domain: &Domain) -> String {
         out,
         "/// interpreter. Embedders call this once during boot."
     );
-    let _ = writeln!(out, "pub fn register() {{");
+    let _ = writeln!(
+        out,
+        "///"
+    );
+    let _ = writeln!(
+        out,
+        "/// Fallible: `register` refuses a keyword another type already holds,"
+    );
+    let _ = writeln!(
+        out,
+        "/// so an embedder linking two crates that claim one keyword is told"
+    );
+    let _ = writeln!(
+        out,
+        "/// which type won instead of silently getting the last one linked."
+    );
+    let _ = writeln!(
+        out,
+        "pub fn register() -> Result<(), tatara_lisp::KeywordCollision> {{"
+    );
     for r in &domain.resources {
         // Default-everything via the all-capabilities macro —
         // covers compile + doc + deps + validate + lifecycle +
         // compliance + observability + help + stability.
         let _ = writeln!(
             out,
-            "    tatara_lisp::register_all_capabilities!({});",
+            "    tatara_lisp::register_all_capabilities!({})?;",
             r.struct_name
         );
         // Optional layers that depend on CRD metadata being
@@ -324,6 +343,7 @@ pub fn emit_lib_rs(domain: &Domain) -> String {
             );
         }
     }
+    let _ = writeln!(out, "    Ok(())");
     let _ = writeln!(out, "}}");
     out
 }
@@ -504,14 +524,18 @@ fn variant_pascal(s: &str) -> String {
 #[must_use]
 pub fn emit_register_fn(domain: &Domain) -> String {
     let mut out = String::new();
-    let _ = writeln!(out, "pub fn register() {{");
+    let _ = writeln!(
+        out,
+        "pub fn register() -> Result<(), tatara_lisp::KeywordCollision> {{"
+    );
     for r in &domain.resources {
         let _ = writeln!(
             out,
-            "    tatara_lisp::domain::register::<{}>();",
+            "    tatara_lisp::domain::register::<{}>()?;",
             r.struct_name
         );
     }
+    let _ = writeln!(out, "    Ok(())");
     let _ = writeln!(out, "}}");
     out
 }

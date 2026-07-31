@@ -1092,9 +1092,9 @@ impl tatara_lisp::SchematicDomain for PodMonitorSpec {
 
 /// Register every keyword form this domain exposes onto the host
 /// interpreter. Embedders call this once during boot.
-pub fn register() {
-    tatara_lisp::register_all_capabilities!(PodMonitorSpec);
+pub fn register() -> Result<(), tatara_lisp::KeywordCollision> {
     tatara_lisp::domain::register_render::<PodMonitorSpec>();
     tatara_lisp::domain::register_schema::<PodMonitorSpec>();
     tatara_lisp::domain::register_attest::<PodMonitorSpec>();
+    tatara_lisp::register_all_capabilities!(PodMonitorSpec)
 }

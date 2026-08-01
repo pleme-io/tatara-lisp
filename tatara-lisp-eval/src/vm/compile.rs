@@ -67,6 +67,23 @@ pub fn compile_program(forms: &[Spanned]) -> Result<Chunk, CompileError> {
 /// accepts. Add an entry here when you want a form to fall back
 /// (typical for forms that mutate the interpreter state in ways
 /// the VM frame model doesn't track yet).
+/// Does the VM defer this head symbol to the tree-walker?
+///
+/// Derived from `SpecialForm::vm_disposition`, which is the single
+/// declaration of VM coverage. A symbol that is not a special form at all
+/// answers `false` and is compiled as an ordinary call, which is correct.
+fn is_vm_fallback(name: &str) -> bool {
+    matches!(
+        crate::special::SpecialForm::from_symbol(name).map(|f| f.vm_disposition()),
+        Some(crate::special::VmDisposition::Fallback)
+    )
+}
+
+/// The original module-system fallback set, retained as documentation.
+///
+/// No longer consulted at compile time — `is_vm_fallback` derives the answer
+/// — but asserted to remain a subset of the derived set, so this comment and
+/// the code cannot drift apart silently.
 const VM_FALLBACK_FORMS: &[&str] = &[
     // Module-system forms — need &mut Interpreter access for loader,
     // module registry, current-module state.
@@ -541,7 +558,14 @@ impl<'a> Compiler<'a> {
             // Forms the VM doesn't natively compile — fall back to
             // the tree-walker via EvalSexp. Keeps the VM drop-in
             // compatible with every program the tree-walker accepts.
-            Some(name) if VM_FALLBACK_FORMS.contains(&name) => {
+            //
+            // The predicate is DERIVED from `SpecialForm::vm_disposition`
+            // rather than from a hand-maintained list, so a recognized form
+            // can never reach the wildcard below and miscompile into a call
+            // to an unbound global. `VM_FALLBACK_FORMS` is retained only as
+            // documentation of the original module-system set and is
+            // asserted to be a subset — see `vm_covers_every_special_form`.
+            Some(name) if is_vm_fallback(name) => {
                 let form = Spanned::new(span, SpannedForm::List(items.to_vec()));
                 self.emit_eval_sexp(&form);
                 Ok(())
@@ -1199,5 +1223,147 @@ mod tests {
         assert_eq!(outer.captures.len(), 1);
         assert_eq!(&*outer.captures[0].0, "x");
         assert!(matches!(outer.captures[0].1, CaptureSource::Local(_)));
+    }
+
+    // ---- VM special-form coverage gate -------------------------------
+    //
+    // These replace a size-floor assertion that structurally could not see
+    // a missing form. Six forms (quasiquote, cond, when, unless, let*,
+    // letrec) were reaching the wildcard and miscompiling into calls to
+    // unbound globals when these were written.
+
+    /// **The real coverage gate: no recognized special form may compile to
+    /// a `LoadGlobal` of its own head symbol.**
+    ///
+    /// This inspects EMITTED BYTECODE rather than comparing a declaration
+    /// against a predicate derived from it — an earlier version of this test
+    /// did the latter and was vacuous: `is_vm_fallback` is computed FROM
+    /// `vm_disposition`, so asserting they agree proves nothing. Verified by
+    /// deliberately mis-declaring `cond` as `Compiled`; the tautological
+    /// version stayed green, this version goes red.
+    ///
+    /// A form that reaches `_ => compile_call` emits
+    /// `LoadGlobal(<its own name>)`, which is the silent miscompile: a
+    /// runtime `Unbound` raised only if the branch executes.
+    #[test]
+    fn no_special_form_compiles_to_a_global_load_of_itself() {
+        use crate::special::SpecialForm;
+
+        // A minimal, well-formed program per form. Each must lower to
+        // something other than a call to a global named after the form.
+        let sources: &[(&str, &str)] = &[
+            ("quote", "(quote a)"),
+            ("quasiquote", "(quasiquote (a b))"),
+            ("if", "(if #t 1 2)"),
+            ("cond", "(cond (#t 1))"),
+            ("when", "(when #t 1)"),
+            ("unless", "(unless #f 1)"),
+            ("let", "(let ((x 1)) x)"),
+            ("let*", "(let* ((x 1)) x)"),
+            ("letrec", "(letrec ((f (lambda () 1))) (f))"),
+            ("lambda", "(lambda (x) x)"),
+            ("define", "(define x 1)"),
+            ("set!", "(begin (define x 1) (set! x 2))"),
+            ("begin", "(begin 1 2)"),
+            ("and", "(and #t #f)"),
+            ("or", "(or #t #f)"),
+            ("not", "(not #f)"),
+            ("try", "(try 1 (catch (e) 2))"),
+            ("macroexpand-1", "(macroexpand-1 (quote (f)))"),
+            ("macroexpand", "(macroexpand (quote (f)))"),
+            ("delay", "(delay 1)"),
+            ("eval", "(eval (quote 1))"),
+            ("provide", "(provide a)"),
+            ("require", "(require \"m\")"),
+        ];
+
+        // Every declared form has a probe — otherwise a new form could be
+        // added and silently skipped by this gate.
+        for form in SpecialForm::ALL {
+            assert!(
+                sources.iter().any(|(n, _)| *n == form.symbol()),
+                "no probe source for special form {:?} ({}) — add one, or \
+                 this gate cannot see it",
+                form,
+                form.symbol()
+            );
+        }
+
+        let mut miscompiled = Vec::new();
+        for (name, src) in sources {
+            let forms = match tatara_lisp::read_spanned(src) {
+                Ok(f) => f,
+                Err(e) => panic!("probe for {name:?} did not parse: {e:?}"),
+            };
+            let chunk = match compile_program(&forms) {
+                Ok(c) => c,
+                // A compile error is a LOUD failure, which is acceptable —
+                // the bug this gate exists to catch is the SILENT one.
+                Err(_) => continue,
+            };
+            if chunk_loads_global(&chunk, name) {
+                miscompiled.push(*name);
+            }
+        }
+
+        assert!(
+            miscompiled.is_empty(),
+            "special forms that compiled to a LoadGlobal of their own head \
+             symbol — they fell through the wildcard in compile_list and \
+             will raise a runtime Unbound only if the branch executes: {miscompiled:?}"
+        );
+    }
+
+    /// Does any function in the chunk load a global by this name?
+    fn chunk_loads_global(chunk: &Chunk, name: &str) -> bool {
+        let needle = chunk
+            .names
+            .names
+            .iter()
+            .position(|n| &**n == name);
+        let Some(idx) = needle else {
+            return false;
+        };
+        let hits = |ops: &[Op]| ops.iter().any(|op| matches!(op, Op::LoadGlobal(i) if *i == idx));
+        hits(&chunk.top.ops) || chunk.fn_table.iter().any(|f| hits(&f.ops))
+    }
+
+    /// `SpecialForm::ALL` is complete: every symbol `from_symbol` accepts
+    /// round-trips through `ALL`. Guards against adding a variant and
+    /// forgetting the table the coverage gate walks.
+    #[test]
+    fn all_covers_every_from_symbol_name() {
+        use crate::special::SpecialForm;
+
+        for form in SpecialForm::ALL {
+            let name = form.symbol();
+            assert_eq!(
+                SpecialForm::from_symbol(name),
+                Some(*form),
+                "SpecialForm::{form:?}.symbol() = {name:?} does not round-trip"
+            );
+        }
+    }
+
+    /// The retained documentation list has not drifted from the derived set.
+    #[test]
+    fn documented_fallback_list_is_a_subset_of_the_derived_set() {
+        for name in VM_FALLBACK_FORMS {
+            assert!(
+                is_vm_fallback(name),
+                "{name:?} is in VM_FALLBACK_FORMS but no longer derives as a \
+                 fallback — the comment and the code have drifted"
+            );
+        }
+    }
+
+    /// Anti-vacuity: the gate can actually fail. A symbol that is not a
+    /// special form must NOT be treated as a fallback, or the coverage test
+    /// above would pass trivially by routing everything to the tree-walker.
+    #[test]
+    fn fallback_predicate_rejects_non_special_forms() {
+        assert!(!is_vm_fallback("map"));
+        assert!(!is_vm_fallback("some-user-function"));
+        assert!(!is_vm_fallback(""));
     }
 }

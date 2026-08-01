@@ -57,7 +57,135 @@ pub enum SpecialForm {
     Require,
 }
 
+/// How the bytecode VM handles a given special form.
+///
+/// This exists so VM coverage is an **enumerable property** rather than a
+/// shape buried in a `match`. Before this type, a form that the VM neither
+/// compiled nor listed in `VM_FALLBACK_FORMS` fell through the wildcard in
+/// `vm/compile.rs` to `compile_call` and became a call to an unbound global
+/// — a *runtime* `VmError::Unbound`, raised only if the branch executed, and
+/// carrying a synthetic span so the diagnostic could not point at the code.
+///
+/// Six forms were in that state when this was added (`quasiquote`, `cond`,
+/// `when`, `unless`, `let*`, `letrec`), and the parity harness could not see
+/// them: it asserted a *size floor* on its case table, which is a count, not
+/// a coverage check. A count cannot witness an absent form.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VmDisposition {
+    /// The VM lowers this form to bytecode natively.
+    Compiled,
+    /// The VM deliberately defers to the tree-walker via `Op::EvalSexp`.
+    ///
+    /// Note this is not free: an `EvalSexp` region's continuation lives on
+    /// the host stack, so it cannot be parked — which is why the fallback
+    /// list is a liability to keep short rather than a place to add forms.
+    Fallback,
+}
+
 impl SpecialForm {
+    /// Every special form, in declaration order.
+    ///
+    /// The coverage gate walks this. Adding a variant without adding it here
+    /// is caught by `all_covers_every_from_symbol_name`.
+    pub const ALL: &'static [Self] = &[
+        Self::Quote,
+        Self::Quasiquote,
+        Self::If,
+        Self::Cond,
+        Self::When,
+        Self::Unless,
+        Self::Let,
+        Self::LetStar,
+        Self::LetRec,
+        Self::Lambda,
+        Self::Define,
+        Self::Set,
+        Self::Begin,
+        Self::And,
+        Self::Or,
+        Self::Not,
+        Self::Try,
+        Self::MacroexpandOne,
+        Self::MacroexpandAll,
+        Self::Delay,
+        Self::Eval,
+        Self::Provide,
+        Self::Require,
+    ];
+
+    /// The head symbol that selects this form. Inverse of `from_symbol`.
+    pub fn symbol(self) -> &'static str {
+        match self {
+            Self::Quote => "quote",
+            Self::Quasiquote => "quasiquote",
+            Self::If => "if",
+            Self::Cond => "cond",
+            Self::When => "when",
+            Self::Unless => "unless",
+            Self::Let => "let",
+            Self::LetStar => "let*",
+            Self::LetRec => "letrec",
+            Self::Lambda => "lambda",
+            Self::Define => "define",
+            Self::Set => "set!",
+            Self::Begin => "begin",
+            Self::And => "and",
+            Self::Or => "or",
+            Self::Not => "not",
+            Self::Try => "try",
+            Self::MacroexpandOne => "macroexpand-1",
+            Self::MacroexpandAll => "macroexpand",
+            Self::Delay => "delay",
+            Self::Eval => "eval",
+            Self::Provide => "provide",
+            Self::Require => "require",
+        }
+    }
+
+    /// How the bytecode VM handles this form.
+    ///
+    /// **This is the declaration the VM's dispatch must agree with**, and the
+    /// agreement is enforced by `vm::compile`'s coverage test rather than by
+    /// review. Every form must be assigned; there is no third state, because
+    /// the third state is the silent-miscompile bug this type exists to
+    /// remove.
+    pub fn vm_disposition(self) -> VmDisposition {
+        match self {
+            // Lowered to bytecode in `vm/compile.rs::compile_list`.
+            Self::Quote
+            | Self::If
+            | Self::Begin
+            | Self::Define
+            | Self::Let
+            | Self::Lambda
+            | Self::Set
+            | Self::And
+            | Self::Or
+            | Self::Not
+            | Self::Try => VmDisposition::Compiled,
+
+            // Deferred to the tree-walker: these need `&mut Interpreter`
+            // for the loader, the module registry, or runtime expansion.
+            Self::Require
+            | Self::Provide
+            | Self::Delay
+            | Self::Eval
+            | Self::MacroexpandAll
+            | Self::MacroexpandOne => VmDisposition::Fallback,
+
+            // Derived forms. Each has tree-walker semantics the VM does not
+            // yet lower; until it does they route through the fallback so
+            // they cannot reach the wildcard and miscompile into a call to
+            // an unbound global.
+            Self::Quasiquote
+            | Self::Cond
+            | Self::When
+            | Self::Unless
+            | Self::LetStar
+            | Self::LetRec => VmDisposition::Fallback,
+        }
+    }
+
     /// Match a head symbol to a special form. Returns `None` if the symbol
     /// is not a recognized special form (interpret as a function call).
     pub fn from_symbol(s: &str) -> Option<Self> {

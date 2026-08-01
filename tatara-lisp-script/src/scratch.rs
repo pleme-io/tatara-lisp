@@ -105,12 +105,27 @@ impl ScratchRegistry {
     /// secret var-file (pid-only names colliding within a process) — here the
     /// collision is across processes, so the pid is the fix rather than the
     /// cause.
+    ///
+    /// **The sequence number is PROCESS-GLOBAL, and that is load-bearing.**
+    /// It was per-registry, which reintroduced within-a-process collision —
+    /// the exact class the comment above names. Two registries constructed in
+    /// one process and minting inside one clock tick both produced
+    /// `…-{pid}-{now}-0`, and the first to drop deleted the other's live
+    /// directory. Observed as a test failing 2 of 3 workspace runs while
+    /// passing in isolation, which is the signature: the clock is coarse
+    /// enough on a real host that `now` collides, so `now` cannot be the only
+    /// discriminator. A global counter makes the name unique by construction
+    /// rather than by hoping the clock is fine-grained.
     fn mint(&mut self, suffix: &str) -> PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_nanos());
         let pid = std::process::id();
-        let seq = self.seq;
+        let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+        // Kept for the public `len`/`is_empty` accounting the registry exposes.
         self.seq += 1;
         std::env::temp_dir().join(format!("{PREFIX}{pid}-{now:x}-{seq}{suffix}"))
     }
@@ -341,4 +356,40 @@ mod tests {
             "a live process's scratch must survive another process's sweep"
         );
     }
+
+    /// Two registries in ONE process must never mint the same path.
+    ///
+    /// This is the regression that made `the_sweep_does_not_remove_fresh_entries`
+    /// fail 2 of 3 workspace runs while passing in isolation: `seq` was
+    /// per-registry, so two registries minting inside one clock tick both
+    /// produced `…-{pid}-{now}-0`, and the first to drop removed the other's
+    /// live directory.
+    #[test]
+    fn two_registries_in_one_process_never_collide() {
+        let mut a = ScratchRegistry::default();
+        let mut b = ScratchRegistry::default();
+        let mut seen = std::collections::BTreeSet::new();
+        for _ in 0..64 {
+            assert!(seen.insert(a.dir().expect("a")), "collision from registry a");
+            assert!(seen.insert(b.dir().expect("b")), "collision from registry b");
+        }
+        assert_eq!(seen.len(), 128);
+    }
+
+    /// And a sibling registry dropping must not remove another's live dir —
+    /// the consequence the collision actually produced.
+    #[test]
+    fn a_sibling_registry_drop_leaves_our_scratch_alone() {
+        let mut mine = ScratchRegistry::default();
+        let p = mine.dir().expect("mint");
+        {
+            let mut other = ScratchRegistry::default();
+            let _ = other.dir().expect("mint");
+        } // other drops here
+        assert!(
+            p.exists(),
+            "a sibling registry's Drop deleted our live scratch: {p:?}"
+        );
+    }
+
 }

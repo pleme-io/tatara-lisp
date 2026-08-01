@@ -37,4 +37,4 @@ pub mod run;
 pub use chunk::{Chunk, ConstPool};
 pub use compile::{CompileError, Compiler, compile_program};
 pub use op::Op;
-pub use run::{Vm, VmError};
+pub use run::{Budget, Progress, Vm, VmError};

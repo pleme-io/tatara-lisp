@@ -51,6 +51,15 @@ pub enum VmError {
     /// only here.
     #[error("execution budget exhausted: {what} (limit {limit})")]
     BudgetExhausted { what: &'static str, limit: usize },
+    /// A primitive parked, but this run has no scheduler — so nothing will
+    /// ever deliver what it is waiting for.
+    ///
+    /// [`Vm::run`] drives to completion with no concurrent processes, so a
+    /// park inside it is not "wait a moment", it is *wait forever*. Naming
+    /// it a deadlock rather than silently spinning or silently returning nil
+    /// is the difference between a diagnosable hang and an inexplicable one.
+    #[error("deadlock: a primitive parked, but `run` has no scheduler to unblock it — use `step`/`resume`")]
+    Deadlocked,
 }
 
 /// An execution budget: how much work one run may do before it is stopped.
@@ -96,7 +105,31 @@ pub enum Progress {
     /// cannot be parked, which is why §V.8 records preemption and host
     /// re-entry as mutually exclusive.
     Yielded,
+    /// A primitive could not complete and asked to be retried later — an
+    /// empty mailbox, an unready channel. The frame stack is intact and
+    /// **the instruction pointer has been rewound to the call**, so
+    /// [`Vm::resume`] re-executes it.
+    ///
+    /// This is the difference between a scheduler that can block a process
+    /// and one that can only busy-wait. A busy-wait is not merely wasteful:
+    /// it burns the process's fuel, so a process waiting on a message it
+    /// will eventually receive can die of a budget it never needed.
+    Blocked,
 }
+
+/// Returned by a primitive that cannot complete yet.
+///
+/// ## The contract, which the VM cannot check for you
+///
+/// A primitive that parks **must have consumed nothing**. The VM restores
+/// the operand stack and rewinds the instruction pointer, so the call runs
+/// again from the top — meaning a park is only correct if the primitive is
+/// *idempotent up to the point it parks*. Dequeue-then-park loses the
+/// message; check-then-park does not.
+///
+/// [`Vm::park`] is the constructor; [`Vm::is_park`] the test.
+#[derive(Debug)]
+pub struct Park;
 
 impl Default for Budget {
     fn default() -> Self {
@@ -192,9 +225,25 @@ pub struct Vm {
     /// Set once the top frame is installed, so `resume` can tell a parked
     /// VM from an unstarted one.
     started: bool,
+    /// Set by `do_call` when a primitive parked. Read and cleared by the
+    /// run loop, which turns it into [`Progress::Blocked`].
+    blocked: bool,
 }
 
 impl Vm {
+    /// The value a primitive returns to park the calling process.
+    ///
+    /// See [`Park`] for the contract: the primitive must not have consumed
+    /// anything, because the call will run again.
+    pub fn park() -> Value {
+        Value::Foreign(std::sync::Arc::new(Park))
+    }
+
+    /// Is this the park sentinel?
+    pub fn is_park(v: &Value) -> bool {
+        matches!(v, Value::Foreign(any) if any.is::<Park>())
+    }
+
     pub fn new() -> Self {
         Self {
             stack: Vec::with_capacity(256),
@@ -203,6 +252,7 @@ impl Vm {
             burned: 0,
             slice: 0,
             started: false,
+            blocked: false,
         }
     }
 
@@ -318,6 +368,8 @@ impl Vm {
             match self.run_with_handlers(&chunk, interp, host)? {
                 Progress::Done(v) => return Ok(v),
                 Progress::Yielded => continue,
+                // `run` is the no-scheduler path; see VmError::Deadlocked.
+                Progress::Blocked => return Err(VmError::Deadlocked),
             }
         }
     }
@@ -567,9 +619,17 @@ impl Vm {
 
                 Op::Call(arity) => {
                     self.do_call(chunk, interp, host, arity, span, /*tail=*/ false)?;
+                    if self.blocked {
+                        self.blocked = false;
+                        return Ok(Progress::Blocked);
+                    }
                 }
                 Op::TailCall(arity) => {
                     self.do_call(chunk, interp, host, arity, span, /*tail=*/ true)?;
+                    if self.blocked {
+                        self.blocked = false;
+                        return Ok(Progress::Blocked);
+                    }
                 }
                 Op::Return => {
                     let ret = self.stack.pop().ok_or(VmError::Underflow { ip: 0 })?;
@@ -777,7 +837,21 @@ impl Vm {
                 // slot so nothing's left in callee_idx.
                 let args: Vec<Value> = self.stack.drain(callee_idx + 1..).collect();
                 self.stack.pop();
-                let result = interp.apply_external_value(&callee, args, host, span)?;
+                let args_kept = args.clone();
+                let args_for_call = args;
+                let result = interp.apply_external_value(&callee, args_for_call, host, span)?;
+                if Self::is_park(&result) {
+                    // Put the stack back exactly as the Call found it and
+                    // rewind to the Call itself, so `resume` re-executes it.
+                    // Nothing about this attempt is retained — that is what
+                    // makes the retry sound.
+                    self.stack.push(callee.clone());
+                    self.stack.extend(args_kept);
+                    let top = self.frames.len() - 1;
+                    self.frames[top].ip -= 1;
+                    self.blocked = true;
+                    return Ok(());
+                }
                 self.stack.push(result);
                 Ok(())
             }
@@ -924,6 +998,14 @@ fn vm_runtime_err_to_value(err: &VmError) -> Value {
         VmError::BudgetExhausted { what, limit } => (
             "budget-exhausted",
             format!("execution budget exhausted: {what} (limit {limit})"),
+        ),
+        // Also unreachable: `Deadlocked` is produced by `run`, which sits
+        // ABOVE the handler path, so it never reaches this converter. And it
+        // should not be catchable if it did — a park with no scheduler cannot
+        // be recovered from, only re-architected by the caller.
+        VmError::Deadlocked => (
+            "deadlock",
+            "a primitive parked with no scheduler to unblock it".to_string(),
         ),
         VmError::BadLocal(idx) => ("bad-local", format!("local index out of bounds: {idx}")),
         VmError::Eval(inner) => return vm_err_to_value(inner),
@@ -1370,7 +1452,128 @@ mod tests {
 
     /// Depth is a SEPARATE dimension: fuel bounds time, depth bounds space,
     /// and neither implies the other.
+
+    // ── parking: Progress::Blocked ──────────────────────────────────────
+    //
+    // A blocking primitive is the mechanism a scheduler needs to make
+    // waiting free. The tests below check the two halves that make it
+    // sound: the VM must RE-RUN the parked call, and it must re-run it
+    // against a stack and ip that are byte-for-byte what the call found.
+
+    /// A primitive that parks the first `n` times it is called, then returns
+    /// the sum of its arguments. Modelled on a mailbox: empty, empty, ready.
+    fn install_parking_prim(interp: &mut Interpreter<std::cell::Cell<usize>>) {
+        interp.register_fn(
+            "wait-then-add",
+            crate::ffi::Arity::Exact(2),
+            |args: &[Value], host: &mut std::cell::Cell<usize>, _span: Span| {
+                let remaining = host.get();
+                if remaining > 0 {
+                    host.set(remaining - 1);
+                    // Park WITHOUT consuming: the contract in `Park`'s docs.
+                    return Ok(Vm::park());
+                }
+                match (&args[0], &args[1]) {
+                    (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a + b)),
+                    _ => Ok(Value::Nil),
+                }
+            },
+        );
+    }
+
+    /// The core claim: a parked call is re-executed, and it eventually
+    /// succeeds with the arguments it originally had.
     #[test]
+    fn a_parked_primitive_is_retried_with_its_original_arguments() {
+        let chunk = compile("(wait-then-add 20 22)");
+        let mut host = std::cell::Cell::new(2usize);
+        let mut interp: Interpreter<std::cell::Cell<usize>> = Interpreter::new();
+        install_parking_prim(&mut interp);
+
+        let mut vm = Vm::new();
+        let mut blocks = 0;
+        let mut progress = vm.step(chunk.clone(), &mut interp, &mut host).expect("step");
+        loop {
+            match progress {
+                Progress::Blocked => {
+                    blocks += 1;
+                    assert!(blocks < 10, "did not converge");
+                    progress = vm.resume(chunk.clone(), &mut interp, &mut host).expect("resume");
+                }
+                Progress::Yielded => {
+                    progress = vm.resume(chunk.clone(), &mut interp, &mut host).expect("resume");
+                }
+                Progress::Done(v) => {
+                    assert!(matches!(v, Value::Int(42)), "got {v:?}");
+                    break;
+                }
+            }
+        }
+        assert_eq!(blocks, 2, "the primitive parked twice, so the VM must have blocked twice");
+    }
+
+    /// Anti-vacuity for the test above: with nothing to wait for, the same
+    /// program must NOT block. Otherwise `blocks == 2` could be an artifact
+    /// of the harness rather than the primitive.
+    #[test]
+    fn a_primitive_that_does_not_park_does_not_block() {
+        let chunk = compile("(wait-then-add 20 22)");
+        let mut host = std::cell::Cell::new(0usize);
+        let mut interp: Interpreter<std::cell::Cell<usize>> = Interpreter::new();
+        install_parking_prim(&mut interp);
+        let mut vm = Vm::new();
+        let p = vm.step(chunk, &mut interp, &mut host).expect("step");
+        assert!(
+            matches!(p, Progress::Done(Value::Int(42))),
+            "expected an immediate answer, got {p:?}"
+        );
+    }
+
+    /// **`run` has no scheduler, so a park there is a deadlock and must say
+    /// so.** The alternative — spinning, or quietly yielding nil — turns a
+    /// diagnosable hang into an inexplicable one.
+    #[test]
+    fn parking_without_a_scheduler_is_a_named_deadlock() {
+        let chunk = compile("(wait-then-add 1 2)");
+        let mut host = std::cell::Cell::new(1usize);
+        let mut interp: Interpreter<std::cell::Cell<usize>> = Interpreter::new();
+        install_parking_prim(&mut interp);
+        let mut vm = Vm::new();
+        let err = vm.run(&chunk, &mut interp, &mut host).expect_err("must deadlock");
+        assert!(
+            matches!(err, VmError::Deadlocked),
+            "expected Deadlocked, got {err:?}"
+        );
+    }
+
+    /// The stack must be restored *exactly*, which means a park inside a
+    /// larger expression leaves the surrounding computation intact. If the
+    /// restore were off by one slot, this returns the wrong number rather
+    /// than failing loudly — which is why the assertion is on the value.
+    #[test]
+    fn a_park_inside_a_larger_expression_restores_the_whole_stack() {
+        let chunk = compile("(+ 100 (wait-then-add 20 22) 1000)");
+        let c = chunk.clone();
+        let mut host = std::cell::Cell::new(3usize);
+        let mut interp: Interpreter<std::cell::Cell<usize>> = Interpreter::new();
+        crate::install_primitives(&mut interp);
+        install_parking_prim(&mut interp);
+        let mut vm = Vm::new();
+        let mut progress = vm.step(c, &mut interp, &mut host).expect("step");
+        for _ in 0..20 {
+            match progress {
+                Progress::Done(v) => {
+                    assert!(matches!(v, Value::Int(1142)), "got {v:?}");
+                    return;
+                }
+                _ => progress = vm.resume(chunk.clone(), &mut interp, &mut host).expect("resume"),
+            }
+        }
+        panic!("did not converge: {progress:?}");
+    }
+
+    #[test
+]
     fn depth_exhaustion_is_a_typed_error_independent_of_fuel() {
         let budget = Budget {
             fuel: None,
@@ -1473,6 +1676,7 @@ mod tests {
         let mut parks = 0usize;
         let answer = loop {
             match vm.step(chunk.clone(), &mut interp, &mut ()).expect("step") {
+                Progress::Blocked => panic!("no primitive in this test parks"),
                 Progress::Yielded => {
                     parks += 1;
                     assert!(parks < 10_000, "never finished");
@@ -1530,6 +1734,7 @@ mod tests {
                     continue;
                 }
                 match vm.step(chunk.clone(), &mut interp, &mut ()).expect("step") {
+                    Progress::Blocked => panic!("no primitive in this test parks"),
                     Progress::Yielded => {}
                     Progress::Done(Value::Int(v)) => *done = Some(v),
                     Progress::Done(other) => panic!("unexpected {other:?}"),
@@ -1554,6 +1759,7 @@ mod tests {
         let mut vm = Vm::new(); // default budget has quantum: None
         match vm.step(chunk, &mut interp, &mut ()).expect("step") {
             Progress::Done(v) => assert!(matches!(v, Value::Int(7)), "got {v:?}"),
+            Progress::Blocked => panic!("no primitive in this test parks"),
             Progress::Yielded => panic!("parked with no quantum set"),
         }
     }
@@ -1574,6 +1780,7 @@ mod tests {
             });
             let v = loop {
                 match vm.step(chunk.clone(), &mut interp, &mut ()).expect("step") {
+                    Progress::Blocked => panic!("no primitive in this test parks"),
                     Progress::Yielded => {}
                     Progress::Done(v) => break v,
                 }

@@ -8249,6 +8249,22 @@ impl Hash for Atom {
 }
 
 /// An S-expression — the homoiconic value + program representation.
+/// Lowercase hex for a codepoint, without pulling in a formatter — the escaper
+/// is on the Display path and must not recurse into it.
+fn alloc_hex(mut n: u32) -> String {
+    if n == 0 {
+        return "0".to_string();
+    }
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut buf = Vec::with_capacity(6);
+    while n > 0 {
+        buf.push(DIGITS[(n % 16) as usize]);
+        n /= 16;
+    }
+    buf.reverse();
+    String::from_utf8(buf).expect("hex digits are ascii")
+}
+
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Sexp {
     Nil,
@@ -9604,6 +9620,51 @@ impl Atom {
     ];
 
     #[must_use]
+    /// A string payload as source text, quoted and escaped so that
+    /// [`Self::decode_str_escape`] (plus the reader's `\u{…}` arm) reads back
+    /// exactly these bytes.
+    ///
+    /// The inverse of the reader, deliberately written as one: anything the
+    /// reader cannot decode is emitted as `\u{…}` rather than as a shorter
+    /// escape that would mean something different.
+    #[must_use]
+    pub fn escape_str_payload(s: &str) -> String {
+        let mut out = String::with_capacity(s.len() + 2);
+        out.push(Self::STR_DELIMITER);
+        for c in s.chars() {
+            match c {
+                Self::STR_DELIMITER | Self::STR_ESCAPE_LEAD => {
+                    out.push(Self::STR_ESCAPE_LEAD);
+                    out.push(c);
+                }
+                Self::NEWLINE_ESCAPE_DECODED => {
+                    out.push(Self::STR_ESCAPE_LEAD);
+                    out.push(Self::NEWLINE_ESCAPE_SOURCE);
+                }
+                Self::TAB_ESCAPE_DECODED => {
+                    out.push(Self::STR_ESCAPE_LEAD);
+                    out.push(Self::TAB_ESCAPE_SOURCE);
+                }
+                Self::CARRIAGE_RETURN_ESCAPE_DECODED => {
+                    out.push(Self::STR_ESCAPE_LEAD);
+                    out.push(Self::CARRIAGE_RETURN_ESCAPE_SOURCE);
+                }
+                // Everything else the reader cannot round-trip literally goes
+                // out as `\u{…}`, which it CAN. Printable characters — including
+                // every non-ASCII one — are emitted raw, so ordinary text stays
+                // readable.
+                c if c.is_control() => {
+                    out.push_str("\\u{");
+                    out.push_str(&alloc_hex(c as u32));
+                    out.push('}');
+                }
+                c => out.push(c),
+            }
+        }
+        out.push(Self::STR_DELIMITER);
+        out
+    }
+
     pub const fn decode_str_escape(esc: char) -> char {
         match esc {
             Self::NEWLINE_ESCAPE_SOURCE => Self::NEWLINE_ESCAPE_DECODED,
@@ -18261,7 +18322,18 @@ impl fmt::Display for Atom {
         match self {
             Self::Symbol(s) => f.write_str(s),
             Self::Keyword(s) => write!(f, "{}{s}", Self::KEYWORD_MARKER),
-            Self::Str(s) => write!(f, "{s:?}"),
+            // NOT `{s:?}`. Rust's `str` Debug escapes NUL as `\0`, and this
+            // reader deliberately decodes `\0` as the DIGIT `0` — see
+            // `decode_str_escape`'s passthrough arm and the test pinning it.
+            // So `{s:?}` emitted an escape that means something else here, and
+            // `"nul\0byte"` round-tripped to `"nul0byte"`: silent corruption
+            // from two locally-correct decisions disagreeing.
+            //
+            // This escaper emits exactly what THIS reader decodes: the five
+            // named/self escapes, and `\u{…}` for anything else non-printable
+            // (which the reader gained an arm for alongside this fix). Display
+            // and read are inverses again.
+            Self::Str(s) => write!(f, "{}", Self::escape_str_payload(s)),
             Self::Int(n) => write!(f, "{n}"),
             Self::Float(n) => fmt_float(*n, f),
             // Bool arm collapses to ONE branch routing through

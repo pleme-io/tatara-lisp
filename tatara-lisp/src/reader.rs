@@ -1137,6 +1137,7 @@ mod str_round_trip {
             "back\\slash",
             "newline\nhere",
             "tab\there",
+            "nul\0byte",
             "accented é",
             "emoji 😀",
             "combining e\u{301}",
@@ -1160,35 +1161,43 @@ mod str_round_trip {
         }
     }
 
-    /// **KNOWN OPEN BUG, found by the property above: `\0` does not survive.**
+    /// **NUL, the second corruption the property above found — now closed.**
     ///
-    /// `Display` writes a NUL as `\0`, but `NAMED_ESCAPE_TABLE` is
-    /// `[(char, char); 3]` — `\n`, `\t`, `\r` — with no row for it, so
-    /// `decode_str_escape('0')` falls through to the identity arm and returns
-    /// the DIGIT. `"nul\0byte"` round-trips to `"nul0byte"`: silent corruption,
-    /// same shape as the `\u{…}` bug fixed above.
+    /// `Display for Atom` rendered a `Str` with `{s:?}`, and Rust's `str` Debug
+    /// escapes NUL as `\0`. But this reader decodes `\0` as the DIGIT `0`,
+    /// deliberately — `decode_str_escape`'s passthrough arm says so and a test
+    /// pins it. Two locally-correct decisions disagreeing, so `"nul\0byte"`
+    /// came back `"nul0byte"`: silent corruption, no error.
     ///
-    /// Not fixed here because it is not a one-line change. The escape algebra is
-    /// arity-forced and composed — `NAMED_ESCAPE_TABLE[3]` feeds
-    /// `ESCAPE_TABLE[5]` feeds the `ALL[5]` closed set, each with per-role
-    /// `pub const` pairs and catalog-reflection tests keyed to the counts. Doing
-    /// it right means new `NUL_ESCAPE_SOURCE`/`_DECODED` consts, three arity
-    /// bumps, a `decode_str_escape` arm, and the catalog rows — which the
-    /// module's own docs already name as the worked example ("a new named escape
-    /// (`'0' → '\0'`) extends the algebra ONCE").
+    /// Fixed on the WRITER, not the reader. The reader's meaning for `\0` is
+    /// explicit and tested; the writer's was incidental — it inherited Rust's.
+    /// `Atom::escape_str_payload` now emits exactly what this reader decodes,
+    /// sending anything else non-printable out as `\u{…}`.
     ///
-    /// Ignored rather than deleted: deleting it loses the finding, and leaving
-    /// it red makes the suite lie about the repo's state.
+    /// The first attempt went the other way — adding a `'0'` arm to
+    /// `decode_str_escape` — and tatara's own test rejected it by name. That
+    /// rejection was correct and is why the fix landed where it did.
     #[test]
-    #[ignore = "known open bug: \\0 is written by Display but has no NAMED_ESCAPE_TABLE row"]
-    fn nul_should_survive_a_round_trip_and_does_not() {
+    fn nul_survives_a_round_trip() {
         let sexp = crate::Sexp::Atom(crate::Atom::Str("nul\0byte".to_string()));
         let forms = read_spanned(&sexp.to_string()).expect("re-read");
         let got = match forms.first().map(|f| &f.form) {
             Some(crate::SpannedForm::Atom(crate::Atom::Str(s))) => s.clone(),
             other => panic!("got {other:?}"),
         };
-        assert_eq!(got, "nul\0byte", "NUL is decoded as the digit 0");
+        assert_eq!(got, "nul\0byte");
+    }
+
+    /// And `\0` in SOURCE still means the digit — the reader's documented
+    /// meaning is unchanged by the writer fix.
+    #[test]
+    fn a_literal_backslash_zero_in_source_is_still_the_digit() {
+        let forms = read_spanned(r#""a\0b""#).expect("read");
+        let got = match forms.first().map(|f| &f.form) {
+            Some(crate::SpannedForm::Atom(crate::Atom::Str(s))) => s.clone(),
+            other => panic!("got {other:?}"),
+        };
+        assert_eq!(got, "a0b", "the reader's meaning for \\0 must not have moved");
     }
 
     /// A malformed `\u{…}` keeps its literal text rather than becoming a

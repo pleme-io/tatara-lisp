@@ -1532,6 +1532,88 @@ mod tests {
     /// **`run` has no scheduler, so a park there is a deadlock and must say
     /// so.** The alternative — spinning, or quietly yielding nil — turns a
     /// diagnosable hang into an inexplicable one.
+    // ── the two-phase form: waiting that CANNOT consume ─────────────────
+
+    /// A mailbox as a host, so `ready` and `call` have something real to
+    /// disagree about.
+    #[derive(Default)]
+    struct Mail {
+        queue: std::collections::VecDeque<i64>,
+        /// How many times `call` actually ran. If `call` ever ran while the
+        /// queue was empty, the split is not doing its job.
+        calls: usize,
+    }
+
+    fn install_awaitable_take(interp: &mut Interpreter<Mail>) {
+        interp.register_awaitable_fn(
+            "take",
+            crate::ffi::Arity::Exact(0),
+            // READY: immutable host. This signature IS the guarantee — see
+            // `register_awaitable_fn`'s `compile_fail` doctest.
+            |_args: &[Value], mail: &Mail| !mail.queue.is_empty(),
+            // CALL: only reached when ready, so it has no reason to park.
+            |_args: &[Value], mail: &mut Mail, _span| {
+                mail.calls += 1;
+                Ok(Value::Int(mail.queue.pop_front().expect("ready said yes")))
+            },
+        );
+    }
+
+    /// The two-phase primitive parks while empty and takes exactly once —
+    /// and, crucially, `call` never runs during the parked attempts.
+    #[test]
+    fn an_awaitable_primitive_parks_while_not_ready_then_takes_once() {
+        let chunk = compile("(take)");
+        let mut mail = Mail::default();
+        let mut interp: Interpreter<Mail> = Interpreter::new();
+        install_awaitable_take(&mut interp);
+
+        let mut vm = Vm::new();
+        let mut progress = vm.step(chunk.clone(), &mut interp, &mut mail).expect("step");
+        assert!(
+            matches!(progress, Progress::Blocked),
+            "an empty queue must park, got {progress:?}"
+        );
+
+        for _ in 0..2 {
+            progress = vm
+                .resume(chunk.clone(), &mut interp, &mut mail)
+                .expect("resume");
+            assert!(matches!(progress, Progress::Blocked));
+        }
+        assert_eq!(
+            mail.calls, 0,
+            "three park attempts must have consumed nothing — the property the \
+             one-phase form could only promise in a doc comment"
+        );
+
+        mail.queue.push_back(77);
+        progress = vm.resume(chunk, &mut interp, &mut mail).expect("resume");
+        assert!(
+            matches!(progress, Progress::Done(Value::Int(77))),
+            "got {progress:?}"
+        );
+        assert_eq!(mail.calls, 1, "and taken exactly once");
+        assert!(mail.queue.is_empty());
+    }
+
+    /// Anti-vacuity: an awaitable whose `ready` is always true must NOT park.
+    /// Otherwise the parking above could be unconditional.
+    #[test]
+    fn an_awaitable_that_is_always_ready_does_not_park() {
+        let chunk = compile("(always)");
+        let mut mail = Mail::default();
+        let mut interp: Interpreter<Mail> = Interpreter::new();
+        interp.register_awaitable_fn(
+            "always",
+            crate::ffi::Arity::Exact(0),
+            |_args: &[Value], _mail: &Mail| true,
+            |_args: &[Value], _mail: &mut Mail, _span| Ok(Value::Int(5)),
+        );
+        let p = Vm::new().step(chunk, &mut interp, &mut mail).expect("step");
+        assert!(matches!(p, Progress::Done(Value::Int(5))), "got {p:?}");
+    }
+
     #[test]
     fn parking_without_a_scheduler_is_a_named_deadlock() {
         let chunk = compile("(wait-then-add 1 2)");

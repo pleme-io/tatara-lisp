@@ -113,6 +113,77 @@ impl<H: 'static> Interpreter<H> {
         );
     }
 
+    /// Register a primitive that may have to **wait**.
+    ///
+    /// Two phases: `ready(&[Value], &H) -> bool` decides against an
+    /// immutable host, and `call(&[Value], &mut H, Span)` does the work only
+    /// once ready said yes. The immutable borrow in `ready` is the point —
+    /// see [`crate::ffi::AwaitableCallable`]: it makes consume-then-wait a
+    /// compile error rather than a documented hazard.
+    ///
+    /// Under `Vm::step`/`resume` a not-ready call parks the process. Under
+    /// `Vm::run`, which has no scheduler, it is `VmError::Deadlocked`.
+    ///
+    /// # Consume-then-wait does not typecheck
+    ///
+    /// This is the reason the form is split, so it is *asserted*, not
+    /// described. The body below is the natural shape of a selective
+    /// `receive` — take a message, find it does not match, wait — which is
+    /// precisely the message-losing bug a one-phase parking contract cannot
+    /// prevent. `ready` holds `&H`, so it is rejected at compile time:
+    ///
+    /// ```compile_fail
+    /// use tatara_lisp_eval::{ffi::Arity, Interpreter, Value};
+    /// #[derive(Default)]
+    /// struct Mail { queue: std::collections::VecDeque<i64> }
+    /// let mut interp: Interpreter<Mail> = Interpreter::new();
+    /// interp.register_awaitable_fn(
+    ///     "selective-take",
+    ///     Arity::Exact(0),
+    ///     // E0596: cannot borrow `mail.queue` as mutable.
+    ///     |_args: &[Value], mail: &Mail| mail.queue.pop_front().is_some(),
+    ///     |_args: &[Value], _mail: &mut Mail, _span| Ok(Value::Nil),
+    /// );
+    /// ```
+    ///
+    /// The permitted shape reads the queue and leaves it alone:
+    ///
+    /// ```
+    /// use tatara_lisp_eval::{ffi::Arity, Interpreter, Value};
+    /// #[derive(Default)]
+    /// struct Mail { queue: std::collections::VecDeque<i64> }
+    /// let mut interp: Interpreter<Mail> = Interpreter::new();
+    /// interp.register_awaitable_fn(
+    ///     "take",
+    ///     Arity::Exact(0),
+    ///     |_args: &[Value], mail: &Mail| !mail.queue.is_empty(),
+    ///     |_args: &[Value], mail: &mut Mail, _span| {
+    ///         Ok(Value::Int(mail.queue.pop_front().expect("ready said yes")))
+    ///     },
+    /// );
+    /// ```
+    pub fn register_awaitable_fn<R, C>(
+        &mut self,
+        name: impl Into<Arc<str>>,
+        arity: Arity,
+        ready: R,
+        call: C,
+    ) where
+        R: Fn(&[Value], &H) -> bool + Send + Sync + 'static,
+        C: Fn(&[Value], &mut H, Span) -> Result<Value> + Send + Sync + 'static,
+    {
+        let name = name.into();
+        self.registry.insert(FnEntry {
+            name: name.clone(),
+            arity,
+            callable: FnImpl::Awaitable(Arc::new(crate::ffi::Awaitable { ready, call })),
+        });
+        self.globals.define(
+            name.clone(),
+            Value::NativeFn(Arc::new(NativeFn { name, arity })),
+        );
+    }
+
     /// Evaluate a single already-read spanned form in this interpreter's
     /// global environment. Macro expansion runs first if any macros are
     /// registered. Bare `eval_spanned` does NOT register top-level
@@ -920,6 +991,17 @@ fn apply<H: 'static>(
                 FnImpl::Higher(f) => {
                     let caller = Caller { registry, expander };
                     f.call(&args, host, &caller, call_span)
+                }
+                // The readiness check happens HERE, with `host` reborrowed
+                // immutably, which is what makes the no-consume guarantee
+                // structural: `f.ready` cannot touch the host mutably even
+                // if its author wanted to.
+                FnImpl::Awaitable(f) => {
+                    if f.ready(&args, host) {
+                        f.call(&args, host, call_span)
+                    } else {
+                        Ok(crate::vm::Vm::park())
+                    }
                 }
             }
         }

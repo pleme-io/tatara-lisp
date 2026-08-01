@@ -150,9 +150,63 @@ impl<'a, H: 'static> Caller<'a, H> {
 /// registry borrow before invoking it — letting `apply()` hold `&mut
 /// Interpreter` while a higher-order primitive runs (which lets that
 /// primitive re-enter the dispatch path with the same Interpreter).
+/// A primitive that may have to wait, split so that **waiting cannot
+/// consume**.
+///
+/// ## Why two phases
+///
+/// A one-phase parking primitive — one that inspects the host, decides it
+/// cannot proceed, and returns [`crate::vm::Vm::park`] — carries a contract
+/// the VM cannot check: it must not have consumed anything, because the
+/// parked call is *re-executed from the top*. Take-then-park loses whatever
+/// was taken.
+///
+/// That contract is exactly the kind that holds until the first interesting
+/// case. A selective `receive` is the interesting case: it takes a message,
+/// finds it does not match the pattern, and must wait — and the natural
+/// implementation of that loses the message on every non-match.
+///
+/// Splitting the primitive in two removes the possibility rather than
+/// warning about it. [`AwaitableCallable::ready`] gets `&H` — an immutable
+/// borrow — so **it cannot mutate the host at all**; the compiler rejects
+/// the attempt. [`AwaitableCallable::call`] gets `&mut H` and is invoked
+/// only once `ready` has said yes, so it never has a reason to park.
+///
+/// Take-then-park is not discouraged here. It does not typecheck.
+pub trait AwaitableCallable<H>: Send + Sync + 'static {
+    /// May this call proceed? Answered against an **immutable** host.
+    ///
+    /// Return `false` to park the calling process. The VM restores the stack
+    /// and retries the call later.
+    fn ready(&self, args: &[Value], host: &H) -> bool;
+
+    /// Do the work. Called only when [`Self::ready`] returned `true`.
+    fn call(&self, args: &[Value], host: &mut H, call_span: Span) -> Result<Value>;
+}
+
+/// The ergonomic form: a pair of closures.
+pub struct Awaitable<R, C> {
+    pub ready: R,
+    pub call: C,
+}
+
+impl<H, R, C> AwaitableCallable<H> for Awaitable<R, C>
+where
+    R: Fn(&[Value], &H) -> bool + Send + Sync + 'static,
+    C: Fn(&[Value], &mut H, Span) -> Result<Value> + Send + Sync + 'static,
+{
+    fn ready(&self, args: &[Value], host: &H) -> bool {
+        (self.ready)(args, host)
+    }
+    fn call(&self, args: &[Value], host: &mut H, call_span: Span) -> Result<Value> {
+        (self.call)(args, host, call_span)
+    }
+}
+
 pub(crate) enum FnImpl<H> {
     Native(Arc<dyn NativeCallable<H>>),
     Higher(Arc<dyn HigherOrderCallable<H>>),
+    Awaitable(Arc<dyn AwaitableCallable<H>>),
 }
 
 impl<H> Clone for FnImpl<H> {
@@ -160,6 +214,7 @@ impl<H> Clone for FnImpl<H> {
         match self {
             Self::Native(f) => Self::Native(Arc::clone(f)),
             Self::Higher(f) => Self::Higher(Arc::clone(f)),
+            Self::Awaitable(f) => Self::Awaitable(Arc::clone(f)),
         }
     }
 }

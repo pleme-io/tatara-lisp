@@ -551,8 +551,12 @@ impl<H: 'static> Interpreter<H> {
 
         // Build the macro-time environment: capture globals, push a
         // frame for the macro params.
-        let mut macro_env = self.globals.clone();
-        macro_env.push();
+        // SEALED: the macro body reads every global and stdlib function,
+        // and `define`s freely in its own frame — but a `set!` walking
+        // outward into the interpreter's globals is refused rather than
+        // silently mutating compile-time state. Without this, expansion is
+        // not deterministic and no expansion memo is sound.
+        let mut macro_env = self.globals.sealed_below_top();
         bind_macro_args(&mut macro_env, &def.name, &def.params, args, call_span)?;
 
         // Evaluate the body in the macro env using the live interpreter
@@ -1819,6 +1823,19 @@ fn sf_set<H: 'static>(
     let v = eval_in(env, registry, expander, &items[2], host)?;
     if env.set(name, v) {
         Ok(Value::Nil)
+    } else if env.is_sealed_binding(name) {
+        // Distinguishes a sealed write from an unbound name. A macro body
+        // reaching outward to mutate the interpreter's globals lands here.
+        Err(EvalError::bad_form(
+            "set!",
+            format!(
+                "cannot `set!` {name:?} from a macro body — it is bound outside \
+                 the expansion and sealed. Macro expansion must be deterministic, \
+                 so compile-time state cannot outlive the expansion. Use a local \
+                 binding, or return the value in the expansion."
+            ),
+            items[1].span,
+        ))
     } else {
         Err(EvalError::unbound(name, items[1].span))
     }
@@ -3612,4 +3629,75 @@ mod tests {
         // Both alias to the same cached module.
         assert!(matches!(v, Value::Int(84)));
     }
+
+    // ---- macro-phase seal ------------------------------------------
+    //
+    // Measured before this landed: `(define *g* 0)` `(defmacro leak ()
+    // (set! *g* 99))` `(leak)` `*g*` returned Int(99) — a macro body wrote
+    // the interpreter's globals, and the runtime program could read it.
+    // The mechanism was that `Env::set` takes `&self` and mutates through
+    // `Arc`-shared frames, so cloning the env shared them.
+
+    #[test]
+    fn macro_body_cannot_set_a_global() {
+        let mut interp = Interpreter::new();
+        install_primitives(&mut interp);
+        let src = "(define *g* 0) (defmacro leak () (set! *g* 99)) (leak)";
+        let forms = tatara_lisp::read_spanned(src).expect("parse");
+        let err = interp
+            .eval_program(&forms, &mut ())
+            .expect_err("a macro must not be able to set! a global");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("sealed") || msg.contains("cannot `set!`"),
+            "expected a sealed-write diagnostic, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn the_global_is_actually_unchanged_after_a_refused_macro_set() {
+        let mut interp = Interpreter::new();
+        install_primitives(&mut interp);
+        let forms = tatara_lisp::read_spanned(
+            "(define *g* 0) (defmacro leak () (set! *g* 99))",
+        )
+        .expect("parse");
+        interp.eval_program(&forms, &mut ()).expect("setup");
+        // The expansion fails; the global must still read 0.
+        let call = tatara_lisp::read_spanned("(leak)").expect("parse");
+        let _ = interp.eval_program(&call, &mut ());
+        let read = tatara_lisp::read_spanned("*g*").expect("parse");
+        let v = interp.eval_program(&read, &mut ()).expect("read *g*");
+        assert!(
+            matches!(v, Value::Int(0)),
+            "global was mutated by a macro body despite the seal: {v:?}"
+        );
+    }
+
+    /// Anti-vacuity: the seal must not break ORDINARY `set!`. If it did,
+    /// the tests above would pass for the wrong reason.
+    #[test]
+    fn ordinary_set_still_works_at_runtime() {
+        let mut interp = Interpreter::new();
+        install_primitives(&mut interp);
+        let forms =
+            tatara_lisp::read_spanned("(define x 1) (set! x 42) x").expect("parse");
+        let v = interp.eval_program(&forms, &mut ()).expect("runtime set!");
+        assert!(matches!(v, Value::Int(42)), "got {v:?}");
+    }
+
+    /// A macro body may still `define` and `set!` its OWN locals — the
+    /// seal only blocks reaching outward.
+    #[test]
+    fn macro_body_can_mutate_its_own_locals() {
+        let mut interp = Interpreter::new();
+        install_primitives(&mut interp);
+        let src = "(defmacro m () (begin (define n 1) (set! n 2) n)) (m)";
+        let forms = tatara_lisp::read_spanned(src).expect("parse");
+        let v = interp
+            .eval_program(&forms, &mut ())
+            .expect("a macro must be able to mutate its own locals");
+        assert!(matches!(v, Value::Int(2)), "got {v:?}");
+    }
+
 }

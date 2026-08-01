@@ -42,6 +42,24 @@ impl std::fmt::Debug for Frame {
 #[derive(Clone, Debug)]
 pub struct Env {
     frames: Vec<Arc<Frame>>,
+    /// Frames at index `< write_floor` are **read-only to `set!`**.
+    ///
+    /// Zero for an ordinary environment, so nothing changes on the normal
+    /// path. Raised by [`Env::sealed_below_top`] to build a macro-time
+    /// environment: a macro body may still *read* every global, but a
+    /// `set!` that would walk out into the interpreter's own globals is
+    /// refused instead of silently mutating compile-time state.
+    ///
+    /// Why this is needed at all: frames are shared via `Arc`, and
+    /// `Env::set` takes `&self` and mutates *through* the `Arc`. So an
+    /// immutable reference to a cloned `Env` was sufficient to write the
+    /// compiler's globals — measured, and the reason macro expansion was
+    /// not deterministic.
+    ///
+    /// `set!` is a `SpecialForm`, not a bindable name, so it cannot be
+    /// withheld by leaving it out of an environment. The reachable frames
+    /// are the only thing that can be restricted.
+    write_floor: usize,
 }
 
 impl Default for Env {
@@ -54,7 +72,42 @@ impl Env {
     pub fn new() -> Self {
         Self {
             frames: vec![Arc::new(Frame::new())],
+            write_floor: 0,
         }
+    }
+
+    /// Clone this environment with every CURRENT frame sealed against
+    /// `set!`, then push one fresh writable frame on top.
+    ///
+    /// This is the macro-time environment. The body can read every global
+    /// and every stdlib function, can `define` freely in its own frame, and
+    /// cannot reach outward to mutate the interpreter's state. A `set!`
+    /// targeting a sealed binding raises `SetSealed` rather than silently
+    /// succeeding.
+    pub fn sealed_below_top(&self) -> Self {
+        let mut env = self.clone();
+        env.write_floor = env.frames.len();
+        env.push();
+        env
+    }
+
+    /// Is `name` bound only in a frame sealed against `set!`?
+    ///
+    /// Distinguishes "refused because sealed" from "no such binding", so
+    /// the caller can raise the right error.
+    pub fn is_sealed_binding(&self, name: &str) -> bool {
+        if self.write_floor == 0 {
+            return false;
+        }
+        let writable_has_it = self.frames[self.write_floor..]
+            .iter()
+            .any(|f| f.bindings.lock().unwrap().contains_key(name));
+        if writable_has_it {
+            return false;
+        }
+        self.frames[..self.write_floor]
+            .iter()
+            .any(|f| f.bindings.lock().unwrap().contains_key(name))
     }
 
     /// Push a fresh innermost frame, for `let` / lambda body scope.
@@ -89,8 +142,9 @@ impl Env {
 
     /// Mutate an existing binding in the nearest enclosing frame. Returns
     /// `false` if no such binding exists.
+    /// Frames below `write_floor` are skipped — see the field's docs.
     pub fn set(&self, name: &str, value: Value) -> bool {
-        for frame in self.frames.iter().rev() {
+        for frame in self.frames[self.write_floor..].iter().rev() {
             let mut bindings = frame.bindings.lock().unwrap();
             if let Some(slot) = bindings.get_mut(name) {
                 *slot = value;

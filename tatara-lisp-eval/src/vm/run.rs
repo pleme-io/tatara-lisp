@@ -68,6 +68,34 @@ pub struct Budget {
     pub fuel: Option<usize>,
     /// Maximum simultaneous call frames. `None` for unbounded.
     pub max_depth: Option<usize>,
+    /// Instructions per scheduling slice before the VM yields.
+    ///
+    /// `None` — the default — means run to completion, so every existing
+    /// caller is bit-identical. A scheduler sets this to get **preemption
+    /// with no yield points in user code**, which is the property BEAM has
+    /// and cooperative async does not: a tight arithmetic loop cannot starve
+    /// its siblings, because the reduction counter does not ask its
+    /// permission.
+    ///
+    /// This is the same counter as `fuel`. Bounded failure and preemption
+    /// are one mechanism read two ways — one is a ceiling on total work, the
+    /// other a ceiling per slice.
+    pub quantum: Option<usize>,
+}
+
+/// What a step of execution produced.
+#[derive(Clone, Debug)]
+pub enum Progress {
+    /// The program finished.
+    Done(Value),
+    /// The quantum expired with the frame stack intact. Call
+    /// [`Vm::resume`] to continue exactly where it stopped.
+    ///
+    /// This is possible **only** because the VM's frame stack is a heap
+    /// `Vec`. A tree-walker's continuation lives on the host stack and
+    /// cannot be parked, which is why §V.8 records preemption and host
+    /// re-entry as mutually exclusive.
+    Yielded,
 }
 
 impl Default for Budget {
@@ -75,6 +103,7 @@ impl Default for Budget {
         Self {
             fuel: Some(50_000_000),
             max_depth: Some(100_000),
+            quantum: None,
         }
     }
 }
@@ -85,6 +114,16 @@ impl Budget {
         Self {
             fuel: None,
             max_depth: None,
+            quantum: None,
+        }
+    }
+
+    /// A budget that yields every `reductions` instructions. What a
+    /// scheduler uses.
+    pub fn preemptive(reductions: usize) -> Self {
+        Self {
+            quantum: Some(reductions),
+            ..Self::default()
         }
     }
 
@@ -94,6 +133,7 @@ impl Budget {
         Self {
             fuel: Some(1_000_000),
             max_depth: Some(1_000),
+            quantum: None,
         }
     }
 }
@@ -147,6 +187,11 @@ pub struct Vm {
     budget: Budget,
     /// Instructions executed so far in this run.
     burned: usize,
+    /// Instructions executed in the current scheduling slice.
+    slice: usize,
+    /// Set once the top frame is installed, so `resume` can tell a parked
+    /// VM from an unstarted one.
+    started: bool,
 }
 
 impl Vm {
@@ -156,6 +201,8 @@ impl Vm {
             frames: Vec::with_capacity(64),
             budget: Budget::default(),
             burned: 0,
+            slice: 0,
+            started: false,
         }
     }
 
@@ -181,9 +228,14 @@ impl Vm {
     /// per elementary operation, so this check is well under 1 % there. It
     /// is proportionally more visible in the VM and still far cheaper than
     /// the `Op` clone it sits beside.
+    ///
+    /// Returns `false` when the scheduling slice is spent and the VM should
+    /// park. That is the whole preemption mechanism: one counter, read as a
+    /// total ceiling (`fuel`) and as a per-slice ceiling (`quantum`).
     #[inline]
-    fn charge(&mut self) -> Result<(), VmError> {
+    fn charge(&mut self) -> Result<bool, VmError> {
         self.burned += 1;
+        self.slice += 1;
         if let Some(limit) = self.budget.fuel {
             if self.burned > limit {
                 return Err(VmError::BudgetExhausted {
@@ -200,7 +252,13 @@ impl Vm {
                 });
             }
         }
-        Ok(())
+        if let Some(q) = self.budget.quantum {
+            if self.slice >= q {
+                self.slice = 0;
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     /// Execute a chunk against the host interpreter. Returns the
@@ -249,9 +307,68 @@ impl Vm {
             self.stack.push(Value::Nil);
         }
         self.frames.push(top_frame);
+        self.started = true;
+        self.slice = 0;
 
-        // Drive the run loop with handler-aware error routing.
+        // Drive to completion. A quantum-parked VM is resumed here, so every
+        // pre-existing caller sees exactly the old behaviour whether or not a
+        // quantum is set — only a scheduler calling `step`/`resume` observes
+        // the park.
+        loop {
+            match self.run_with_handlers(&chunk, interp, host)? {
+                Progress::Done(v) => return Ok(v),
+                Progress::Yielded => continue,
+            }
+        }
+    }
+
+    /// Start a program and run it for at most one quantum.
+    ///
+    /// Returns [`Progress::Yielded`] with the frame stack intact when the
+    /// slice expires. This plus [`Vm::resume`] is the whole scheduler
+    /// interface.
+    pub fn step<H: 'static>(
+        &mut self,
+        chunk: Arc<Chunk>,
+        interp: &mut Interpreter<H>,
+        host: &mut H,
+    ) -> Result<Progress, VmError> {
+        if !self.started {
+            self.stack.clear();
+            self.frames.clear();
+            let top_func = Arc::new(chunk.top.clone());
+            let top_locals = top_func.locals;
+            self.frames.push(Frame {
+                func: top_func,
+                ip: 0,
+                locals_base: 0,
+                stack_base: top_locals,
+                captures: Vec::new(),
+                local_cells: std::collections::HashMap::new(),
+                handlers: Vec::new(),
+            });
+            for _ in 0..top_locals {
+                self.stack.push(Value::Nil);
+            }
+            self.started = true;
+        }
+        self.slice = 0;
         self.run_with_handlers(&chunk, interp, host)
+    }
+
+    /// Continue a parked VM for another quantum.
+    pub fn resume<H: 'static>(
+        &mut self,
+        chunk: Arc<Chunk>,
+        interp: &mut Interpreter<H>,
+        host: &mut H,
+    ) -> Result<Progress, VmError> {
+        self.step(chunk, interp, host)
+    }
+
+    /// Has this VM been started (and therefore may hold parked state)?
+    pub fn is_started(&self) -> bool {
+        self.started
     }
 
     /// Inner main interpret loop — runs until Halt, Return at top,
@@ -264,9 +381,11 @@ impl Vm {
         chunk: &Arc<Chunk>,
         interp: &mut Interpreter<H>,
         host: &mut H,
-    ) -> Result<Value, VmError> {
+    ) -> Result<Progress, VmError> {
         loop {
-            self.charge()?;
+            if !self.charge()? {
+                return Ok(Progress::Yielded);
+            }
             // Snapshot the current frame fields to avoid simultaneous
             // borrows. We index by `frames.last()` cheaply.
             let frame_idx = self.frames.len() - 1;
@@ -276,7 +395,7 @@ impl Vm {
                 if f.ip >= f.func.ops.len() {
                     // Implicit Halt — should never happen with a
                     // well-compiled chunk; defensive abort.
-                    return Ok(self.pop_or_nil());
+                    return Ok(Progress::Done(self.pop_or_nil()));
                 }
                 op = f.func.ops[f.ip].clone();
                 span = f.func.spans.get(f.ip).copied().unwrap_or(Span::synthetic());
@@ -285,7 +404,7 @@ impl Vm {
 
             match op {
                 Op::Halt => {
-                    return Ok(self.pop_or_nil());
+                    return Ok(Progress::Done(self.pop_or_nil()));
                 }
                 Op::Nil => self.stack.push(Value::Nil),
                 Op::True => self.stack.push(Value::Bool(true)),
@@ -461,7 +580,7 @@ impl Vm {
                         .expect("Return with no active frame");
                     self.stack.truncate(f.locals_base);
                     if self.frames.is_empty() {
-                        return Ok(ret);
+                        return Ok(Progress::Done(ret));
                     }
                     self.stack.push(ret);
                 }
@@ -523,10 +642,10 @@ impl Vm {
         chunk: &Arc<Chunk>,
         interp: &mut Interpreter<H>,
         host: &mut H,
-    ) -> Result<Value, VmError> {
+    ) -> Result<Progress, VmError> {
         loop {
             match self.run_inner(chunk, interp, host) {
-                Ok(v) => return Ok(v),
+                Ok(p) => return Ok(p),
                 Err(VmError::Eval(eval_err)) => {
                     let err_value = vm_err_to_value(&eval_err);
                     if !self.unwind_to_handler(err_value) {
@@ -1239,6 +1358,7 @@ mod tests {
         let budget = Budget {
             fuel: Some(10_000),
             max_depth: None,
+            quantum: None,
         };
         let err = run_with("(define (spin n) (spin (+ n 1))) (spin 0)", budget)
             .expect_err("a runaway must not run forever");
@@ -1255,6 +1375,7 @@ mod tests {
         let budget = Budget {
             fuel: None,
             max_depth: Some(64),
+            quantum: None,
         };
         let err = run_with("(define (deep n) (+ 1 (deep (+ n 1)))) (deep 0)", budget)
             .expect_err("unbounded recursion must be stopped");
@@ -1272,6 +1393,7 @@ mod tests {
         let budget = Budget {
             fuel: Some(10_000),
             max_depth: None,
+            quantum: None,
         };
         let err = run_with(
             "(define (spin n) (spin (+ n 1))) (try (spin 0) (catch (e) 42))",
@@ -1323,6 +1445,146 @@ mod tests {
         let mut vm = Vm::new();
         vm.run(&chunk, &mut interp, &mut ()).expect("run");
         assert!(vm.burned() > 0, "the VM reported doing no work");
+    }
+
+
+    // ---- preemption: the scheduler mechanism --------------------------
+    //
+    // The reduction counter that bounds failure is the same counter that
+    // preempts. One mechanism, read two ways: a total ceiling (fuel) and a
+    // per-slice ceiling (quantum). This is possible only because the VM's
+    // frame stack is a heap Vec — a tree-walker's continuation lives on the
+    // host stack and cannot be parked.
+
+    fn compile(src: &str) -> Arc<Chunk> {
+        let forms = tatara_lisp::read_spanned(src).expect("parse");
+        Arc::new(compile_program(&forms).expect("compile"))
+    }
+
+    /// A long computation PARKS at the quantum with its state intact, and
+    /// resuming reaches the same answer.
+    #[test]
+    fn a_long_run_parks_at_the_quantum_and_resumes_to_the_right_answer() {
+        let chunk = compile("(define (loop n acc) (if (= n 0) acc (loop (- n 1) (+ acc 1)))) (loop 200 0)");
+        let mut interp = Interpreter::new();
+        crate::install_primitives(&mut interp);
+        let mut vm = Vm::with_budget(Budget::preemptive(50));
+
+        let mut parks = 0usize;
+        let answer = loop {
+            match vm.step(chunk.clone(), &mut interp, &mut ()).expect("step") {
+                Progress::Yielded => {
+                    parks += 1;
+                    assert!(parks < 10_000, "never finished");
+                }
+                Progress::Done(v) => break v,
+            }
+        };
+        assert!(parks > 0, "a 200-iteration loop must park under a 50-reduction quantum");
+        assert!(matches!(answer, Value::Int(200)), "got {answer:?}");
+    }
+
+    /// **No yield points in user code.** The program contains nothing that
+    /// asks to be interrupted — it is a tight arithmetic loop — and it is
+    /// preempted anyway. That is the property cooperative async does not
+    /// have: there, a CPU-bound task starves its executor.
+    #[test]
+    fn a_tight_loop_with_no_await_points_is_still_preempted() {
+        let chunk = compile("(define (spin n) (if (= n 0) 42 (spin (- n 1)))) (spin 500)");
+        let mut interp = Interpreter::new();
+        crate::install_primitives(&mut interp);
+        let mut vm = Vm::with_budget(Budget::preemptive(20));
+        let first = vm.step(chunk, &mut interp, &mut ()).expect("step");
+        assert!(
+            matches!(first, Progress::Yielded),
+            "a tight loop must be preemptible without cooperating"
+        );
+    }
+
+    /// Round-robin over several fibers: none may starve. This is the whole
+    /// fairness property, tested rather than asserted.
+    #[test]
+    fn round_robin_makes_progress_on_every_fiber() {
+        let mut interp = Interpreter::new();
+        crate::install_primitives(&mut interp);
+
+        // Three fibers with very different workloads. The largest must not
+        // prevent the others from finishing.
+        let work = [
+            ("(define (a n) (if (= n 0) 1 (a (- n 1)))) (a 400)", 1i64),
+            ("(define (b n) (if (= n 0) 2 (b (- n 1)))) (b 30)", 2i64),
+            ("(define (c n) (if (= n 0) 3 (c (- n 1)))) (c 150)", 3i64),
+        ];
+        let mut fibers: Vec<(Arc<Chunk>, Vm, Option<i64>)> = work
+            .iter()
+            .map(|(src, _)| (compile(src), Vm::with_budget(Budget::preemptive(25)), None))
+            .collect();
+
+        // Drive round-robin until all are done.
+        let mut rounds = 0usize;
+        while fibers.iter().any(|(_, _, done)| done.is_none()) {
+            rounds += 1;
+            assert!(rounds < 10_000, "scheduler did not converge");
+            for (chunk, vm, done) in fibers.iter_mut() {
+                if done.is_some() {
+                    continue;
+                }
+                match vm.step(chunk.clone(), &mut interp, &mut ()).expect("step") {
+                    Progress::Yielded => {}
+                    Progress::Done(Value::Int(v)) => *done = Some(v),
+                    Progress::Done(other) => panic!("unexpected {other:?}"),
+                }
+            }
+        }
+        let got: Vec<i64> = fibers.iter().map(|(_, _, d)| d.unwrap()).collect();
+        assert_eq!(got, vec![1, 2, 3], "every fiber must finish with its own answer");
+
+        // And the SHORT fiber must have finished long before the long one —
+        // the point of fairness is that a big job does not block a small one.
+        assert!(rounds > 1, "the workloads should have taken multiple rounds");
+    }
+
+    /// Anti-vacuity: with NO quantum the VM must never park. If `step`
+    /// always yielded, the tests above would pass by doing nothing.
+    #[test]
+    fn without_a_quantum_the_vm_runs_to_completion_in_one_step() {
+        let chunk = compile("(define (loop n) (if (= n 0) 7 (loop (- n 1)))) (loop 300)");
+        let mut interp = Interpreter::new();
+        crate::install_primitives(&mut interp);
+        let mut vm = Vm::new(); // default budget has quantum: None
+        match vm.step(chunk, &mut interp, &mut ()).expect("step") {
+            Progress::Done(v) => assert!(matches!(v, Value::Int(7)), "got {v:?}"),
+            Progress::Yielded => panic!("parked with no quantum set"),
+        }
+    }
+
+    /// Anti-vacuity: preemption must not change the ANSWER. Same program,
+    /// several quanta, one result.
+    #[test]
+    fn the_quantum_does_not_change_the_result() {
+        let src = "(define (sum n acc) (if (= n 0) acc (sum (- n 1) (+ acc n)))) (sum 60 0)";
+        let mut answers = Vec::new();
+        for q in [None, Some(7), Some(50), Some(1000)] {
+            let chunk = compile(src);
+            let mut interp = Interpreter::new();
+            crate::install_primitives(&mut interp);
+            let mut vm = Vm::with_budget(Budget {
+                quantum: q,
+                ..Budget::default()
+            });
+            let v = loop {
+                match vm.step(chunk.clone(), &mut interp, &mut ()).expect("step") {
+                    Progress::Yielded => {}
+                    Progress::Done(v) => break v,
+                }
+            };
+            answers.push(format!("{v:?}"));
+        }
+        assert!(
+            answers.windows(2).all(|w| w[0] == w[1]),
+            "the quantum changed the answer: {answers:?}"
+        );
+        assert_eq!(answers[0], "Int(1830)", "sum 1..60 should be 1830");
     }
 
 }

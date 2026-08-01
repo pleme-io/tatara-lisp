@@ -963,6 +963,7 @@ fn vm_err_to_value(err: &crate::error::EvalError) -> Value {
         ArityMismatch { .. } => Arc::from("arity-mismatch"),
         TypeMismatch { .. } => Arc::from("type-mismatch"),
         DivisionByZero { .. } => Arc::from("division-by-zero"),
+        MacroExpansionLimit { .. } => Arc::from("macro-expansion-limit"),
         NotCallable { .. } => Arc::from("not-callable"),
         BadSpecialForm { .. } => Arc::from("bad-special-form"),
         NativeFn { .. } => Arc::from("native-fn"),

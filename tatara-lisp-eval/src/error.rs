@@ -38,6 +38,18 @@ pub enum EvalError {
     #[error("division by zero at {at}")]
     DivisionByZero { at: Span },
 
+    /// A macro rewrite chain exceeded its ceiling.
+    ///
+    /// Names the macro that was rewriting, because that is the one to look at.
+    /// Before this existed the same condition was `fatal runtime error: stack
+    /// overflow, aborting` — uncatchable, and at build time.
+    #[error("macro `{macro_name}` exceeded the expansion limit of {limit} rewrites at {at} — it likely expands to a call to itself")]
+    MacroExpansionLimit {
+        macro_name: Arc<str>,
+        limit: usize,
+        at: Span,
+    },
+
     #[error("not callable: value of type {value_kind} at {at}")]
     NotCallable { value_kind: &'static str, at: Span },
 
@@ -109,6 +121,7 @@ impl EvalError {
             Self::UnboundSymbol { at, .. }
             | Self::ArityMismatch { at, .. }
             | Self::TypeMismatch { at, .. }
+            | Self::MacroExpansionLimit { at, .. }
             | Self::DivisionByZero { at }
             | Self::NotCallable { at, .. }
             | Self::BadSpecialForm { at, .. }
@@ -183,6 +196,9 @@ impl EvalError {
     pub fn short_message(&self) -> String {
         match self {
             Self::UnboundSymbol { name, .. } => format!("unbound symbol `{name}`"),
+            Self::MacroExpansionLimit {
+                macro_name, limit, ..
+            } => format!("macro `{macro_name}` exceeded {limit} expansion steps"),
             Self::ArityMismatch {
                 fn_name,
                 expected,

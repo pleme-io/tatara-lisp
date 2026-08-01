@@ -25,6 +25,15 @@ use crate::value::{Closure, ErrorObj, NativeFn, Value};
 
 /// An embedded tatara-lisp evaluator, parameterized over the host context
 /// `H` that registered functions read/write.
+/// Default macro rewrite-chain ceiling.
+///
+/// Chosen to be far above any hand-written macro chain and far below the
+/// ~4–5 k Rust frames where the old unbounded expander aborted, so the typed
+/// error is what an author sees rather than a SIGABRT. Raise it with
+/// [`Interpreter::set_macro_expansion_limit`] for a generator that genuinely
+/// chains further.
+pub const DEFAULT_MACRO_EXPANSION_LIMIT: usize = 256;
+
 pub struct Interpreter<H> {
     pub(crate) registry: FnRegistry<H>,
     pub(crate) globals: Env,
@@ -40,6 +49,13 @@ pub struct Interpreter<H> {
     /// Source loader for `(require ...)`. Embedders inject filesystem
     /// access here; the default `NoLoader` rejects every require.
     pub(crate) loader: Arc<dyn Loader>,
+    /// Maximum macro REWRITE steps in one expansion chain.
+    ///
+    /// See `expand_at_depth`. Configurable because the honest ceiling is
+    /// domain-dependent — a code generator legitimately chains further than a
+    /// hand-written program — but never absent: an unbounded expander aborts
+    /// the process instead of failing the compilation.
+    pub(crate) macro_expansion_limit: usize,
     /// Path of the module currently being evaluated. `(provide ...)`
     /// adds names to whichever module owns this path. Top-level eval
     /// (not inside any `(require)`) uses an empty path which means
@@ -55,6 +71,7 @@ impl<H: 'static> Interpreter<H> {
             expander: SpannedExpander::new(),
             modules: ModuleRegistry::new(),
             loader: Arc::new(NoLoader),
+            macro_expansion_limit: DEFAULT_MACRO_EXPANSION_LIMIT,
             current_module: None,
         }
     }
@@ -182,6 +199,14 @@ impl<H: 'static> Interpreter<H> {
             name.clone(),
             Value::NativeFn(Arc::new(NativeFn { name, arity })),
         );
+    }
+
+    /// Raise or lower the macro rewrite-chain ceiling.
+    ///
+    /// There is no way to remove it. An unbounded expander does not fail the
+    /// compilation, it aborts the process.
+    pub fn set_macro_expansion_limit(&mut self, limit: usize) {
+        self.macro_expansion_limit = limit;
     }
 
     /// Evaluate a single already-read spanned form in this interpreter's
@@ -526,23 +551,55 @@ impl<H: 'static> Interpreter<H> {
     }
 
     fn expand_recursive(&mut self, form: &Spanned, host: &mut H) -> Result<Spanned> {
+        self.expand_at_depth(form, host, 0)
+    }
+
+    /// Expand with a bounded number of *rewrite* steps.
+    ///
+    /// ## Why this is bounded, and why the bound counts rewrites
+    ///
+    /// Expansion used to recurse without a limit, so a macro whose expansion
+    /// mentions itself — `(defmacro forever (x) `(forever ,x))` — recursed
+    /// until the **Rust** stack gave out: `fatal runtime error: stack
+    /// overflow, aborting`. Uncatchable, and at *build* time, so a runaway
+    /// macro took the compiler down rather than failing the compilation.
+    ///
+    /// The counter increments on a macro REWRITE, not on structural descent.
+    /// Descending into a deeply-nested but finite form is legitimate work and
+    /// terminates on its own; a rewrite chain is the only part that can be
+    /// unbounded, because each rewrite can produce another macro call. Bounding
+    /// descent instead would reject large honest programs while still allowing
+    /// a two-macro cycle to run forever.
+    fn expand_at_depth(&mut self, form: &Spanned, host: &mut H, depth: usize) -> Result<Spanned> {
         match &form.form {
             SpannedForm::List(items) if !items.is_empty() => {
                 if let Some(head) = items[0].as_symbol() {
                     if self.expander.has(head) {
+                        if depth >= self.macro_expansion_limit {
+                            // Naming the macro is the point. "expansion limit
+                            // exceeded" alone leaves the author searching;
+                            // the macro that was rewriting is the one to look
+                            // at.
+                            return Err(EvalError::MacroExpansionLimit {
+                                macro_name: head.into(),
+                                limit: self.macro_expansion_limit,
+                                at: form.span,
+                            });
+                        }
                         // Macro call. Expand by running the body, then
                         // recurse on the result (it may itself be a
                         // macro call or contain nested macro calls).
                         let expanded =
                             self.expand_macro_call(head, &items[1..], form.span, host)?;
-                        return self.expand_recursive(&expanded, host);
+                        return self.expand_at_depth(&expanded, host, depth + 1);
                     }
                 }
                 // Not a macro call — recurse into children to catch
-                // nested macros.
+                // nested macros. Structural descent does NOT charge the
+                // budget; see the doc comment.
                 let mut out = Vec::with_capacity(items.len());
                 for child in items {
-                    out.push(self.expand_recursive(child, host)?);
+                    out.push(self.expand_at_depth(child, host, depth)?);
                 }
                 Ok(Spanned::new(form.span, SpannedForm::List(out)))
             }
@@ -2395,6 +2452,7 @@ fn rust_err_to_value_error(err: &EvalError) -> Value {
         EvalError::ArityMismatch { .. } => Arc::from("arity-mismatch"),
         EvalError::TypeMismatch { .. } => Arc::from("type-mismatch"),
         EvalError::DivisionByZero { .. } => Arc::from("division-by-zero"),
+        EvalError::MacroExpansionLimit { .. } => Arc::from("macro-expansion-limit"),
         EvalError::NotCallable { .. } => Arc::from("not-callable"),
         EvalError::BadSpecialForm { .. } => Arc::from("bad-special-form"),
         EvalError::NativeFn { .. } => Arc::from("native-fn"),
@@ -2896,6 +2954,91 @@ mod tests {
     }
 
     // ── User macros via defmacro ──────────────────────────────────
+
+    // ── expansion is BOUNDED ───────────────────────────────────────
+    //
+    // Measured before the bound existed: `(defmacro forever (x) `(forever
+    // ,x))` followed by `(forever 1)` produced
+    //
+    //     thread 'main' has overflowed its stack
+    //     fatal runtime error: stack overflow, aborting
+    //
+    // Uncatchable, and at BUILD time — a runaway macro took the compiler down
+    // instead of failing the compilation. For a language whose stated aim is
+    // safe metaprogramming, that is the worst place to have this hole.
+
+    /// **A self-referential macro is a typed error, and it names the macro.**
+    #[test]
+    fn a_runaway_macro_is_a_typed_error_that_names_the_macro() {
+        let err = eval_err("(defmacro forever (x) `(forever ,x))\n(forever 1)");
+        match err {
+            EvalError::MacroExpansionLimit {
+                ref macro_name,
+                limit,
+                ..
+            } => {
+                assert_eq!(&**macro_name, "forever", "the error must name the culprit");
+                assert_eq!(limit, DEFAULT_MACRO_EXPANSION_LIMIT);
+            }
+            other => panic!("expected MacroExpansionLimit, got {other:?}"),
+        }
+    }
+
+    /// A mutually-recursive PAIR must also be caught. A guard that only
+    /// noticed direct self-reference would miss the two-macro cycle, which is
+    /// the form a real codebase actually produces.
+    #[test]
+    fn a_mutually_recursive_macro_pair_is_caught_too() {
+        let err = eval_err(
+            "(defmacro ping (x) `(pong ,x))\n(defmacro pong (x) `(ping ,x))\n(ping 1)",
+        );
+        assert!(
+            matches!(err, EvalError::MacroExpansionLimit { .. }),
+            "a two-macro cycle must be bounded as well: {err:?}"
+        );
+    }
+
+    /// **Anti-vacuity, and the reason the counter charges REWRITES rather
+    /// than structural descent.** A deeply-nested but finite form is
+    /// legitimate work: it terminates on its own, and bounding descent would
+    /// reject honest programs while still letting a cycle run forever.
+    ///
+    /// 400 nesting levels is well past the 256 rewrite ceiling, so this fails
+    /// if the budget is charged for descent.
+    #[test]
+    fn deep_but_finite_nesting_is_not_charged_to_the_expansion_budget() {
+        let mut src = String::from("(defmacro id1 (x) x)\n");
+        src.push_str(&"(+ 1 ".repeat(400));
+        src.push_str("(id1 7)");
+        src.push_str(&")".repeat(400));
+        let v = eval_ok(&src);
+        assert!(matches!(v, Value::Int(407)), "got {v:?}");
+    }
+
+    /// A long but TERMINATING rewrite chain under the ceiling still works, so
+    /// the bound rejects only what does not terminate.
+    #[test]
+    fn a_terminating_chain_under_the_ceiling_still_expands() {
+        // step -> step2 -> plain code: three rewrites, far under 256.
+        let v = eval_ok(
+            "(defmacro step (x) `(step2 ,x))\n(defmacro step2 (x) `(* ,x 3))\n(step 5)",
+        );
+        assert!(matches!(v, Value::Int(15)), "got {v:?}");
+    }
+
+    /// The ceiling is adjustable — a generator may legitimately chain further
+    /// — but there is no way to remove it.
+    #[test]
+    fn the_expansion_ceiling_is_configurable() {
+        let forms = read_spanned("(defmacro forever (x) `(forever ,x))\n(forever 1)").unwrap();
+        let mut i: Interpreter<NoHost> = Interpreter::new();
+        install_primitives(&mut i);
+        i.set_macro_expansion_limit(4);
+        match i.eval_program(&forms, &mut NoHost).unwrap_err() {
+            EvalError::MacroExpansionLimit { limit, .. } => assert_eq!(limit, 4),
+            other => panic!("expected MacroExpansionLimit, got {other:?}"),
+        }
+    }
 
     #[test]
     fn user_macro_expands_and_evaluates() {

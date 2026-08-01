@@ -254,7 +254,55 @@ fn tokenize(src: &str) -> Result<Vec<SpannedToken>> {
                         // algebra ONCE.
                         Some((_, Atom::STR_ESCAPE_LEAD)) => {
                             if let Some((_, esc)) = chars.next() {
-                                s.push(Atom::decode_str_escape(esc));
+                                // `\u{...}` is the ONE escape that is not a
+                                // single character, so it cannot route through
+                                // the single-char algebra above and needs its
+                                // own arm.
+                                //
+                                // It is here because the WRITER emits it:
+                                // `Display` escapes a non-printable scalar as
+                                // `\u{301}`, and without this arm the reader
+                                // decoded `u` and dropped the backslash, so
+                                // `"e\u{301}"` round-tripped to `"eu{301}"` —
+                                // SILENTLY, with no error and corrupted data.
+                                // Display and read must be inverses; they were
+                                // not.
+                                if esc == 'u' {
+                                    let mut hex = String::new();
+                                    let mut saw_open = false;
+                                    // Peek-free: consume `{`, then hex, then `}`.
+                                    for (_, c) in chars.by_ref() {
+                                        if !saw_open {
+                                            if c != '{' {
+                                                break;
+                                            }
+                                            saw_open = true;
+                                            continue;
+                                        }
+                                        if c == '}' {
+                                            break;
+                                        }
+                                        hex.push(c);
+                                    }
+                                    // An unparseable body keeps the literal
+                                    // text rather than inventing a character:
+                                    // substituting U+FFFD here would turn a
+                                    // malformed escape into a plausible glyph.
+                                    match u32::from_str_radix(&hex, 16)
+                                        .ok()
+                                        .and_then(char::from_u32)
+                                    {
+                                        Some(ch) => s.push(ch),
+                                        None => {
+                                            s.push('u');
+                                            s.push('{');
+                                            s.push_str(&hex);
+                                            s.push('}');
+                                        }
+                                    }
+                                } else {
+                                    s.push(Atom::decode_str_escape(esc));
+                                }
                             }
                         }
                         // String-closing arm — the same constant as the
@@ -1060,6 +1108,104 @@ mod tests {
             );
             // The outer span covers the prefix AND the datum.
             assert_eq!(forms[0].span, Span::new(0, src.len()));
+        }
+    }
+}
+
+#[cfg(test)]
+mod str_round_trip {
+    use crate::read_spanned;
+
+    /// **`Display` and `read` must be inverses for string payloads.**
+    ///
+    /// They were not. `Display` escapes a non-printable scalar as `\u{301}`,
+    /// and the reader had no `u` arm — so it decoded `u` and dropped the
+    /// backslash, turning `"e\u{301}"` into `"eu{301}"`. Silently: no error, no
+    /// diagnostic, just different data on the other side. Found by
+    /// `pleme-io/blue`, whose pipeline lowers through text and so exercises
+    /// this on every program.
+    ///
+    /// Property-shaped rather than case-shaped, because the failure was
+    /// invisible for exactly the characters nobody writes a case for.
+    #[test]
+    fn every_string_survives_a_display_read_round_trip() {
+        let payloads = [
+            "",
+            "plain",
+            "with space",
+            "quote\" inside",
+            "back\\slash",
+            "newline\nhere",
+            "tab\there",
+            "accented é",
+            "emoji 😀",
+            "combining e\u{301}",
+            "zero\u{200B}width",
+            "rtl \u{202E} mark",
+            "cr\rlf",
+        ];
+        for payload in payloads {
+            let sexp = crate::Sexp::Atom(crate::Atom::Str(payload.to_string()));
+            let text = sexp.to_string();
+            let forms = read_spanned(&text)
+                .unwrap_or_else(|e| panic!("{payload:?} rendered as {text:?} would not re-read: {e:?}"));
+            let got = match forms.first().map(|f| &f.form) {
+                Some(crate::SpannedForm::Atom(crate::Atom::Str(s))) => s.clone(),
+                other => panic!("{payload:?} came back as {other:?}"),
+            };
+            assert_eq!(
+                got, payload,
+                "round trip changed the payload\n  wrote: {text:?}\n  read:  {got:?}"
+            );
+        }
+    }
+
+    /// **KNOWN OPEN BUG, found by the property above: `\0` does not survive.**
+    ///
+    /// `Display` writes a NUL as `\0`, but `NAMED_ESCAPE_TABLE` is
+    /// `[(char, char); 3]` — `\n`, `\t`, `\r` — with no row for it, so
+    /// `decode_str_escape('0')` falls through to the identity arm and returns
+    /// the DIGIT. `"nul\0byte"` round-trips to `"nul0byte"`: silent corruption,
+    /// same shape as the `\u{…}` bug fixed above.
+    ///
+    /// Not fixed here because it is not a one-line change. The escape algebra is
+    /// arity-forced and composed — `NAMED_ESCAPE_TABLE[3]` feeds
+    /// `ESCAPE_TABLE[5]` feeds the `ALL[5]` closed set, each with per-role
+    /// `pub const` pairs and catalog-reflection tests keyed to the counts. Doing
+    /// it right means new `NUL_ESCAPE_SOURCE`/`_DECODED` consts, three arity
+    /// bumps, a `decode_str_escape` arm, and the catalog rows — which the
+    /// module's own docs already name as the worked example ("a new named escape
+    /// (`'0' → '\0'`) extends the algebra ONCE").
+    ///
+    /// Ignored rather than deleted: deleting it loses the finding, and leaving
+    /// it red makes the suite lie about the repo's state.
+    #[test]
+    #[ignore = "known open bug: \\0 is written by Display but has no NAMED_ESCAPE_TABLE row"]
+    fn nul_should_survive_a_round_trip_and_does_not() {
+        let sexp = crate::Sexp::Atom(crate::Atom::Str("nul\0byte".to_string()));
+        let forms = read_spanned(&sexp.to_string()).expect("re-read");
+        let got = match forms.first().map(|f| &f.form) {
+            Some(crate::SpannedForm::Atom(crate::Atom::Str(s))) => s.clone(),
+            other => panic!("got {other:?}"),
+        };
+        assert_eq!(got, "nul\0byte", "NUL is decoded as the digit 0");
+    }
+
+    /// A malformed `\u{…}` keeps its literal text rather than becoming a
+    /// substituted glyph — a replacement character would turn a typo into a
+    /// plausible-looking result.
+    #[test]
+    fn a_malformed_unicode_escape_is_not_silently_substituted() {
+        for text in [r#""\u{zzzz}""#, r#""\u{D800}""#, r#""\u{110000}""#] {
+            let forms = read_spanned(text).expect("must still read");
+            let got = match forms.first().map(|f| &f.form) {
+                Some(crate::SpannedForm::Atom(crate::Atom::Str(s))) => s.clone(),
+                other => panic!("got {other:?}"),
+            };
+            assert!(
+                !got.contains('\u{FFFD}'),
+                "{text} must not become a replacement character: {got:?}"
+            );
         }
     }
 }

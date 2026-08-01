@@ -82,8 +82,14 @@ fn is_vm_fallback(name: &str) -> bool {
 /// The original module-system fallback set, retained as documentation.
 ///
 /// No longer consulted at compile time — `is_vm_fallback` derives the answer
-/// — but asserted to remain a subset of the derived set, so this comment and
-/// the code cannot drift apart silently.
+/// — but `documented_fallback_list_is_a_subset_of_the_derived_set` asserts it
+/// remains a subset, so this comment and the code cannot drift apart
+/// silently.
+///
+/// `#[cfg(test)]` because that assertion is its only consumer. Without it the
+/// build reports a dead constant, and a standing warning next to a doc
+/// comment describing a gate reads as *the gate is gone* — which it is not.
+#[cfg(test)]
 const VM_FALLBACK_FORMS: &[&str] = &[
     // Module-system forms — need &mut Interpreter access for loader,
     // module registry, current-module state.

@@ -35,6 +35,67 @@ pub enum VmError {
     Eval(#[from] crate::error::EvalError),
     #[error("local index out of bounds: {0}")]
     BadLocal(usize),
+    /// The execution budget ran out.
+    ///
+    /// **This is the variant that makes failure BOUNDED AND CATCHABLE**, and
+    /// it is the prerequisite for supervision: a supervisor has nothing to
+    /// restart if a runaway computation aborts the OS process instead of
+    /// returning.
+    ///
+    /// Measured before this existed: deep non-tail recursion on the
+    /// tree-walker SIGABRTs at 4-5k frames, and a `try`/`catch` wrapped
+    /// directly around it does NOT intercept — while the same `try`/`catch`
+    /// demonstrably catches a division by zero. The tree-walker's recursion
+    /// IS the Rust call stack, so a counter cannot see it. The VM's frame
+    /// stack is a heap `Vec`, which is why the bound is achievable here and
+    /// only here.
+    #[error("execution budget exhausted: {what} (limit {limit})")]
+    BudgetExhausted { what: &'static str, limit: usize },
+}
+
+/// An execution budget: how much work one run may do before it is stopped.
+///
+/// Two independent dimensions, because **fuel bounds TIME and depth bounds
+/// SPACE** and neither implies the other. A tight non-recursive loop
+/// exhausts fuel without growing the frame stack; a deep recursion grows
+/// the frame stack while executing few instructions per frame.
+///
+/// The default is deliberately generous — this is a runaway guard, not a
+/// quota. A program that legitimately needs more says so.
+#[derive(Clone, Copy, Debug)]
+pub struct Budget {
+    /// Instructions this run may execute. `None` for unbounded.
+    pub fuel: Option<usize>,
+    /// Maximum simultaneous call frames. `None` for unbounded.
+    pub max_depth: Option<usize>,
+}
+
+impl Default for Budget {
+    fn default() -> Self {
+        Self {
+            fuel: Some(50_000_000),
+            max_depth: Some(100_000),
+        }
+    }
+}
+
+impl Budget {
+    /// No limits. For a caller that has its own supervision.
+    pub fn unbounded() -> Self {
+        Self {
+            fuel: None,
+            max_depth: None,
+        }
+    }
+
+    /// A small budget, for a caller that wants a fast typed failure —
+    /// a macro expansion, or an untrusted computation.
+    pub fn small() -> Self {
+        Self {
+            fuel: Some(1_000_000),
+            max_depth: Some(1_000),
+        }
+    }
 }
 
 /// One installed exception handler. Pushed by `PushHandler`, popped
@@ -83,6 +144,9 @@ struct Frame {
 pub struct Vm {
     stack: Vec<Value>,
     frames: Vec<Frame>,
+    budget: Budget,
+    /// Instructions executed so far in this run.
+    burned: usize,
 }
 
 impl Vm {
@@ -90,7 +154,53 @@ impl Vm {
         Self {
             stack: Vec::with_capacity(256),
             frames: Vec::with_capacity(64),
+            budget: Budget::default(),
+            burned: 0,
         }
+    }
+
+    /// Run under an explicit budget.
+    pub fn with_budget(budget: Budget) -> Self {
+        Self {
+            budget,
+            ..Self::new()
+        }
+    }
+
+    /// Instructions executed since the last reset. Exposed so a caller can
+    /// report cost rather than infer it.
+    pub fn burned(&self) -> usize {
+        self.burned
+    }
+
+    /// Charge one instruction and check both dimensions.
+    ///
+    /// Inlined and branch-predictable: a decrement plus two
+    /// already-predicted comparisons. Measured context — the shipped
+    /// tree-walker runs ~740 ns per loop iteration, roughly 250-300 cycles
+    /// per elementary operation, so this check is well under 1 % there. It
+    /// is proportionally more visible in the VM and still far cheaper than
+    /// the `Op` clone it sits beside.
+    #[inline]
+    fn charge(&mut self) -> Result<(), VmError> {
+        self.burned += 1;
+        if let Some(limit) = self.budget.fuel {
+            if self.burned > limit {
+                return Err(VmError::BudgetExhausted {
+                    what: "fuel (instructions executed)",
+                    limit,
+                });
+            }
+        }
+        if let Some(limit) = self.budget.max_depth {
+            if self.frames.len() > limit {
+                return Err(VmError::BudgetExhausted {
+                    what: "call depth",
+                    limit,
+                });
+            }
+        }
+        Ok(())
     }
 
     /// Execute a chunk against the host interpreter. Returns the
@@ -156,6 +266,7 @@ impl Vm {
         host: &mut H,
     ) -> Result<Value, VmError> {
         loop {
+            self.charge()?;
             // Snapshot the current frame fields to avoid simultaneous
             // borrows. We index by `frames.last()` cheaply.
             let frame_idx = self.frames.len() - 1;
@@ -422,6 +533,18 @@ impl Vm {
                         return Err(VmError::Eval(eval_err));
                     }
                 }
+                // Budget exhaustion is a SUPERVISION concern, not a
+                // program-level error, so it propagates PAST every user
+                // handler straight to the embedder.
+                //
+                // A runaway must not be able to catch its own runaway:
+                // `try { loop() } catch { loop() }` would otherwise hand the
+                // handler back control. (The loop would still terminate,
+                // because `burned` does not reset and the next charge fails
+                // immediately — but "the crash is the supervisor's to see" is
+                // the semantics blue's let-it-crash story needs, not an
+                // accident of arithmetic.)
+                Err(e @ VmError::BudgetExhausted { .. }) => return Err(e),
                 Err(other) => {
                     let err_value = vm_runtime_err_to_value(&other);
                     if !self.unwind_to_handler(err_value) {
@@ -674,6 +797,14 @@ fn vm_runtime_err_to_value(err: &VmError) -> Value {
         VmError::Arity { expected, got, .. } => (
             "arity-mismatch",
             format!("expected {expected} args, got {got}"),
+        ),
+        // Unreachable in practice: `run_with_handlers` returns this variant
+        // before ever reaching the converter, because budget exhaustion is
+        // not routable to a user handler. Kept total so adding a variant is
+        // a compile error rather than a silent fall-through.
+        VmError::BudgetExhausted { what, limit } => (
+            "budget-exhausted",
+            format!("execution budget exhausted: {what} (limit {limit})"),
         ),
         VmError::BadLocal(idx) => ("bad-local", format!("local index out of bounds: {idx}")),
         VmError::Eval(inner) => return vm_err_to_value(inner),
@@ -1083,4 +1214,115 @@ mod tests {
         );
         assert!(matches!(v, Value::Int(42)));
     }
+
+    // ---- bounded, catchable failure -----------------------------------
+    //
+    // The prerequisite for supervision. Measured before this landed: deep
+    // recursion SIGABRTs the OS process and a `try`/`catch` around it does
+    // NOT intercept, while the same handler catches a division by zero. A
+    // supervisor had nothing to catch and nothing to restart.
+
+    fn run_with(src: &str, budget: Budget) -> Result<Value, VmError> {
+        let forms = tatara_lisp::read_spanned(src).expect("parse");
+        let expanded = forms;
+        let chunk = Arc::new(compile_program(&expanded).expect("compile"));
+        let mut interp = Interpreter::new();
+        crate::install_primitives(&mut interp);
+        let mut vm = Vm::with_budget(budget);
+        vm.run(&chunk, &mut interp, &mut ())
+    }
+
+    /// A runaway loop returns a TYPED ERROR rather than running forever or
+    /// aborting the process.
+    #[test]
+    fn fuel_exhaustion_is_a_typed_error() {
+        let budget = Budget {
+            fuel: Some(10_000),
+            max_depth: None,
+        };
+        let err = run_with("(define (spin n) (spin (+ n 1))) (spin 0)", budget)
+            .expect_err("a runaway must not run forever");
+        assert!(
+            matches!(err, VmError::BudgetExhausted { what, .. } if what.contains("fuel")),
+            "expected fuel exhaustion, got {err:?}"
+        );
+    }
+
+    /// Depth is a SEPARATE dimension: fuel bounds time, depth bounds space,
+    /// and neither implies the other.
+    #[test]
+    fn depth_exhaustion_is_a_typed_error_independent_of_fuel() {
+        let budget = Budget {
+            fuel: None,
+            max_depth: Some(64),
+        };
+        let err = run_with("(define (deep n) (+ 1 (deep (+ n 1)))) (deep 0)", budget)
+            .expect_err("unbounded recursion must be stopped");
+        assert!(
+            matches!(err, VmError::BudgetExhausted { what, .. } if what.contains("depth")),
+            "expected depth exhaustion, got {err:?}"
+        );
+    }
+
+    /// **Budget exhaustion is NOT catchable by user code.** A runaway must
+    /// not be able to catch its own runaway — the crash belongs to the
+    /// supervisor.
+    #[test]
+    fn a_user_handler_cannot_catch_budget_exhaustion() {
+        let budget = Budget {
+            fuel: Some(10_000),
+            max_depth: None,
+        };
+        let err = run_with(
+            "(define (spin n) (spin (+ n 1))) (try (spin 0) (catch (e) 42))",
+            budget,
+        )
+        .expect_err("try/catch must not swallow a budget error");
+        assert!(matches!(err, VmError::BudgetExhausted { .. }), "got {err:?}");
+    }
+
+    /// Anti-vacuity: an ORDINARY error must still be catchable. If the
+    /// change above made everything uncatchable, the test above would pass
+    /// for the wrong reason.
+    #[test]
+    fn ordinary_errors_are_still_catchable() {
+        let v = run_with("(try (/ 1 0) (catch (e) 42))", Budget::default())
+            .expect("an ordinary error must still route to a handler");
+        assert!(matches!(v, Value::Int(42)), "got {v:?}");
+    }
+
+    /// Anti-vacuity: the budget must not break normal programs. A guard
+    /// that stopped everything would pass every failure test above.
+    #[test]
+    fn a_normal_program_runs_under_the_default_budget() {
+        let v = run_with(
+            "(define (fact n) (if (< n 2) 1 (* n (fact (- n 1))))) (fact 10)",
+            Budget::default(),
+        )
+        .expect("a normal program must run");
+        assert!(matches!(v, Value::Int(3628800)), "got {v:?}");
+    }
+
+    /// And `unbounded` really is unbounded — the guard is opt-out, so an
+    /// embedder with its own supervision is not forced into ours.
+    #[test]
+    fn an_unbounded_budget_imposes_no_limit() {
+        let v = run_with("(define (loop n) (if (= n 0) 7 (loop (- n 1)))) (loop 100000)", Budget::unbounded())
+            .expect("unbounded must not stop a long tail-recursive run");
+        assert!(matches!(v, Value::Int(7)), "got {v:?}");
+    }
+
+    /// Cost is observable, per §0's rule that an invisible cost is the one
+    /// unacceptable outcome.
+    #[test]
+    fn work_done_is_reported() {
+        let forms = tatara_lisp::read_spanned("(+ 1 2)").expect("parse");
+        let chunk = Arc::new(compile_program(&forms).expect("compile"));
+        let mut interp = Interpreter::new();
+        crate::install_primitives(&mut interp);
+        let mut vm = Vm::new();
+        vm.run(&chunk, &mut interp, &mut ()).expect("run");
+        assert!(vm.burned() > 0, "the VM reported doing no work");
+    }
+
 }

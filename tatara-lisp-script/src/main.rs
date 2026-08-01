@@ -43,6 +43,20 @@ use tatara_lisp_script::{install_stdlib, ScriptCtx};
 use tatara_lisp_source::{FileCache, Resolver, Source};
 
 fn main() -> ExitCode {
+    // Reclaim OUR OWN scratch left by processes that died without unwinding.
+    //
+    // ScratchRegistry's Drop covers normal exit, early return and panic — but
+    // NOT SIGKILL, an OOM kill, or power loss. On the host that motivated this
+    // work the OOM killer fired three times in six hours, so RAII alone would
+    // have left a residue that regrows. This is the reconciler for that path:
+    // bounded (512 entries), our prefix only, and only entries hours old, so it
+    // can never race a live sibling process. Invariant for the normal case, a
+    // sweep for the violent one.
+    //
+    // Best-effort and deliberately unreported: a script's exit status must
+    // describe the script, never its housekeeping.
+    let _ = tatara_lisp_script::scratch::sweep_stale();
+
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("--repl") => run_repl(args[1..].to_vec()),

@@ -249,17 +249,27 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
     );
 
     // ── temp ─────────────────────────────────────────────────────
+    // Both mints go through the context's ScratchRegistry, which OWNS the path
+    // and removes it when the interpreter drops.
+    //
+    // These used to build the path inline and return a bare string, so nothing
+    // owned it and nothing ever removed it. Measured on rio 2026-07-31:
+    // 21,608 leaked dirs, 13 GB — into a 48 GiB tmpfs on a 29 GiB host, i.e.
+    // into RAM. That filled memory and all 31.9 GiB of swap, drove PSI
+    // memory.full to 92%, and left the OOM killer as the only reclaim path
+    // (it killed comin's git mid-deploy). ~1,250 dirs/hour, every hour since
+    // boot.
+    //
+    // The registry is private to ScriptCtx and these are the only callers, so
+    // a leaking mint no longer has a code path — cleanup is what you get by
+    // doing nothing, instead of something a script had to remember on every
+    // exit path including error.
     interp.register_fn(
         "tmp-dir",
         Arity::Exact(0),
-        |_args: &[Value], _ctx: &mut ScriptCtx, sp| {
-            let base = std::env::temp_dir();
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0);
-            let dir = base.join(format!("tatara-script-{now:x}"));
-            std::fs::create_dir_all(&dir)
+        |_args: &[Value], ctx: &mut ScriptCtx, sp| {
+            let dir = ctx
+                .scratch_dir()
                 .map_err(|e| EvalError::native_fn("tmp-dir", e.to_string(), sp))?;
             Ok(Value::Str(Arc::from(dir.to_string_lossy().into_owned())))
         },
@@ -268,14 +278,9 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
     interp.register_fn(
         "tmp-file",
         Arity::Exact(0),
-        |_args: &[Value], _ctx: &mut ScriptCtx, sp| {
-            let base = std::env::temp_dir();
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0);
-            let path = base.join(format!("tatara-script-{now:x}.tmp"));
-            std::fs::write(&path, b"")
+        |_args: &[Value], ctx: &mut ScriptCtx, sp| {
+            let path = ctx
+                .scratch_file()
                 .map_err(|e| EvalError::native_fn("tmp-file", e.to_string(), sp))?;
             Ok(Value::Str(Arc::from(path.to_string_lossy().into_owned())))
         },

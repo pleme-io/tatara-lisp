@@ -28,6 +28,9 @@
 //! // Register more fns before eval_program.
 //! ```
 
+/// Owned temp-path registry — makes the `(tmp-dir)` / `(tmp-file)` leak
+/// unrepresentable. See the module docs for the incident it closes.
+pub mod scratch;
 pub mod script_ctx;
 pub mod stdlib;
 

@@ -32,6 +32,21 @@ use crate::value::{Closure, ErrorObj, NativeFn, Value};
 /// chains further.
 pub const DEFAULT_MACRO_EXPANSION_LIMIT: usize = 256;
 
+/// Which of the three arbiters claims a head symbol. See
+/// [`Interpreter::resolve_head`] — they are consulted in this order, and the
+/// first match wins.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum HeadBinding {
+    /// A `match` arm in the evaluator. Appears in no environment, so an
+    /// environment lookup cannot see it.
+    SpecialForm,
+    /// Registered on the expander; rewrites the form before evaluation, which
+    /// is why a macro beats a same-named primitive.
+    Macro,
+    /// An ordinary binding — a native fn, a closure, or a value.
+    Value,
+}
+
 pub struct Interpreter<H> {
     pub(crate) registry: FnRegistry<H>,
     pub(crate) globals: Env,
@@ -779,6 +794,62 @@ impl<H: 'static> Interpreter<H> {
     /// creation time.
     pub fn globals_snapshot(&self) -> &Env {
         &self.globals
+    }
+
+    /// What the head symbol of a form resolves to, **in the order the
+    /// evaluator actually consults**.
+    ///
+    /// Exposed because that order is not obvious and getting it wrong is
+    /// silent. There are three arbiters, not one:
+    ///
+    /// 1. a [`SpecialForm`] — a `match` arm, so it appears in no environment
+    ///    and `globals_snapshot().lookup()` cannot see it;
+    /// 2. a macro registered on the expander, which rewrites before evaluation;
+    /// 3. a binding in the environment.
+    ///
+    /// A consumer checking "is this name already taken" by looking only at the
+    /// environment misses the first two entirely. That is not hypothetical:
+    /// blue lowered `assert e` to a name the stdlib bound *as a macro*, a
+    /// macro beat the primitive, and every assertion in its test suite silently
+    /// passed. Its gate then still could not see special forms, so `not`,
+    /// `and`, `or`, `if` and `when` all read as unbound.
+    ///
+    /// Answering from a live interpreter rather than from a published list is
+    /// deliberate: a list is a second copy of the truth and goes stale on the
+    /// next installer that lands.
+    #[must_use]
+    pub fn resolve_head(&self, name: &str) -> Option<HeadBinding> {
+        if SpecialForm::from_symbol(name).is_some() {
+            Some(HeadBinding::SpecialForm)
+        } else if self.expander.has(name) {
+            Some(HeadBinding::Macro)
+        } else if self.globals.lookup(name).is_some() {
+            Some(HeadBinding::Value)
+        } else {
+            None
+        }
+    }
+
+    /// Every head symbol a form in this interpreter could resolve to.
+    ///
+    /// The union across all three arbiters, read off this interpreter rather
+    /// than declared, so it is exactly as current as the interpreter is. Build
+    /// one with [`crate::install_full_stdlib_with`] and this is the full
+    /// reserved surface.
+    #[must_use]
+    pub fn reserved_head_names(&self) -> std::collections::BTreeSet<Arc<str>> {
+        let mut out: std::collections::BTreeSet<Arc<str>> = SpecialForm::ALL
+            .iter()
+            .map(|sf| Arc::from(sf.symbol()))
+            .collect();
+        out.extend(
+            self.expander
+                .macro_names()
+                .map(Arc::from)
+                .collect::<Vec<Arc<str>>>(),
+        );
+        out.extend(self.globals.iter_top_level().into_iter().map(|(n, _)| n));
+        out
     }
 
     /// External entry point: apply a callable `Value` (closure or

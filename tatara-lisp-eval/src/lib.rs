@@ -37,7 +37,7 @@ pub mod vm;
 
 pub use env::{Env, Seal};
 pub use error::{EvalError, Result};
-pub use eval::Interpreter;
+pub use eval::{HeadBinding, Interpreter};
 pub use ffi::{Arity, Caller, FromValue, HigherOrderCallable, IntoValue, NativeCallable};
 pub use hof::install_hof;
 pub use lisp_stdlib::install_lisp_stdlib_with;

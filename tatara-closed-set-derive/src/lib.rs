@@ -34,7 +34,6 @@ use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
 use syn::{parse_macro_input, Attribute, Data, DeriveInput, Ident, LitStr, Meta};
 
-
 /// `#[derive(ClosedSet)]` — emit the substrate-wide
 /// `tatara_closed_set::ClosedSet` impl + the matching `std::str::FromStr`
 /// delegation for any enum carrying the closed-set-enum idiom (the

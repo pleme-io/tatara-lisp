@@ -127,7 +127,8 @@ pub struct CiliumNetworkPolicyEgressItemToEndpointsItemMatchExpressionsItem {
 pub struct CiliumNetworkPolicyEgressItemToEndpointsItem {
     /// matchExpressions is a list of label selector requirements. The requirements are ANDed.
     #[serde(default)]
-    pub match_expressions: Option<Vec<CiliumNetworkPolicyEgressItemToEndpointsItemMatchExpressionsItem>>,
+    pub match_expressions:
+        Option<Vec<CiliumNetworkPolicyEgressItemToEndpointsItemMatchExpressionsItem>>,
     /// matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels map is equivalent to an element of matchExpressions, whose key field is "key", the operator is "In", and the values array contains only "value". The requirements are ANDed.
     #[serde(default)]
     pub match_labels: Option<std::collections::HashMap<String, String>>,
@@ -216,7 +217,8 @@ pub struct CiliumNetworkPolicyEgressItemToNodesItemMatchExpressionsItem {
 pub struct CiliumNetworkPolicyEgressItemToNodesItem {
     /// matchExpressions is a list of label selector requirements. The requirements are ANDed.
     #[serde(default)]
-    pub match_expressions: Option<Vec<CiliumNetworkPolicyEgressItemToNodesItemMatchExpressionsItem>>,
+    pub match_expressions:
+        Option<Vec<CiliumNetworkPolicyEgressItemToNodesItemMatchExpressionsItem>>,
     /// matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels map is equivalent to an element of matchExpressions, whose key field is "key", the operator is "In", and the values array contains only "value". The requirements are ANDed.
     #[serde(default)]
     pub match_labels: Option<std::collections::HashMap<String, String>>,
@@ -336,12 +338,14 @@ pub struct CiliumNetworkPolicyEgressItemToPortsItemRulesHttpItemHeaderMatchesIte
 pub struct CiliumNetworkPolicyEgressItemToPortsItemRulesHttpItemHeaderMatchesItem {
     /// Mismatch identifies what to do in case there is no match. The default is to drop the request. Otherwise the overall rule is still considered as matching, but the mismatches are logged in the access log.
     #[serde(default)]
-    pub mismatch: Option<CiliumNetworkPolicyEgressItemToPortsItemRulesHttpItemHeaderMatchesItemMismatchKind>,
+    pub mismatch:
+        Option<CiliumNetworkPolicyEgressItemToPortsItemRulesHttpItemHeaderMatchesItemMismatchKind>,
     /// Name identifies the header.
     pub name: String,
     /// Secret refers to a secret that contains the value to be matched against. The secret must only contain one entry. If the referred secret does not exist, and there is no "Value" specified, the match will fail.
     #[serde(default)]
-    pub secret: Option<CiliumNetworkPolicyEgressItemToPortsItemRulesHttpItemHeaderMatchesItemSecret>,
+    pub secret:
+        Option<CiliumNetworkPolicyEgressItemToPortsItemRulesHttpItemHeaderMatchesItemSecret>,
     /// Value matches the exact value of the header. Can be specified either alone or together with "Secret"; will be used as the header value if the secret can not be found in the latter case.
     #[serde(default)]
     pub value: Option<String>,
@@ -351,7 +355,8 @@ pub struct CiliumNetworkPolicyEgressItemToPortsItemRulesHttpItemHeaderMatchesIte
 pub struct CiliumNetworkPolicyEgressItemToPortsItemRulesHttpItem {
     /// HeaderMatches is a list of HTTP headers which must be present and match against the given values. Mismatch field can be used to specify what to do when there is no match.
     #[serde(default)]
-    pub header_matches: Option<Vec<CiliumNetworkPolicyEgressItemToPortsItemRulesHttpItemHeaderMatchesItem>>,
+    pub header_matches:
+        Option<Vec<CiliumNetworkPolicyEgressItemToPortsItemRulesHttpItemHeaderMatchesItem>>,
     /// Headers is a list of HTTP headers which must be present in the request. If omitted or empty, requests are allowed regardless of headers present.
     #[serde(default)]
     pub headers: Option<Vec<String>>,
@@ -499,7 +504,8 @@ pub struct CiliumNetworkPolicyEgressItemToRequiresItemMatchExpressionsItem {
 pub struct CiliumNetworkPolicyEgressItemToRequiresItem {
     /// matchExpressions is a list of label selector requirements. The requirements are ANDed.
     #[serde(default)]
-    pub match_expressions: Option<Vec<CiliumNetworkPolicyEgressItemToRequiresItemMatchExpressionsItem>>,
+    pub match_expressions:
+        Option<Vec<CiliumNetworkPolicyEgressItemToRequiresItemMatchExpressionsItem>>,
     /// matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels map is equivalent to an element of matchExpressions, whose key field is "key", the operator is "In", and the values array contains only "value". The requirements are ANDed.
     #[serde(default)]
     pub match_labels: Option<std::collections::HashMap<String, String>>,
@@ -514,7 +520,8 @@ pub struct CiliumNetworkPolicyEgressItemToServicesItemK8sService {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum CiliumNetworkPolicyEgressItemToServicesItemK8sServiceSelectorSelectorMatchExpressionsItemOperatorKind {
+pub enum CiliumNetworkPolicyEgressItemToServicesItemK8sServiceSelectorSelectorMatchExpressionsItemOperatorKind
+{
     #[serde(rename = "In")]
     In,
     #[serde(rename = "NotIn")]
@@ -676,7 +683,8 @@ pub struct CiliumNetworkPolicyEgressDenyItemToEndpointsItemMatchExpressionsItem 
 pub struct CiliumNetworkPolicyEgressDenyItemToEndpointsItem {
     /// matchExpressions is a list of label selector requirements. The requirements are ANDed.
     #[serde(default)]
-    pub match_expressions: Option<Vec<CiliumNetworkPolicyEgressDenyItemToEndpointsItemMatchExpressionsItem>>,
+    pub match_expressions:
+        Option<Vec<CiliumNetworkPolicyEgressDenyItemToEndpointsItemMatchExpressionsItem>>,
     /// matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels map is equivalent to an element of matchExpressions, whose key field is "key", the operator is "In", and the values array contains only "value". The requirements are ANDed.
     #[serde(default)]
     pub match_labels: Option<std::collections::HashMap<String, String>>,
@@ -754,7 +762,8 @@ pub struct CiliumNetworkPolicyEgressDenyItemToNodesItemMatchExpressionsItem {
 pub struct CiliumNetworkPolicyEgressDenyItemToNodesItem {
     /// matchExpressions is a list of label selector requirements. The requirements are ANDed.
     #[serde(default)]
-    pub match_expressions: Option<Vec<CiliumNetworkPolicyEgressDenyItemToNodesItemMatchExpressionsItem>>,
+    pub match_expressions:
+        Option<Vec<CiliumNetworkPolicyEgressDenyItemToNodesItemMatchExpressionsItem>>,
     /// matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels map is equivalent to an element of matchExpressions, whose key field is "key", the operator is "In", and the values array contains only "value". The requirements are ANDed.
     #[serde(default)]
     pub match_labels: Option<std::collections::HashMap<String, String>>,
@@ -820,7 +829,8 @@ pub struct CiliumNetworkPolicyEgressDenyItemToRequiresItemMatchExpressionsItem {
 pub struct CiliumNetworkPolicyEgressDenyItemToRequiresItem {
     /// matchExpressions is a list of label selector requirements. The requirements are ANDed.
     #[serde(default)]
-    pub match_expressions: Option<Vec<CiliumNetworkPolicyEgressDenyItemToRequiresItemMatchExpressionsItem>>,
+    pub match_expressions:
+        Option<Vec<CiliumNetworkPolicyEgressDenyItemToRequiresItemMatchExpressionsItem>>,
     /// matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels map is equivalent to an element of matchExpressions, whose key field is "key", the operator is "In", and the values array contains only "value". The requirements are ANDed.
     #[serde(default)]
     pub match_labels: Option<std::collections::HashMap<String, String>>,
@@ -835,7 +845,8 @@ pub struct CiliumNetworkPolicyEgressDenyItemToServicesItemK8sService {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum CiliumNetworkPolicyEgressDenyItemToServicesItemK8sServiceSelectorSelectorMatchExpressionsItemOperatorKind {
+pub enum CiliumNetworkPolicyEgressDenyItemToServicesItemK8sServiceSelectorSelectorMatchExpressionsItemOperatorKind
+{
     #[serde(rename = "In")]
     In,
     #[serde(rename = "NotIn")]
@@ -882,7 +893,8 @@ pub struct CiliumNetworkPolicyEgressDenyItemToServicesItem {
     pub k8s_service: Option<CiliumNetworkPolicyEgressDenyItemToServicesItemK8sService>,
     /// K8sServiceSelector selects services by k8s labels and namespace
     #[serde(default)]
-    pub k8s_service_selector: Option<CiliumNetworkPolicyEgressDenyItemToServicesItemK8sServiceSelector>,
+    pub k8s_service_selector:
+        Option<CiliumNetworkPolicyEgressDenyItemToServicesItemK8sServiceSelector>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1026,7 +1038,8 @@ pub struct CiliumNetworkPolicyIngressItemFromEndpointsItemMatchExpressionsItem {
 pub struct CiliumNetworkPolicyIngressItemFromEndpointsItem {
     /// matchExpressions is a list of label selector requirements. The requirements are ANDed.
     #[serde(default)]
-    pub match_expressions: Option<Vec<CiliumNetworkPolicyIngressItemFromEndpointsItemMatchExpressionsItem>>,
+    pub match_expressions:
+        Option<Vec<CiliumNetworkPolicyIngressItemFromEndpointsItemMatchExpressionsItem>>,
     /// matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels map is equivalent to an element of matchExpressions, whose key field is "key", the operator is "In", and the values array contains only "value". The requirements are ANDed.
     #[serde(default)]
     pub match_labels: Option<std::collections::HashMap<String, String>>,
@@ -1104,7 +1117,8 @@ pub struct CiliumNetworkPolicyIngressItemFromNodesItemMatchExpressionsItem {
 pub struct CiliumNetworkPolicyIngressItemFromNodesItem {
     /// matchExpressions is a list of label selector requirements. The requirements are ANDed.
     #[serde(default)]
-    pub match_expressions: Option<Vec<CiliumNetworkPolicyIngressItemFromNodesItemMatchExpressionsItem>>,
+    pub match_expressions:
+        Option<Vec<CiliumNetworkPolicyIngressItemFromNodesItemMatchExpressionsItem>>,
     /// matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels map is equivalent to an element of matchExpressions, whose key field is "key", the operator is "In", and the values array contains only "value". The requirements are ANDed.
     #[serde(default)]
     pub match_labels: Option<std::collections::HashMap<String, String>>,
@@ -1137,7 +1151,8 @@ pub struct CiliumNetworkPolicyIngressItemFromRequiresItemMatchExpressionsItem {
 pub struct CiliumNetworkPolicyIngressItemFromRequiresItem {
     /// matchExpressions is a list of label selector requirements. The requirements are ANDed.
     #[serde(default)]
-    pub match_expressions: Option<Vec<CiliumNetworkPolicyIngressItemFromRequiresItemMatchExpressionsItem>>,
+    pub match_expressions:
+        Option<Vec<CiliumNetworkPolicyIngressItemFromRequiresItemMatchExpressionsItem>>,
     /// matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels map is equivalent to an element of matchExpressions, whose key field is "key", the operator is "In", and the values array contains only "value". The requirements are ANDed.
     #[serde(default)]
     pub match_labels: Option<std::collections::HashMap<String, String>>,
@@ -1281,12 +1296,14 @@ pub struct CiliumNetworkPolicyIngressItemToPortsItemRulesHttpItemHeaderMatchesIt
 pub struct CiliumNetworkPolicyIngressItemToPortsItemRulesHttpItemHeaderMatchesItem {
     /// Mismatch identifies what to do in case there is no match. The default is to drop the request. Otherwise the overall rule is still considered as matching, but the mismatches are logged in the access log.
     #[serde(default)]
-    pub mismatch: Option<CiliumNetworkPolicyIngressItemToPortsItemRulesHttpItemHeaderMatchesItemMismatchKind>,
+    pub mismatch:
+        Option<CiliumNetworkPolicyIngressItemToPortsItemRulesHttpItemHeaderMatchesItemMismatchKind>,
     /// Name identifies the header.
     pub name: String,
     /// Secret refers to a secret that contains the value to be matched against. The secret must only contain one entry. If the referred secret does not exist, and there is no "Value" specified, the match will fail.
     #[serde(default)]
-    pub secret: Option<CiliumNetworkPolicyIngressItemToPortsItemRulesHttpItemHeaderMatchesItemSecret>,
+    pub secret:
+        Option<CiliumNetworkPolicyIngressItemToPortsItemRulesHttpItemHeaderMatchesItemSecret>,
     /// Value matches the exact value of the header. Can be specified either alone or together with "Secret"; will be used as the header value if the secret can not be found in the latter case.
     #[serde(default)]
     pub value: Option<String>,
@@ -1296,7 +1313,8 @@ pub struct CiliumNetworkPolicyIngressItemToPortsItemRulesHttpItemHeaderMatchesIt
 pub struct CiliumNetworkPolicyIngressItemToPortsItemRulesHttpItem {
     /// HeaderMatches is a list of HTTP headers which must be present and match against the given values. Mismatch field can be used to specify what to do when there is no match.
     #[serde(default)]
-    pub header_matches: Option<Vec<CiliumNetworkPolicyIngressItemToPortsItemRulesHttpItemHeaderMatchesItem>>,
+    pub header_matches:
+        Option<Vec<CiliumNetworkPolicyIngressItemToPortsItemRulesHttpItemHeaderMatchesItem>>,
     /// Headers is a list of HTTP headers which must be present in the request. If omitted or empty, requests are allowed regardless of headers present.
     #[serde(default)]
     pub headers: Option<Vec<String>>,
@@ -1488,7 +1506,8 @@ pub struct CiliumNetworkPolicyIngressDenyItemFromEndpointsItemMatchExpressionsIt
     /// key is the label key that the selector applies to.
     pub key: String,
     /// operator represents a key's relationship to a set of values. Valid operators are In, NotIn, Exists and DoesNotExist.
-    pub operator: CiliumNetworkPolicyIngressDenyItemFromEndpointsItemMatchExpressionsItemOperatorKind,
+    pub operator:
+        CiliumNetworkPolicyIngressDenyItemFromEndpointsItemMatchExpressionsItemOperatorKind,
     /// values is an array of string values. If the operator is In or NotIn, the values array must be non-empty. If the operator is Exists or DoesNotExist, the values array must be empty. This array is replaced during a strategic merge patch.
     #[serde(default)]
     pub values: Option<Vec<String>>,
@@ -1498,7 +1517,8 @@ pub struct CiliumNetworkPolicyIngressDenyItemFromEndpointsItemMatchExpressionsIt
 pub struct CiliumNetworkPolicyIngressDenyItemFromEndpointsItem {
     /// matchExpressions is a list of label selector requirements. The requirements are ANDed.
     #[serde(default)]
-    pub match_expressions: Option<Vec<CiliumNetworkPolicyIngressDenyItemFromEndpointsItemMatchExpressionsItem>>,
+    pub match_expressions:
+        Option<Vec<CiliumNetworkPolicyIngressDenyItemFromEndpointsItemMatchExpressionsItem>>,
     /// matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels map is equivalent to an element of matchExpressions, whose key field is "key", the operator is "In", and the values array contains only "value". The requirements are ANDed.
     #[serde(default)]
     pub match_labels: Option<std::collections::HashMap<String, String>>,
@@ -1576,7 +1596,8 @@ pub struct CiliumNetworkPolicyIngressDenyItemFromNodesItemMatchExpressionsItem {
 pub struct CiliumNetworkPolicyIngressDenyItemFromNodesItem {
     /// matchExpressions is a list of label selector requirements. The requirements are ANDed.
     #[serde(default)]
-    pub match_expressions: Option<Vec<CiliumNetworkPolicyIngressDenyItemFromNodesItemMatchExpressionsItem>>,
+    pub match_expressions:
+        Option<Vec<CiliumNetworkPolicyIngressDenyItemFromNodesItemMatchExpressionsItem>>,
     /// matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels map is equivalent to an element of matchExpressions, whose key field is "key", the operator is "In", and the values array contains only "value". The requirements are ANDed.
     #[serde(default)]
     pub match_labels: Option<std::collections::HashMap<String, String>>,
@@ -1599,7 +1620,8 @@ pub struct CiliumNetworkPolicyIngressDenyItemFromRequiresItemMatchExpressionsIte
     /// key is the label key that the selector applies to.
     pub key: String,
     /// operator represents a key's relationship to a set of values. Valid operators are In, NotIn, Exists and DoesNotExist.
-    pub operator: CiliumNetworkPolicyIngressDenyItemFromRequiresItemMatchExpressionsItemOperatorKind,
+    pub operator:
+        CiliumNetworkPolicyIngressDenyItemFromRequiresItemMatchExpressionsItemOperatorKind,
     /// values is an array of string values. If the operator is In or NotIn, the values array must be non-empty. If the operator is Exists or DoesNotExist, the values array must be empty. This array is replaced during a strategic merge patch.
     #[serde(default)]
     pub values: Option<Vec<String>>,
@@ -1609,7 +1631,8 @@ pub struct CiliumNetworkPolicyIngressDenyItemFromRequiresItemMatchExpressionsIte
 pub struct CiliumNetworkPolicyIngressDenyItemFromRequiresItem {
     /// matchExpressions is a list of label selector requirements. The requirements are ANDed.
     #[serde(default)]
-    pub match_expressions: Option<Vec<CiliumNetworkPolicyIngressDenyItemFromRequiresItemMatchExpressionsItem>>,
+    pub match_expressions:
+        Option<Vec<CiliumNetworkPolicyIngressDenyItemFromRequiresItemMatchExpressionsItem>>,
     /// matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels map is equivalent to an element of matchExpressions, whose key field is "key", the operator is "In", and the values array contains only "value". The requirements are ANDed.
     #[serde(default)]
     pub match_labels: Option<std::collections::HashMap<String, String>>,
@@ -1752,7 +1775,6 @@ pub struct CiliumNetworkPolicyNodeSelector {
     #[serde(default)]
     pub match_labels: Option<std::collections::HashMap<String, String>>,
 }
-
 
 // ── Render metadata (consumed by tatara-render) ──────────
 

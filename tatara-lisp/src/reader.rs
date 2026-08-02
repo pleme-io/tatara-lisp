@@ -501,10 +501,7 @@ fn parse_spanned<I: Iterator<Item = SpannedToken>>(
         Some(SpannedToken {
             kind: Token::Atom(s),
             span,
-        }) => Ok(Spanned::new(
-            span,
-            SpannedForm::Atom(Atom::from_lexeme(&s)),
-        )),
+        }) => Ok(Spanned::new(span, SpannedForm::Atom(Atom::from_lexeme(&s)))),
         None => Err(LispError::Eof {
             span: tail.eof_span(),
         }),
@@ -932,8 +929,8 @@ mod tests {
     fn reader_str_open_close_arms_bind_to_atom_str_delimiter() {
         let payload = "hello world";
         let source = format!("{}{payload}{}", Atom::STR_DELIMITER, Atom::STR_DELIMITER);
-        let tokens = tokenize(&source)
-            .unwrap_or_else(|e| panic!("tokenize rejected `{source}`: {e}"));
+        let tokens =
+            tokenize(&source).unwrap_or_else(|e| panic!("tokenize rejected `{source}`: {e}"));
         assert_eq!(tokens.len(), 1, "must tokenize as exactly one Token::Str");
         assert_eq!(tokens[0].kind, Token::Str(payload.to_string()));
         // The span covers the delimiters, not just the payload.
@@ -979,8 +976,8 @@ mod tests {
     fn tokenizer_quote_family_outer_dispatch_routes_through_quote_form_from_lead_char() {
         for qf in QuoteForm::ALL {
             let source = format!("{}xs", qf.prefix());
-            let tokens = tokenize(&source)
-                .unwrap_or_else(|e| panic!("tokenize rejected `{source}`: {e}"));
+            let tokens =
+                tokenize(&source).unwrap_or_else(|e| panic!("tokenize rejected `{source}`: {e}"));
             assert!(!tokens.is_empty());
             assert_eq!(tokens[0].kind, Token::Quoted(qf));
             assert_eq!(tokens[0].span, Span::new(0, qf.prefix().len()));
@@ -995,8 +992,8 @@ mod tests {
         for qf in QuoteForm::ALL {
             let expected_promoted = qf.promote_via_next_char(QuoteForm::SPLICE_DISCRIMINATOR);
             let source = format!("{}{}xs", qf.prefix(), QuoteForm::SPLICE_DISCRIMINATOR);
-            let tokens = tokenize(&source)
-                .unwrap_or_else(|e| panic!("tokenize rejected `{source}`: {e}"));
+            let tokens =
+                tokenize(&source).unwrap_or_else(|e| panic!("tokenize rejected `{source}`: {e}"));
             assert!(!tokens.is_empty());
             match expected_promoted {
                 Some(promoted) => assert_eq!(tokens[0].kind, Token::Quoted(promoted)),
@@ -1014,8 +1011,8 @@ mod tests {
     fn tokenizer_bare_atom_terminator_disjunct_routes_through_is_bare_atom_boundary() {
         for qf in [QuoteForm::Quote, QuoteForm::Quasiquote, QuoteForm::Unquote] {
             let source = format!("foo{}xs", qf.prefix());
-            let tokens = tokenize(&source)
-                .unwrap_or_else(|e| panic!("tokenize rejected `{source}`: {e}"));
+            let tokens =
+                tokenize(&source).unwrap_or_else(|e| panic!("tokenize rejected `{source}`: {e}"));
             assert!(tokens.len() >= 2);
             assert_eq!(tokens[0].kind, Token::Atom("foo".into()));
             assert_eq!(tokens[0].span, Span::new(0, 3));
@@ -1148,8 +1145,9 @@ mod str_round_trip {
         for payload in payloads {
             let sexp = crate::Sexp::Atom(crate::Atom::Str(payload.to_string()));
             let text = sexp.to_string();
-            let forms = read_spanned(&text)
-                .unwrap_or_else(|e| panic!("{payload:?} rendered as {text:?} would not re-read: {e:?}"));
+            let forms = read_spanned(&text).unwrap_or_else(|e| {
+                panic!("{payload:?} rendered as {text:?} would not re-read: {e:?}")
+            });
             let got = match forms.first().map(|f| &f.form) {
                 Some(crate::SpannedForm::Atom(crate::Atom::Str(s))) => s.clone(),
                 other => panic!("{payload:?} came back as {other:?}"),
@@ -1197,7 +1195,10 @@ mod str_round_trip {
             Some(crate::SpannedForm::Atom(crate::Atom::Str(s))) => s.clone(),
             other => panic!("got {other:?}"),
         };
-        assert_eq!(got, "a0b", "the reader's meaning for \\0 must not have moved");
+        assert_eq!(
+            got, "a0b",
+            "the reader's meaning for \\0 must not have moved"
+        );
     }
 
     /// A malformed `\u{…}` keeps its literal text rather than becoming a

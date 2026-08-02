@@ -25,10 +25,10 @@
 //! Pillar 12 (generation over composition) operationalized for the
 //! typescape itself.
 
+pub mod emit;
 pub mod ir;
 pub mod source;
-pub mod emit;
 
-pub use ir::{Domain, DomainKind, Field, Resource, ScalarType, FieldType};
-pub use source::{from_crd_yaml, from_crd_str, FromCrdError};
-pub use emit::{emit_lib_rs, emit_cargo_toml, emit_readme, emit_register_fn, EmitOptions};
+pub use emit::{emit_cargo_toml, emit_lib_rs, emit_readme, emit_register_fn, EmitOptions};
+pub use ir::{Domain, DomainKind, Field, FieldType, Resource, ScalarType};
+pub use source::{from_crd_str, from_crd_yaml, FromCrdError};

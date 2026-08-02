@@ -79,10 +79,7 @@ impl CheckRun {
             let pass = m.values().filter(|o| matches!(o, Outcome::Pass)).count();
             let fail = m.values().filter(|o| matches!(o, Outcome::Fail(_))).count();
             let skip = m.values().filter(|o| matches!(o, Outcome::Skip(_))).count();
-            let _ = writeln!(
-                out,
-                "{name:42} pass {pass:3}  fail {fail:3}  skip {skip:3}"
-            );
+            let _ = writeln!(out, "{name:42} pass {pass:3}  fail {fail:3}  skip {skip:3}");
             let mut keys: Vec<&String> = m.keys().collect();
             keys.sort_unstable();
             for k in keys {
@@ -118,48 +115,42 @@ pub fn default_invariants() -> Vec<Invariant> {
     vec![
         Invariant {
             name: "always-required-layers-present",
-            description:
-                "Every registered keyword has handlers for the 9 always-required \
+            description: "Every registered keyword has handlers for the 9 always-required \
                  capability layers (Compile + Doc + Deps + Validate + Lifecycle + \
                  Compliance + Observability + Help + Stability).",
             run: check_always_required_layers,
         },
         Invariant {
             name: "no-duplicate-keywords",
-            description:
-                "Two domains claiming the same keyword silently overwrite each \
+            description: "Two domains claiming the same keyword silently overwrite each \
                  other's compile handler. Detects collisions before they cause \
                  runtime mysteries.",
             run: check_no_duplicate_keywords,
         },
         Invariant {
             name: "deps-resolve-to-registered-keywords",
-            description:
-                "Every entry in a domain's `DEPENDS_ON` resolves to another \
+            description: "Every entry in a domain's `DEPENDS_ON` resolves to another \
                  keyword in the registry. Dangling deps mean the rollout \
                  plan's topo-sort silently ignores the constraint.",
             run: check_deps_resolve,
         },
         Invariant {
             name: "schemas-parse-as-json",
-            description:
-                "Every registered SCHEMA_JSON parses as a JSON object. Malformed \
+            description: "Every registered SCHEMA_JSON parses as a JSON object. Malformed \
                  schemas would silently fail downstream IDE / web validator \
                  consumers.",
             run: check_schemas_parse,
         },
         Invariant {
             name: "compliance-frameworks-are-known",
-            description:
-                "Every claimed compliance framework appears in the recognized \
+            description: "Every claimed compliance framework appears in the recognized \
                  set. Catches typos like 'NIT 800-53' that would silently \
                  miss compliance reports.",
             run: check_compliance_frameworks,
         },
         Invariant {
             name: "stability-values-are-known",
-            description:
-                "Every STABILITY value is one of {experimental, alpha, beta, \
+            description: "Every STABILITY value is one of {experimental, alpha, beta, \
                  stable, deprecated}. Catches typos that would skew CI gates.",
             run: check_stability_values,
         },
@@ -246,10 +237,7 @@ fn check_deps_resolve(keywords: &[&'static str]) -> HashMap<String, Outcome> {
                     if dangling.is_empty() {
                         Outcome::Pass
                     } else {
-                        Outcome::Fail(format!(
-                            "dangling deps: {}",
-                            dangling.join(", ")
-                        ))
+                        Outcome::Fail(format!("dangling deps: {}", dangling.join(", ")))
                     }
                 }
             };
@@ -321,9 +309,7 @@ fn check_stability_values(keywords: &[&'static str]) -> HashMap<String, Outcome>
             let outcome = match tatara_lisp::domain::lookup_stability(kw) {
                 None => Outcome::Skip("no stability registered".into()),
                 Some(s) if KNOWN_STABILITY_VALUES.contains(&s.stability) => Outcome::Pass,
-                Some(s) => {
-                    Outcome::Fail(format!("unknown stability `{}`", s.stability))
-                }
+                Some(s) => Outcome::Fail(format!("unknown stability `{}`", s.stability)),
             };
             (kw.to_string(), outcome)
         })

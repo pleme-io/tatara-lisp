@@ -24,7 +24,7 @@
 use std::path::PathBuf;
 use std::process::{Command, ExitCode};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -81,9 +81,7 @@ enum Cmd {
     },
 
     /// Run all `(deftest …)` forms in a script + report pass/fail.
-    Test {
-        path_or_url: String,
-    },
+    Test { path_or_url: String },
 
     /// Drop into the interactive REPL.
     Repl,
@@ -196,7 +194,13 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
             skip_checks,
             name,
             namespace,
-        } => deploy(&url, output.as_deref(), skip_checks, name.as_deref(), &namespace),
+        } => deploy(
+            &url,
+            output.as_deref(),
+            skip_checks,
+            name.as_deref(),
+            &namespace,
+        ),
         Cmd::ForgeDomain {
             input,
             name,
@@ -277,8 +281,7 @@ fn forge_domain(
         return Ok(ExitCode::SUCCESS);
     }
     let src_dir = output.join("src");
-    std::fs::create_dir_all(&src_dir)
-        .with_context(|| format!("mkdir {}", src_dir.display()))?;
+    std::fs::create_dir_all(&src_dir).with_context(|| format!("mkdir {}", src_dir.display()))?;
     std::fs::write(output.join("Cargo.toml"), &cargo)
         .with_context(|| format!("write {}/Cargo.toml", output.display()))?;
     std::fs::write(src_dir.join("lib.rs"), &lib)
@@ -321,7 +324,12 @@ fn run_feira_fmt(paths: &[PathBuf], check: bool) -> Result<ExitCode> {
     Ok(ExitCode::from(status.code().unwrap_or(1) as u8))
 }
 
-fn run_feira_lint(paths: &[PathBuf], fix: bool, fix_unsafe: bool, errors_only: bool) -> Result<ExitCode> {
+fn run_feira_lint(
+    paths: &[PathBuf],
+    fix: bool,
+    fix_unsafe: bool,
+    errors_only: bool,
+) -> Result<ExitCode> {
     let feira = find_feira()?;
     let mut cmd = Command::new(feira);
     cmd.arg("lint");
@@ -391,8 +399,8 @@ fn typecheck_paths(paths: &[PathBuf]) -> Result<ExitCode> {
     };
     let mut total_errors = 0usize;
     for path in &targets {
-        let src = std::fs::read_to_string(path)
-            .with_context(|| format!("reading {}", path.display()))?;
+        let src =
+            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
         let forms = match tatara_lisp::read_spanned(&src) {
             Ok(f) => f,
             Err(e) => {
@@ -457,12 +465,11 @@ fn merge_exit(a: ExitCode, b: ExitCode) -> ExitCode {
 }
 
 fn typecheck(path_or_url: &str) -> Result<ExitCode> {
-    let resolved = tatara_lisp_source::resolve_once(path_or_url)
-        .context("resolving source for typecheck")?;
-    let src = String::from_utf8(resolved.bytes)
-        .context("source is not UTF-8")?;
-    let forms = tatara_lisp::read_spanned(&src)
-        .map_err(|e| anyhow::anyhow!("parse error: {e:?}"))?;
+    let resolved =
+        tatara_lisp_source::resolve_once(path_or_url).context("resolving source for typecheck")?;
+    let src = String::from_utf8(resolved.bytes).context("source is not UTF-8")?;
+    let forms =
+        tatara_lisp::read_spanned(&src).map_err(|e| anyhow::anyhow!("parse error: {e:?}"))?;
     let diags = tatara_lisp_eval::build_check::check_program(&forms);
     if diags.is_empty() {
         eprintln!("tatara typecheck: 0 errors");
@@ -471,10 +478,7 @@ fn typecheck(path_or_url: &str) -> Result<ExitCode> {
     for d in &diags {
         eprintln!("{}: {}", path_or_url, d.render(&src));
     }
-    eprintln!(
-        "tatara typecheck: {} type error(s)",
-        diags.len()
-    );
+    eprintln!("tatara typecheck: {} type error(s)", diags.len());
     Ok(ExitCode::from(1))
 }
 
@@ -529,9 +533,7 @@ fn deploy(
         print!("{yaml}");
     }
 
-    eprintln!(
-        "tatara deploy: ready. apply with:\n  kubectl -n {namespace} apply -f -"
-    );
+    eprintln!("tatara deploy: ready. apply with:\n  kubectl -n {namespace} apply -f -");
     Ok(ExitCode::SUCCESS)
 }
 
@@ -597,10 +599,7 @@ struct ComputeUnitSource {
 
 fn compute_unit_manifest(name: &str, namespace: &str, url: &str, blake3: &str) -> ComputeUnit {
     let mut annotations = std::collections::BTreeMap::new();
-    annotations.insert(
-        "tatara.pleme.io/source-url".to_string(),
-        url.to_string(),
-    );
+    annotations.insert("tatara.pleme.io/source-url".to_string(), url.to_string());
     annotations.insert(
         "tatara.pleme.io/source-blake3".to_string(),
         blake3.to_string(),

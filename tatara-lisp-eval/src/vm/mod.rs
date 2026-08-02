@@ -35,6 +35,6 @@ mod parity;
 pub mod run;
 
 pub use chunk::{Chunk, ConstPool};
-pub use compile::{CompileError, Compiler, compile_program};
+pub use compile::{compile_program, CompileError, Compiler};
 pub use op::Op;
 pub use run::{Budget, Park, Progress, Vm, VmError};

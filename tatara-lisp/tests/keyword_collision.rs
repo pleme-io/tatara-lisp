@@ -26,8 +26,8 @@
 //!   * the loser is TOLD, by a typed `KeywordCollision`, not by silence;
 //!   * a type re-registering itself is still idempotent `Ok(())`.
 
+use tatara_lisp::domain::{lookup, register, KeywordCollision, TataraDomain};
 use tatara_lisp::Sexp;
-use tatara_lisp::domain::{KeywordCollision, TataraDomain, lookup, register};
 
 // Two genuinely different types that both claim one keyword — the shape the
 // fleet census found 20 instances of. `compile_from_args` returns a
@@ -130,7 +130,10 @@ fn a_collision_renders_a_message_naming_both_sides() {
     };
     let rendered = collision.to_string();
     assert!(rendered.contains("defplugin"), "{rendered}");
-    assert!(rendered.contains("escriba_config::PluginSpec"), "{rendered}");
+    assert!(
+        rendered.contains("escriba_config::PluginSpec"),
+        "{rendered}"
+    );
     assert!(
         rendered.contains("escriba_lisp::plugin::PluginSpec"),
         "{rendered}"

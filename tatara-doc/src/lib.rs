@@ -90,16 +90,16 @@ pub fn list_keywords() -> Vec<&'static str> {
 }
 
 fn render_section(out: &mut String, kw: &str) {
-    let _ = writeln!(out, "## `{kw}` <a id=\"{anchor}\"></a>", anchor = anchor(kw));
+    let _ = writeln!(
+        out,
+        "## `{kw}` <a id=\"{anchor}\"></a>",
+        anchor = anchor(kw)
+    );
     let _ = writeln!(out);
 
     // Layer 12 — Stability decoration up top.
     if let Some(s) = lookup_stability(kw) {
-        let _ = writeln!(
-            out,
-            "_{} since {}_",
-            s.stability, s.since_version
-        );
+        let _ = writeln!(out, "_{} since {}_", s.stability, s.since_version);
         let _ = writeln!(out);
     }
 
@@ -177,8 +177,7 @@ fn render_section(out: &mut String, kw: &str) {
                 let _ = writeln!(out, "- Metric prefix: `{}`", o.metric_prefix);
             }
             if !o.log_labels.is_empty() {
-                let labels: Vec<String> =
-                    o.log_labels.iter().map(|l| format!("`{l}`")).collect();
+                let labels: Vec<String> = o.log_labels.iter().map(|l| format!("`{l}`")).collect();
                 let _ = writeln!(out, "- Log labels: {}", labels.join(", "));
             }
             let _ = writeln!(out);

@@ -4,4 +4,6 @@
 
 mod mutation_discard;
 
-pub use mutation_discard::{git_mutation_discarded, gh_mutation_discarded, CommandMutationDiscarded};
+pub use mutation_discard::{
+    gh_mutation_discarded, git_mutation_discarded, CommandMutationDiscarded,
+};

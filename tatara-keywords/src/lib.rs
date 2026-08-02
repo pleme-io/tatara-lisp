@@ -36,8 +36,8 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use tatara_lisp::DeriveTataraDomain;
 use serde::{Deserialize, Serialize};
+use tatara_lisp::DeriveTataraDomain;
 
 /// One `#[tatara(keyword = "…")]` found in a source tree.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -138,10 +138,12 @@ impl Reservas {
     pub fn from_lisp(src: &str) -> Result<Self, tatara_lisp::LispError> {
         use tatara_lisp::domain::TataraDomain;
         let forms = tatara_lisp::read(src)?;
-        let first = forms.first().ok_or_else(|| tatara_lisp::LispError::Compile {
-            form: "defreservas".into(),
-            message: "empty ledger".into(),
-        })?;
+        let first = forms
+            .first()
+            .ok_or_else(|| tatara_lisp::LispError::Compile {
+                form: "defreservas".into(),
+                message: "empty ledger".into(),
+            })?;
         Self::compile_from_sexp(first)
     }
 

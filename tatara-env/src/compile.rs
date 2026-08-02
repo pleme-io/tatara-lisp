@@ -114,26 +114,25 @@ pub fn compile_into_env(forms: &[Sexp]) -> Result<Env, CompileError> {
             }
             let handler = tatara_lisp::domain::lookup(head).ok_or_else(|| {
                 CompileError::BadDefenv(
-                    "EnvSpec not registered — call tatara_env::register() before compiling"
-                        .into(),
+                    "EnvSpec not registered — call tatara_env::register() before compiling".into(),
                 )
             })?;
             let json = (handler.compile)(&list[1..])
                 .map_err(|e| CompileError::BadDefenv(format!("{e}")))?;
-            spec = Some(serde_json::from_value(json).map_err(|e| {
-                CompileError::BadDefenv(format!("EnvSpec deserialize: {e}"))
-            })?);
+            spec = Some(
+                serde_json::from_value(json)
+                    .map_err(|e| CompileError::BadDefenv(format!("EnvSpec deserialize: {e}")))?,
+            );
             continue;
         }
         // Any other form — dispatch through the registry. Skip
         // silently if no handler is registered for the keyword.
         if let Some(handler) = tatara_lisp::domain::lookup(head) {
-            let value = (handler.compile)(&list[1..]).map_err(|e| {
-                CompileError::ResourceCompile {
+            let value =
+                (handler.compile)(&list[1..]).map_err(|e| CompileError::ResourceCompile {
                     head: head.to_string(),
                     message: format!("{e}"),
-                }
-            })?;
+                })?;
             resources.push(Resource {
                 keyword: head.to_string(),
                 value,

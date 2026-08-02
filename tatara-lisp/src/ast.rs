@@ -9619,7 +9619,6 @@ impl Atom {
         (Self::SELF_ESCAPE_TABLE[1], Self::SELF_ESCAPE_TABLE[1]),
     ];
 
-    #[must_use]
     /// A string payload as source text, quoted and escaped so that
     /// [`Self::decode_str_escape`] (plus the reader's `\u{…}` arm) reads back
     /// exactly these bytes.

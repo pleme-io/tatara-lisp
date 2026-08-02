@@ -100,10 +100,7 @@ pub enum Op {
     /// `catch_ip` is the absolute IP to jump to on error. `error_local`
     /// is the local slot the runtime stores the error Value into
     /// before resuming at `catch_ip`. Stack effect: 0.
-    PushHandler {
-        catch_ip: usize,
-        error_local: usize,
-    },
+    PushHandler { catch_ip: usize, error_local: usize },
     /// Pop the most recent handler. Stack effect: 0.
     PopHandler,
 

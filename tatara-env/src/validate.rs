@@ -24,15 +24,12 @@ use thiserror::Error;
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ValidationError {
-    #[error(
-        "import `{0}` declared but no resource produced from it (keyword expected: `{1}`)"
-    )]
+    #[error("import `{0}` declared but no resource produced from it (keyword expected: `{1}`)")]
     UnusedImport(String, String),
-    #[error("resource `({keyword} …)` has no matching import — declare `{crate_name}` in :imports")]
-    UnregisteredKeyword {
-        keyword: String,
-        crate_name: String,
-    },
+    #[error(
+        "resource `({keyword} …)` has no matching import — declare `{crate_name}` in :imports"
+    )]
+    UnregisteredKeyword { keyword: String, crate_name: String },
     #[error("duplicate `{keyword}` resource with id `{id}`")]
     DuplicateResource { keyword: String, id: String },
     #[error("{0}")]
@@ -98,9 +95,10 @@ pub fn validate(env: &Env) -> Result<(), Vec<ValidationError>> {
     // Check 1: unused imports. For each declared import, find at
     // least one resource produced by a keyword owned by that crate.
     for imp in &env.spec.imports {
-        let owns_at_least_one = env.resources.iter().any(|r| {
-            keyword_to_crate(&r.keyword).is_some_and(|c| c == imp.as_str())
-        });
+        let owns_at_least_one = env
+            .resources
+            .iter()
+            .any(|r| keyword_to_crate(&r.keyword).is_some_and(|c| c == imp.as_str()));
         if !owns_at_least_one {
             // Pick a representative keyword from the crate for the error message.
             let example = KEYWORD_TO_CRATE
@@ -116,8 +114,7 @@ pub fn validate(env: &Env) -> Result<(), Vec<ValidationError>> {
     // (the field name varies per domain; for now we look at
     // either `name` or `gateway_class_name` — extending as new
     // domains register identifiers).
-    let mut seen: std::collections::HashSet<(String, String)> =
-        std::collections::HashSet::new();
+    let mut seen: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
     for r in &env.resources {
         let Some(id) = identifier_for(r) else {
             continue;
@@ -139,10 +136,7 @@ pub fn validate(env: &Env) -> Result<(), Vec<ValidationError>> {
     for r in &env.resources {
         if let Some(handler) = tatara_lisp::domain::lookup_validate(&r.keyword) {
             if let Err(msg) = (handler.validate)(&r.value) {
-                errors.push(ValidationError::Custom(format!(
-                    "{}: {msg}",
-                    r.keyword
-                )));
+                errors.push(ValidationError::Custom(format!("{}: {msg}", r.keyword)));
             }
         }
     }
@@ -164,7 +158,10 @@ fn identifier_for(r: &Resource) -> Option<String> {
         return Some(v.to_string());
     }
     match r.keyword.as_str() {
-        "defgateway" => obj.get("gateway_class_name").and_then(|v| v.as_str()).map(str::to_string),
+        "defgateway" => obj
+            .get("gateway_class_name")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
         _ => None,
     }
 }

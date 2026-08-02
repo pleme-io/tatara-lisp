@@ -57,27 +57,42 @@ const FN_LIST: &str = "dns/list";
 // ─────────────────────────────────────────────────────────────────────
 
 pub fn install(interp: &mut Interpreter<ScriptCtx>) {
-    interp.register_fn(FN_UPSERT, Arity::AtLeast(2), |args: &[Value], ctx: &mut ScriptCtx, sp| {
-        run(Action::Upsert, args, ctx, sp)
-    });
-    interp.register_fn(FN_DELETE, Arity::AtLeast(2), |args: &[Value], ctx: &mut ScriptCtx, sp| {
-        run(Action::Delete, args, ctx, sp)
-    });
-    interp.register_fn(FN_LIST, Arity::AtLeast(2), |args: &[Value], ctx: &mut ScriptCtx, sp| {
-        let kw = Kwargs::parse(args, FN_LIST, sp)?;
-        let provider = kw.provider(FN_LIST, sp)?;
-        let zone_id = kw.want_str("zone-id", FN_LIST, sp)?;
-        let creds = kw.credentials(FN_LIST, sp)?;
-        let transport = UreqTransport::new(ctx);
-        let records = dns_list(&transport, provider, &zone_id, &creds)
-            .map_err(|e| EvalError::native_fn(FN_LIST, e, sp))?;
-        Ok(Value::List(Arc::new(records.into_iter().map(Record::into_value).collect())))
-    });
+    interp.register_fn(
+        FN_UPSERT,
+        Arity::AtLeast(2),
+        |args: &[Value], ctx: &mut ScriptCtx, sp| run(Action::Upsert, args, ctx, sp),
+    );
+    interp.register_fn(
+        FN_DELETE,
+        Arity::AtLeast(2),
+        |args: &[Value], ctx: &mut ScriptCtx, sp| run(Action::Delete, args, ctx, sp),
+    );
+    interp.register_fn(
+        FN_LIST,
+        Arity::AtLeast(2),
+        |args: &[Value], ctx: &mut ScriptCtx, sp| {
+            let kw = Kwargs::parse(args, FN_LIST, sp)?;
+            let provider = kw.provider(FN_LIST, sp)?;
+            let zone_id = kw.want_str("zone-id", FN_LIST, sp)?;
+            let creds = kw.credentials(FN_LIST, sp)?;
+            let transport = UreqTransport::new(ctx);
+            let records = dns_list(&transport, provider, &zone_id, &creds)
+                .map_err(|e| EvalError::native_fn(FN_LIST, e, sp))?;
+            Ok(Value::List(Arc::new(
+                records.into_iter().map(Record::into_value).collect(),
+            )))
+        },
+    );
 }
 
 /// Shared body for `dns/upsert` + `dns/delete` — they differ only in the
 /// Route53 `Action` / Cloudflare verb.
-fn run(action: Action, args: &[Value], ctx: &mut ScriptCtx, sp: tatara_lisp::Span) -> Result<Value, EvalError> {
+fn run(
+    action: Action,
+    args: &[Value],
+    ctx: &mut ScriptCtx,
+    sp: tatara_lisp::Span,
+) -> Result<Value, EvalError> {
     let fn_name = action.fn_name();
     let kw = Kwargs::parse(args, fn_name, sp)?;
     let req = ChangeRequest {
@@ -141,7 +156,11 @@ impl RecordType {
     /// keyword differently (`:A`/`:a`, `:AAAA`/`:a-a-a-a`,
     /// `:CNAME`/`:c-n-a-m-e`, `:TXT`/`:t-x-t`). Accept all of them.
     fn from_keyword(s: &str) -> Option<Self> {
-        let norm: String = s.chars().filter(|c| *c != '-').collect::<String>().to_ascii_lowercase();
+        let norm: String = s
+            .chars()
+            .filter(|c| *c != '-')
+            .collect::<String>()
+            .to_ascii_lowercase();
         match norm.as_str() {
             "a" => Some(Self::A),
             "aaaa" => Some(Self::Aaaa),
@@ -191,24 +210,41 @@ pub struct Credentials {
 
 impl Credentials {
     fn get(&self, keys: &[&str]) -> Option<&str> {
-        keys.iter().find_map(|k| self.map.get(*k).map(String::as_str))
+        keys.iter()
+            .find_map(|k| self.map.get(*k).map(String::as_str))
     }
     fn cloudflare_token(&self) -> Option<&str> {
         self.get(&["api-token", "api_token", "token", "CLOUDFLARE_API_TOKEN"])
     }
     fn aws_access_key(&self) -> Option<&str> {
-        self.get(&["access-key-id", "access_key_id", "aws-access-key-id", "AWS_ACCESS_KEY_ID"])
+        self.get(&[
+            "access-key-id",
+            "access_key_id",
+            "aws-access-key-id",
+            "AWS_ACCESS_KEY_ID",
+        ])
     }
     fn aws_secret_key(&self) -> Option<&str> {
-        self.get(&["secret-access-key", "secret_access_key", "aws-secret-access-key", "AWS_SECRET_ACCESS_KEY"])
+        self.get(&[
+            "secret-access-key",
+            "secret_access_key",
+            "aws-secret-access-key",
+            "AWS_SECRET_ACCESS_KEY",
+        ])
     }
     fn aws_session_token(&self) -> Option<&str> {
-        self.get(&["session-token", "session_token", "aws-session-token", "AWS_SESSION_TOKEN"])
+        self.get(&[
+            "session-token",
+            "session_token",
+            "aws-session-token",
+            "AWS_SESSION_TOKEN",
+        ])
     }
     fn aws_region(&self) -> &str {
         // Route53 is a global service; SigV4 still requires a region and
         // AWS canonicalizes Route53 to us-east-1.
-        self.get(&["region", "aws-region", "AWS_REGION"]).unwrap_or("us-east-1")
+        self.get(&["region", "aws-region", "AWS_REGION"])
+            .unwrap_or("us-east-1")
     }
 }
 
@@ -238,7 +274,10 @@ impl Outcome {
         map_value(&[
             ("status", Value::Str(Arc::from("ok"))),
             ("provider", Value::Str(Arc::from(self.provider.as_str()))),
-            ("action", Value::Str(Arc::from(self.action.route53_verb().to_ascii_lowercase()))),
+            (
+                "action",
+                Value::Str(Arc::from(self.action.route53_verb().to_ascii_lowercase())),
+            ),
             ("name", Value::Str(Arc::from(self.name))),
             ("type", Value::Str(Arc::from(self.record_type.as_str()))),
         ])
@@ -311,7 +350,9 @@ pub struct UreqTransport {
 
 impl UreqTransport {
     fn new(ctx: &mut ScriptCtx) -> Self {
-        Self { agent: ctx.http().clone() }
+        Self {
+            agent: ctx.http().clone(),
+        }
     }
 }
 
@@ -330,7 +371,10 @@ impl DnsTransport for UreqTransport {
                 }
                 let resp = b.call().map_err(|e| format!("{}: {e}", ctx()))?;
                 let status = resp.status().as_u16();
-                let body = resp.into_body().read_to_string().map_err(|e| format!("{}: {e}", ctx()))?;
+                let body = resp
+                    .into_body()
+                    .read_to_string()
+                    .map_err(|e| format!("{}: {e}", ctx()))?;
                 Ok(HttpResponse { status, body })
             }
             Method::Post | Method::Put => {
@@ -345,7 +389,10 @@ impl DnsTransport for UreqTransport {
                 let body = req.body.clone().unwrap_or_default();
                 let resp = b.send(body).map_err(|e| format!("{}: {e}", ctx()))?;
                 let status = resp.status().as_u16();
-                let body = resp.into_body().read_to_string().map_err(|e| format!("{}: {e}", ctx()))?;
+                let body = resp
+                    .into_body()
+                    .read_to_string()
+                    .map_err(|e| format!("{}: {e}", ctx()))?;
                 Ok(HttpResponse { status, body })
             }
         }
@@ -394,7 +441,10 @@ fn unimplemented(p: Provider) -> String {
 }
 
 fn now_unix() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -408,7 +458,11 @@ mod route53 {
     const HOST: &str = "route53.amazonaws.com";
     const SERVICE: &str = "route53";
 
-    pub(super) fn change(t: &dyn DnsTransport, req: &ChangeRequest, now: u64) -> Result<Outcome, String> {
+    pub(super) fn change(
+        t: &dyn DnsTransport,
+        req: &ChangeRequest,
+        now: u64,
+    ) -> Result<Outcome, String> {
         let zone = bare_zone_id(&req.zone_id);
         let body = ChangeBatch {
             action: req.action.route53_verb(),
@@ -445,7 +499,11 @@ mod route53 {
             body: Some(body),
         })?;
         if !resp.is_success() {
-            return Err(format!("route53 ChangeResourceRecordSets failed ({}): {}", resp.status, resp.body.trim()));
+            return Err(format!(
+                "route53 ChangeResourceRecordSets failed ({}): {}",
+                resp.status,
+                resp.body.trim()
+            ));
         }
         Ok(Outcome {
             provider: Provider::Route53,
@@ -455,7 +513,12 @@ mod route53 {
         })
     }
 
-    pub(super) fn list(t: &dyn DnsTransport, zone_id: &str, creds: &Credentials, now: u64) -> Result<Vec<Record>, String> {
+    pub(super) fn list(
+        t: &dyn DnsTransport,
+        zone_id: &str,
+        creds: &Credentials,
+        now: u64,
+    ) -> Result<Vec<Record>, String> {
         let zone = bare_zone_id(zone_id);
         let path = format!("/{API_VERSION}/hostedzone/{zone}/rrset");
         let url = format!("https://{HOST}{path}");
@@ -480,7 +543,11 @@ mod route53 {
             body: None,
         })?;
         if !resp.is_success() {
-            return Err(format!("route53 ListResourceRecordSets failed ({}): {}", resp.status, resp.body.trim()));
+            return Err(format!(
+                "route53 ListResourceRecordSets failed ({}): {}",
+                resp.status,
+                resp.body.trim()
+            ));
         }
         Ok(parse_rrsets(&resp.body))
     }
@@ -512,7 +579,12 @@ mod route53 {
             }
             let ttl = tag(block, "TTL").and_then(|t| t.trim().parse::<i64>().ok());
             let value = tag(block, "Value").unwrap_or_default();
-            out.push(Record { name: xml_unescape(&name), record_type: rtype, value: xml_unescape(&value), ttl });
+            out.push(Record {
+                name: xml_unescape(&name),
+                record_type: rtype,
+                value: xml_unescape(&value),
+                ttl,
+            });
         }
         out
     }
@@ -562,7 +634,11 @@ impl std::fmt::Display for ChangeBatch<'_> {
         write!(f, "<Name>{}</Name>", XmlText(self.name))?;
         write!(f, "<Type>{}</Type>", self.rtype)?;
         write!(f, "<TTL>{}</TTL>", self.ttl)?;
-        write!(f, "<ResourceRecords><ResourceRecord><Value>{}</Value></ResourceRecord></ResourceRecords>", XmlText(self.value))?;
+        write!(
+            f,
+            "<ResourceRecords><ResourceRecord><Value>{}</Value></ResourceRecord></ResourceRecords>",
+            XmlText(self.value)
+        )?;
         write!(f, "</ResourceRecordSet>")?;
         write!(f, "</Change></Changes></ChangeBatch>")?;
         write!(f, "</ChangeResourceRecordSetsRequest>")
@@ -619,10 +695,21 @@ mod cloudflare {
                 })
                 .to_string();
                 let (method, url) = match &existing {
-                    Some(id) => (Method::Put, format!("{API}/zones/{}/dns_records/{id}", req.zone_id)),
-                    None => (Method::Post, format!("{API}/zones/{}/dns_records", req.zone_id)),
+                    Some(id) => (
+                        Method::Put,
+                        format!("{API}/zones/{}/dns_records/{id}", req.zone_id),
+                    ),
+                    None => (
+                        Method::Post,
+                        format!("{API}/zones/{}/dns_records", req.zone_id),
+                    ),
                 };
-                let resp = t.send(&HttpRequest { method, url, headers: auth(token), body: Some(payload) })?;
+                let resp = t.send(&HttpRequest {
+                    method,
+                    url,
+                    headers: auth(token),
+                    body: Some(payload),
+                })?;
                 check_cf(&resp, "upsert dns_record")?;
             }
             Action::Delete => {
@@ -642,7 +729,11 @@ mod cloudflare {
         Ok(outcome(req))
     }
 
-    pub(super) fn list(t: &dyn DnsTransport, zone_id: &str, creds: &Credentials) -> Result<Vec<Record>, String> {
+    pub(super) fn list(
+        t: &dyn DnsTransport,
+        zone_id: &str,
+        creds: &Credentials,
+    ) -> Result<Vec<Record>, String> {
         let token = cred_required(creds.cloudflare_token(), "api-token")?;
         let resp = t.send(&HttpRequest {
             method: Method::Get,
@@ -655,9 +746,21 @@ mod cloudflare {
         if let Some(arr) = json.get("result").and_then(|v| v.as_array()) {
             for r in arr {
                 out.push(Record {
-                    name: r.get("name").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-                    record_type: r.get("type").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-                    value: r.get("content").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+                    name: r
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                    record_type: r
+                        .get("type")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                    value: r
+                        .get("content")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
                     ttl: r.get("ttl").and_then(serde_json::Value::as_i64),
                 });
             }
@@ -674,7 +777,10 @@ mod cloudflare {
     ) -> Result<Option<String>, String> {
         let resp = t.send(&HttpRequest {
             method: Method::Get,
-            url: format!("{API}/zones/{zone_id}/dns_records?type={}&name={name}", rtype.as_str()),
+            url: format!(
+                "{API}/zones/{zone_id}/dns_records?type={}&name={name}",
+                rtype.as_str()
+            ),
             headers: auth(token),
             body: None,
         })?;
@@ -700,9 +806,17 @@ mod cloudflare {
     fn check_cf(resp: &HttpResponse, what: &str) -> Result<serde_json::Value, String> {
         let json: serde_json::Value = serde_json::from_str(&resp.body)
             .map_err(|e| format!("cloudflare {what}: response not JSON ({e})"))?;
-        if !resp.is_success() || json.get("success").and_then(serde_json::Value::as_bool) != Some(true) {
-            let errs = json.get("errors").map(ToString::to_string).unwrap_or_default();
-            return Err(format!("cloudflare {what} failed ({}): {errs}", resp.status));
+        if !resp.is_success()
+            || json.get("success").and_then(serde_json::Value::as_bool) != Some(true)
+        {
+            let errs = json
+                .get("errors")
+                .map(ToString::to_string)
+                .unwrap_or_default();
+            return Err(format!(
+                "cloudflare {what} failed ({}): {errs}",
+                resp.status
+            ));
         }
         Ok(json)
     }
@@ -769,16 +883,30 @@ impl Sigv4<'_> {
         }
         signed.sort_by(|a, b| a.0.cmp(&b.0));
 
-        let canonical_headers: String =
-            signed.iter().map(|(k, v)| format!("{}:{}\n", k, v.trim())).collect();
-        let signed_headers = signed.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>().join(";");
+        let canonical_headers: String = signed
+            .iter()
+            .map(|(k, v)| format!("{}:{}\n", k, v.trim()))
+            .collect();
+        let signed_headers = signed
+            .iter()
+            .map(|(k, _)| k.as_str())
+            .collect::<Vec<_>>()
+            .join(";");
 
         let canonical_request = format!(
             "{}\n{}\n{}\n{}\n{}\n{}",
-            self.method, self.canonical_uri, self.canonical_query, canonical_headers, signed_headers, payload_hash
+            self.method,
+            self.canonical_uri,
+            self.canonical_query,
+            canonical_headers,
+            signed_headers,
+            payload_hash
         );
 
-        let scope = format!("{}/{}/{}/aws4_request", self.amz.ymd, self.region, self.service);
+        let scope = format!(
+            "{}/{}/{}/aws4_request",
+            self.amz.ymd, self.region, self.service
+        );
         let string_to_sign = format!(
             "AWS4-HMAC-SHA256\n{}\n{}\n{}",
             self.amz.iso,
@@ -797,7 +925,10 @@ impl Sigv4<'_> {
     }
 
     fn signing_key(&self) -> Vec<u8> {
-        let k_date = hmac(format!("AWS4{}", self.secret_key).as_bytes(), self.amz.ymd.as_bytes());
+        let k_date = hmac(
+            format!("AWS4{}", self.secret_key).as_bytes(),
+            self.amz.ymd.as_bytes(),
+        );
         let k_region = hmac(&k_date, self.region.as_bytes());
         let k_service = hmac(&k_region, self.service.as_bytes());
         hmac(&k_service, b"aws4_request")
@@ -893,7 +1024,11 @@ impl<'a> Kwargs<'a> {
                 other => {
                     return Err(EvalError::native_fn(
                         fn_name,
-                        format!("argument {} must be a keyword like :provider, got {}", i + 1, other.type_name()),
+                        format!(
+                            "argument {} must be a keyword like :provider, got {}",
+                            i + 1,
+                            other.type_name()
+                        ),
                         sp,
                     ))
                 }
@@ -918,8 +1053,9 @@ impl<'a> Kwargs<'a> {
         let s = as_word(v).ok_or_else(|| {
             EvalError::native_fn(fn_name, ":record-type must be a keyword/string", sp)
         })?;
-        RecordType::from_keyword(s)
-            .ok_or_else(|| EvalError::native_fn(fn_name, format!("unsupported :record-type '{s}'"), sp))
+        RecordType::from_keyword(s).ok_or_else(|| {
+            EvalError::native_fn(fn_name, format!("unsupported :record-type '{s}'"), sp)
+        })
     }
 
     fn credentials(&self, fn_name: &str, sp: tatara_lisp::Span) -> Result<Credentials, EvalError> {
@@ -928,8 +1064,10 @@ impl<'a> Kwargs<'a> {
             Value::Map(m) => {
                 let mut map = HashMap::new();
                 for (k, val) in m.iter() {
-                    if let (Value::Str(ks) | Value::Symbol(ks) | Value::Keyword(ks), Value::Str(vs)) =
-                        (k.to_value(), val)
+                    if let (
+                        Value::Str(ks) | Value::Symbol(ks) | Value::Keyword(ks),
+                        Value::Str(vs),
+                    ) = (k.to_value(), val)
                     {
                         map.insert(ks.as_ref().to_string(), vs.as_ref().to_string());
                     }
@@ -945,14 +1083,24 @@ impl<'a> Kwargs<'a> {
         }
     }
 
-    fn want(&self, key: &str, fn_name: &str, sp: tatara_lisp::Span) -> Result<&'a Value, EvalError> {
+    fn want(
+        &self,
+        key: &str,
+        fn_name: &str,
+        sp: tatara_lisp::Span,
+    ) -> Result<&'a Value, EvalError> {
         self.map
             .get(key)
             .copied()
             .ok_or_else(|| EvalError::native_fn(fn_name, format!("missing required :{key}"), sp))
     }
 
-    fn want_str(&self, key: &str, fn_name: &str, sp: tatara_lisp::Span) -> Result<String, EvalError> {
+    fn want_str(
+        &self,
+        key: &str,
+        fn_name: &str,
+        sp: tatara_lisp::Span,
+    ) -> Result<String, EvalError> {
         match self.want(key, fn_name, sp)? {
             Value::Str(s) | Value::Symbol(s) | Value::Keyword(s) => Ok(s.as_ref().to_string()),
             other => Err(EvalError::native_fn(
@@ -1053,10 +1201,16 @@ mod tests {
             access_key: "AKIDEXAMPLE",
             secret_key: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
             session_token: None,
-            amz: AmzDate { ymd: "20150830".into(), iso: "20150830T123600Z".into() },
+            amz: AmzDate {
+                ymd: "20150830".into(),
+                iso: "20150830T123600Z".into(),
+            },
         };
         let (authz, signature) = sig.compute();
-        assert_eq!(signature, "5fa00fa31553b73ebf1942676e86291e8372ff2a2260956d9b8aae1d763fbf31");
+        assert_eq!(
+            signature,
+            "5fa00fa31553b73ebf1942676e86291e8372ff2a2260956d9b8aae1d763fbf31"
+        );
         assert_eq!(
             authz,
             "AWS4-HMAC-SHA256 \
@@ -1082,10 +1236,16 @@ mod tests {
             access_key: "AKIDEXAMPLE",
             secret_key: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
             session_token: None,
-            amz: AmzDate { ymd: "20150830".into(), iso: "20150830T123600Z".into() },
+            amz: AmzDate {
+                ymd: "20150830".into(),
+                iso: "20150830T123600Z".into(),
+            },
         };
         let (_authz, signature) = sig.compute();
-        assert_eq!(signature, "27c5bd71813cc981dab5360ffe92bb03008c96db0ece56c2a3b9acea5e19922a");
+        assert_eq!(
+            signature,
+            "27c5bd71813cc981dab5360ffe92bb03008c96db0ece56c2a3b9acea5e19922a"
+        );
     }
 
     #[test]
@@ -1101,12 +1261,19 @@ mod tests {
             access_key: "AKID",
             secret_key: "SECRET",
             session_token: Some("FwoTOKEN=="),
-            amz: AmzDate { ymd: "20260524".into(), iso: "20260524T000000Z".into() },
+            amz: AmzDate {
+                ymd: "20260524".into(),
+                iso: "20260524T000000Z".into(),
+            },
         };
         let headers = sig.signed_headers();
-        assert!(headers.iter().any(|(k, v)| k == "x-amz-security-token" && v == "FwoTOKEN=="));
+        assert!(headers
+            .iter()
+            .any(|(k, v)| k == "x-amz-security-token" && v == "FwoTOKEN=="));
         let authz = headers.iter().find(|(k, _)| k == "authorization").unwrap();
-        assert!(authz.1.contains("SignedHeaders=host;x-amz-date;x-amz-security-token"));
+        assert!(authz
+            .1
+            .contains("SignedHeaders=host;x-amz-date;x-amz-security-token"));
     }
 
     // ── Route53 typed XML ────────────────────────────────────────────
@@ -1131,8 +1298,14 @@ mod tests {
 
     #[test]
     fn change_batch_xml_escapes_values() {
-        let xml = ChangeBatch { action: "UPSERT", name: "a&b", rtype: "TXT", ttl: 300, value: "x<y>\"z\"" }
-            .to_string();
+        let xml = ChangeBatch {
+            action: "UPSERT",
+            name: "a&b",
+            rtype: "TXT",
+            ttl: 300,
+            value: "x<y>\"z\"",
+        }
+        .to_string();
         assert!(xml.contains("<Name>a&amp;b</Name>"));
         assert!(xml.contains("&lt;y&gt;"));
         assert!(xml.contains("&quot;z&quot;"));
@@ -1149,7 +1322,14 @@ mod tests {
         fn with(responses: Vec<(u16, &str)>) -> Self {
             Self {
                 responses: RefCell::new(
-                    responses.into_iter().rev().map(|(s, b)| HttpResponse { status: s, body: b.to_string() }).collect(),
+                    responses
+                        .into_iter()
+                        .rev()
+                        .map(|(s, b)| HttpResponse {
+                            status: s,
+                            body: b.to_string(),
+                        })
+                        .collect(),
                 ),
                 seen: RefCell::new(Vec::new()),
             }
@@ -1157,17 +1337,26 @@ mod tests {
     }
     impl DnsTransport for MockTransport {
         fn send(&self, req: &HttpRequest) -> Result<HttpResponse, String> {
-            self.seen
+            self.seen.borrow_mut().push((
+                req.method,
+                req.url.clone(),
+                req.headers.clone(),
+                req.body.clone(),
+            ));
+            self.responses
                 .borrow_mut()
-                .push((req.method, req.url.clone(), req.headers.clone(), req.body.clone()));
-            self.responses.borrow_mut().pop().ok_or_else(|| "mock: no response queued".to_string())
+                .pop()
+                .ok_or_else(|| "mock: no response queued".to_string())
         }
     }
 
     fn route53_creds() -> Credentials {
         let mut map = HashMap::new();
         map.insert("access-key-id".to_string(), "AKIDEXAMPLE".to_string());
-        map.insert("secret-access-key".to_string(), "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY".to_string());
+        map.insert(
+            "secret-access-key".to_string(),
+            "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY".to_string(),
+        );
         Credentials { map }
     }
 
@@ -1193,15 +1382,23 @@ mod tests {
         let (method, url, headers, body) = &seen[0];
         assert_eq!(*method, Method::Post);
         // Leading /hostedzone/ stripped from the operator-pasted zone id.
-        assert_eq!(url, "https://route53.amazonaws.com/2013-04-01/hostedzone/Z3M3LMPEXAMPLE/rrset/");
-        assert!(headers.iter().any(|(k, v)| k == "authorization" && v.starts_with("AWS4-HMAC-SHA256 ")));
+        assert_eq!(
+            url,
+            "https://route53.amazonaws.com/2013-04-01/hostedzone/Z3M3LMPEXAMPLE/rrset/"
+        );
+        assert!(headers
+            .iter()
+            .any(|(k, v)| k == "authorization" && v.starts_with("AWS4-HMAC-SHA256 ")));
         assert!(headers.iter().any(|(k, _)| k == "x-amz-date"));
         assert!(body.as_ref().unwrap().contains("<Action>UPSERT</Action>"));
     }
 
     #[test]
     fn route53_upsert_surfaces_api_error() {
-        let t = MockTransport::with(vec![(403, "<ErrorResponse><Error><Code>AccessDenied</Code></Error></ErrorResponse>")]);
+        let t = MockTransport::with(vec![(
+            403,
+            "<ErrorResponse><Error><Code>AccessDenied</Code></Error></ErrorResponse>",
+        )]);
         let req = ChangeRequest {
             provider: Provider::Route53,
             zone_id: "Z1".into(),
@@ -1215,7 +1412,10 @@ mod tests {
         };
         let err = route53::change(&t, &req, 0).unwrap_err();
         assert!(err.contains("403"), "expected status in error: {err}");
-        assert!(err.contains("AccessDenied"), "expected body in error: {err}");
+        assert!(
+            err.contains("AccessDenied"),
+            "expected body in error: {err}"
+        );
     }
 
     #[test]
@@ -1261,14 +1461,23 @@ mod tests {
         assert_eq!(seen.len(), 2);
         assert_eq!(seen[0].0, Method::Get); // lookup
         assert_eq!(seen[1].0, Method::Post); // create (no existing id)
-        assert!(seen[0].2.iter().any(|(k, v)| k == "authorization" && v == "Bearer cf-token"));
+        assert!(seen[0]
+            .2
+            .iter()
+            .any(|(k, v)| k == "authorization" && v == "Bearer cf-token"));
     }
 
     #[test]
     fn cloudflare_upsert_updates_when_present() {
         let t = MockTransport::with(vec![
-            (200, r#"{"success":true,"errors":[],"result":[{"id":"abc123"}]}"#),
-            (200, r#"{"success":true,"errors":[],"result":{"id":"abc123"}}"#),
+            (
+                200,
+                r#"{"success":true,"errors":[],"result":[{"id":"abc123"}]}"#,
+            ),
+            (
+                200,
+                r#"{"success":true,"errors":[],"result":{"id":"abc123"}}"#,
+            ),
         ]);
         let mut map = HashMap::new();
         map.insert("token".to_string(), "cf-token".to_string());

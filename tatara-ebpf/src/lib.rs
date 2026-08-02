@@ -61,26 +61,52 @@ impl tatara_lisp::DocumentedDomain for BpfProgramSpec {
         "One BPF program — kind (XDP/TC/kprobe/...), attach point, source, license. \
          Loaded via aya at runtime; built hermetically through substrate's ebpf.nix.";
     const FIELD_DOCS: &'static [(&'static str, &'static str)] = &[
-        ("name", "Program name — the symbol exported in the BPF object."),
-        ("kind", "BPF program kind. Drives the aya `#[xdp]` etc. attribute."),
-        ("attach", "Where the program attaches (interface, kernel symbol, cgroup, ...)"),
-        ("source", "Path to the program body — `*.rs`, `*.bpf.o`, or `*.tlisp:fn`."),
-        ("license", "SPDX license string. GPL required for most helpers."),
-        ("pin_path", "Optional bpffs pin path so the program survives the loader."),
+        (
+            "name",
+            "Program name — the symbol exported in the BPF object.",
+        ),
+        (
+            "kind",
+            "BPF program kind. Drives the aya `#[xdp]` etc. attribute.",
+        ),
+        (
+            "attach",
+            "Where the program attaches (interface, kernel symbol, cgroup, ...)",
+        ),
+        (
+            "source",
+            "Path to the program body — `*.rs`, `*.bpf.o`, or `*.tlisp:fn`.",
+        ),
+        (
+            "license",
+            "SPDX license string. GPL required for most helpers.",
+        ),
+        (
+            "pin_path",
+            "Optional bpffs pin path so the program survives the loader.",
+        ),
         ("uses_maps", "BPF maps this program reads or writes."),
     ];
 }
 
 impl tatara_lisp::DocumentedDomain for BpfMapSpec {
-    const DOCSTRING: &'static str =
-        "One BPF map — hash / array / per-cpu / ring-buf / etc. \
+    const DOCSTRING: &'static str = "One BPF map — hash / array / per-cpu / ring-buf / etc. \
          The kernel-↔-userspace data plane for BPF programs.";
     const FIELD_DOCS: &'static [(&'static str, &'static str)] = &[
         ("name", "Map name."),
-        ("kind", "Map kind — drives access pattern (hash/array/perf-event/...)"),
-        ("key_size", "Key size in bytes (0 for keyless maps like RingBuf)."),
+        (
+            "kind",
+            "Map kind — drives access pattern (hash/array/perf-event/...)",
+        ),
+        (
+            "key_size",
+            "Key size in bytes (0 for keyless maps like RingBuf).",
+        ),
         ("value_size", "Value size in bytes."),
-        ("max_entries", "Capacity. For RingBuf, total bytes (page-rounded)."),
+        (
+            "max_entries",
+            "Capacity. For RingBuf, total bytes (page-rounded).",
+        ),
         ("pin_path", "Optional bpffs pin path."),
     ];
 }
@@ -92,7 +118,10 @@ impl tatara_lisp::DocumentedDomain for BpfPolicySpec {
     const FIELD_DOCS: &'static [(&'static str, &'static str)] = &[
         ("name", "Policy name."),
         ("description", "Human-readable description."),
-        ("programs", "Names of `defbpf-program`s composed in this policy."),
+        (
+            "programs",
+            "Names of `defbpf-program`s composed in this policy.",
+        ),
         ("maps", "Names of `defbpf-map`s composed in this policy."),
     ];
 }
@@ -137,10 +166,7 @@ impl tatara_lisp::ValidatedDomain for BpfProgramSpec {
         let obj = value
             .as_object()
             .ok_or_else(|| "expected JSON object".to_string())?;
-        let license = obj
-            .get("license")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let license = obj.get("license").and_then(|v| v.as_str()).unwrap_or("");
         let uses_maps = obj
             .get("uses_maps")
             .and_then(|v| v.as_array())
@@ -194,9 +220,9 @@ impl tatara_lisp::CompliantDomain for BpfProgramSpec {
 impl tatara_lisp::CompliantDomain for BpfPolicySpec {
     const FRAMEWORKS: &'static [&'static str] = &["NIST 800-53", "CIS"];
     const CONTROLS: &'static [&'static str] = &[
-        "NIST SC-7",   // boundary protection
-        "NIST SI-3",   // malicious code protection (when used as filter)
-        "CIS 5.1",     // network access controls
+        "NIST SC-7", // boundary protection
+        "NIST SI-3", // malicious code protection (when used as filter)
+        "CIS 5.1",   // network access controls
     ];
 }
 

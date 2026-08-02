@@ -96,8 +96,8 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
                 // this ledger is committed to a public repo. Recording
                 // `/Users/<someone>/…` would put an operator's identity in
                 // crates.io output.
-                let arvore = flag_value(args, "--arvore")?
-                    .unwrap_or_else(|| tree.display().to_string());
+                let arvore =
+                    flag_value(args, "--arvore")?.unwrap_or_else(|| tree.display().to_string());
                 let ledger = Reservas {
                     medido_em: measured_on,
                     arvore,

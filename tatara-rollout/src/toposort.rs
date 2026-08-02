@@ -44,11 +44,7 @@ pub fn ordered_apply(plan: &Plan) -> Result<Vec<Change>, ToposortError> {
     }
 
     let order = topo_sort(&keywords)?;
-    let kw_index: HashMap<&str, usize> = order
-        .iter()
-        .enumerate()
-        .map(|(i, k)| (*k, i))
-        .collect();
+    let kw_index: HashMap<&str, usize> = order.iter().enumerate().map(|(i, k)| (*k, i)).collect();
 
     // Reverse-topo for removes — torn down dependent-first.
     let mut removes = plan.removes.clone();
@@ -92,8 +88,7 @@ fn topo_sort<'a>(keywords: &'a [&str]) -> Result<Vec<&'a str>, ToposortError> {
 
     // Kahn's algorithm — repeatedly remove nodes with no
     // unsatisfied deps. Cycle iff some nodes remain.
-    let mut in_degree: HashMap<&str, usize> =
-        keywords.iter().map(|k| (*k, 0)).collect();
+    let mut in_degree: HashMap<&str, usize> = keywords.iter().map(|k| (*k, 0)).collect();
     for (_kw, edges) in &deps {
         for &dep in edges {
             *in_degree.entry(dep).or_insert(0) += 0; // ensure exists

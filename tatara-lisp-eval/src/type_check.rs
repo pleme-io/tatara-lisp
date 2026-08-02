@@ -133,10 +133,7 @@ pub fn check_value(value: &Value, ty: &Value, span: Span) -> Result<()> {
                 tag: Arc::from("type-mismatch"),
                 message: Arc::from(msg),
                 data: vec![
-                    (
-                        Value::Keyword(Arc::from("expected")),
-                        ty.clone(),
-                    ),
+                    (Value::Keyword(Arc::from("expected")), ty.clone()),
                     (
                         Value::Keyword(Arc::from("got")),
                         Value::Keyword(Arc::from(actual)),
@@ -292,8 +289,8 @@ pub fn is_type_keyword(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Interpreter;
     use crate::install_full_stdlib_with;
+    use crate::Interpreter;
     use tatara_lisp::read_spanned;
 
     struct NoHost;
@@ -435,11 +432,9 @@ mod tests {
 
     #[test]
     fn defn_typed_passes_when_args_match() {
-        let v = run(
-            "(defn-typed greet ((name :string) (count :int)) -> :string
+        let v = run("(defn-typed greet ((name :string) (count :int)) -> :string
                (string-append \"hi \" name))
-             (greet \"luis\" 5)",
-        );
+             (greet \"luis\" 5)");
         assert_eq!(format!("{v}"), "\"hi luis\"");
     }
 

@@ -103,8 +103,14 @@ fn derive_emits_the_display_companion_when_flagged() {
 #[test]
 fn derive_honours_the_operator_pinned_set_label() {
     let rejected = <MacroDefHead as ClosedSet>::parse_label("defmacroo").unwrap_err();
-    assert_eq!(rejected.to_string(), "unknown macro definition head: defmacroo");
-    assert_eq!(<MacroDefHead as ClosedSet>::SET_LABEL, "macro definition head");
+    assert_eq!(
+        rejected.to_string(),
+        "unknown macro definition head: defmacroo"
+    );
+    assert_eq!(
+        <MacroDefHead as ClosedSet>::SET_LABEL,
+        "macro definition head"
+    );
 }
 
 #[test]

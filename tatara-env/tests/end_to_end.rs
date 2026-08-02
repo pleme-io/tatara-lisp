@@ -60,10 +60,7 @@ fn compiles_a_multi_domain_program_into_one_env() {
     let forms = read(SAMPLE_PROGRAM).expect("reader parses sample program");
     let env = compile_into_env(&forms).expect("compile succeeds");
     assert_eq!(env.spec.name, "production");
-    assert_eq!(
-        env.spec.imports,
-        vec!["tatara-gateway-api", "tatara-ebpf"]
-    );
+    assert_eq!(env.spec.imports, vec!["tatara-gateway-api", "tatara-ebpf"]);
 
     // Five typed resources collected: gateway, map, program, policy.
     // (4 distinct + the env metadata isn't a resource.)
@@ -84,7 +81,12 @@ fn compiles_a_multi_domain_program_into_one_env() {
     // Keywords appear in declaration order (deterministic).
     assert_eq!(
         env.keywords(),
-        vec!["defgateway", "defbpf-map", "defbpf-program", "defbpf-policy"]
+        vec![
+            "defgateway",
+            "defbpf-map",
+            "defbpf-program",
+            "defbpf-policy"
+        ]
     );
 }
 
@@ -196,7 +198,9 @@ fn layer_7_validator_catches_xdp_without_iface() {
     let env = compile_into_env(&forms).unwrap();
     let errors = validate(&env).unwrap_err();
     assert!(
-        errors.iter().any(|e| format!("{e}").contains("requires `:attach")),
+        errors
+            .iter()
+            .any(|e| format!("{e}").contains("requires `:attach")),
         "expected layer-7 missing-iface error, got {errors:?}"
     );
 }
@@ -225,8 +229,5 @@ fn missing_defenv_errors() {
     "#;
     let forms = read(no_env).unwrap();
     let err = compile_into_env(&forms).unwrap_err();
-    assert!(matches!(
-        err,
-        tatara_env::CompileError::MissingDefenv
-    ));
+    assert!(matches!(err, tatara_env::CompileError::MissingDefenv));
 }

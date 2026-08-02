@@ -43,7 +43,8 @@ pub fn fingerprint_resource(r: &Resource) -> ResourceFingerprint {
     let blake3 = match tatara_lisp::domain::lookup_attest(&r.keyword) {
         Some(meta) => tatara_lisp::domain::attest_value(meta.namespace, &r.value),
         None => {
-            let json = serde_json::to_string(&r.value).unwrap_or_else(|_| "<unserializable>".into());
+            let json =
+                serde_json::to_string(&r.value).unwrap_or_else(|_| "<unserializable>".into());
             blake3::hash(json.as_bytes()).to_hex().to_string()
         }
     };

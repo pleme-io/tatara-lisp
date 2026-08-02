@@ -51,20 +51,17 @@ fn registering_gateway_api_domain_unlocks_defgateway_form() {
     let head = list[0].as_symbol().expect("head is a symbol");
     assert_eq!(head, "defgateway");
 
-    let handler = tatara_lisp::domain::lookup(head)
-        .expect("`defgateway` is registered after register()");
+    let handler =
+        tatara_lisp::domain::lookup(head).expect("`defgateway` is registered after register()");
     let value = (handler.compile)(&list[1..]).expect("compile succeeds");
 
     // Step 5: assert the typed value round-tripped correctly. The
     // forge generated `gateway_class_name: String` (required) — we
     // should see it in the JSON. Optional fields default to nothing
     // (or an empty list for `listeners` since we passed `(list)`).
-    let obj = value
-        .as_object()
-        .expect("compile returns a JSON object");
+    let obj = value.as_object().expect("compile returns a JSON object");
     assert_eq!(
-        obj.get("gateway_class_name")
-            .and_then(|v| v.as_str()),
+        obj.get("gateway_class_name").and_then(|v| v.as_str()),
         Some("nginx"),
         "required field round-trips"
     );

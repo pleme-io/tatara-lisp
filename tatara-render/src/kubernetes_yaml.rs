@@ -119,9 +119,7 @@ impl KubernetesYaml {
         let name = string_field(&r.value, meta.name_field)
             .or_else(|| string_field(&r.value, "name"))
             .map(str::to_string)
-            .unwrap_or_else(|| {
-                format!("{}-{}", env.spec.name, meta.kind.to_lowercase())
-            });
+            .unwrap_or_else(|| format!("{}-{}", env.spec.name, meta.kind.to_lowercase()));
         let manifest = json!({
             "apiVersion": meta.api_version,
             "kind": meta.kind,

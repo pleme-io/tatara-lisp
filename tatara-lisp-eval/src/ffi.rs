@@ -233,6 +233,29 @@ pub(crate) struct FnEntry<H> {
     pub callable: FnImpl<H>,
 }
 
+// Hand-written rather than derived: `#[derive(Clone)]` on a generic struct
+// adds a `H: Clone` bound, and `H` is the embedder's host type, which has no
+// reason to be cloneable. Nothing here actually holds an `H` — the callables
+// are `Arc<dyn …>` — so the bound would be a derive artefact that blocks every
+// real embedder from forking an interpreter.
+impl<H> Clone for FnEntry<H> {
+    fn clone(&self) -> Self {
+        Self {
+            name: Arc::clone(&self.name),
+            arity: self.arity,
+            callable: self.callable.clone(),
+        }
+    }
+}
+
+impl<H> Clone for FnRegistry<H> {
+    fn clone(&self) -> Self {
+        Self {
+            entries: self.entries.clone(),
+        }
+    }
+}
+
 impl<H> Default for FnRegistry<H> {
     fn default() -> Self {
         Self {

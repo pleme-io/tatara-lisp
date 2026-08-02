@@ -38,10 +38,7 @@ use crate::value::Value;
 #[derive(Debug, Error)]
 pub enum CompileError {
     #[error("at {at}: {message}")]
-    Bad {
-        at: Span,
-        message: String,
-    },
+    Bad { at: Span, message: String },
 }
 
 impl CompileError {
@@ -186,11 +183,15 @@ impl<'a> Compiler<'a> {
     }
 
     fn current(&self) -> &FnCompiler {
-        self.fn_stack.last().expect("at least one function on stack")
+        self.fn_stack
+            .last()
+            .expect("at least one function on stack")
     }
 
     fn current_mut(&mut self) -> &mut FnCompiler {
-        self.fn_stack.last_mut().expect("at least one function on stack")
+        self.fn_stack
+            .last_mut()
+            .expect("at least one function on stack")
     }
 
     fn compile_top(&mut self, forms: &[Spanned]) -> Result<(), CompileError> {
@@ -265,10 +266,7 @@ impl<'a> Compiler<'a> {
     /// span so the runtime can dispatch it through the tree-walker.
     fn emit_eval_sexp(&mut self, form: &Spanned) {
         let sexp = form.to_sexp();
-        let idx = self
-            .chunk
-            .consts
-            .push(Value::Sexp(sexp, form.span));
+        let idx = self.chunk.consts.push(Value::Sexp(sexp, form.span));
         self.emit_op(Op::EvalSexp(idx), form.span);
     }
 
@@ -685,9 +683,9 @@ impl<'a> Compiler<'a> {
                 "(let ((name val)...) body...): expected at least 1 binding pair + body",
             ));
         }
-        let bindings = items[1].as_list().ok_or_else(|| {
-            CompileError::bad(items[1].span, "let: bindings must be a list")
-        })?;
+        let bindings = items[1]
+            .as_list()
+            .ok_or_else(|| CompileError::bad(items[1].span, "let: bindings must be a list"))?;
 
         let mut binding_locals: Vec<(Arc<str>, usize)> = Vec::with_capacity(bindings.len());
         for binding in bindings {
@@ -786,9 +784,7 @@ impl<'a> Compiler<'a> {
             sub.scopes[0].bindings.push((name.clone(), i));
         }
         if let Some(name) = &rest {
-            sub.scopes[0]
-                .bindings
-                .push((name.clone(), params.len()));
+            sub.scopes[0].bindings.push((name.clone(), params.len()));
         }
         self.fn_stack.push(sub);
 
@@ -828,9 +824,9 @@ impl<'a> Compiler<'a> {
         if items.len() != 3 {
             return Err(CompileError::bad(span, "(set! name expr): expected 2 args"));
         }
-        let name = items[1].as_symbol().ok_or_else(|| {
-            CompileError::bad(items[1].span, "set!: first arg must be a symbol")
-        })?;
+        let name = items[1]
+            .as_symbol()
+            .ok_or_else(|| CompileError::bad(items[1].span, "set!: first arg must be a symbol"))?;
         self.compile_form(&items[2], false)?;
         self.emit_store_name(name, span);
         self.emit_op(Op::Nil, span);
@@ -925,7 +921,10 @@ impl<'a> Compiler<'a> {
         // Last form must be a (catch ...) clause.
         let catch_form = items.last().unwrap();
         let catch_list = catch_form.as_list().ok_or_else(|| {
-            CompileError::bad(catch_form.span, "try: last form must be a (catch ...) clause")
+            CompileError::bad(
+                catch_form.span,
+                "try: last form must be a (catch ...) clause",
+            )
         })?;
         if catch_list.is_empty() || catch_list[0].as_symbol() != Some("catch") {
             return Err(CompileError::bad(
@@ -1017,10 +1016,7 @@ impl<'a> Compiler<'a> {
     fn patch_push_handler(&mut self, ip: usize, target: usize) {
         let f = self.current_mut();
         let op = match &f.ops[ip] {
-            Op::PushHandler {
-                error_local,
-                ..
-            } => Op::PushHandler {
+            Op::PushHandler { error_local, .. } => Op::PushHandler {
                 catch_ip: target,
                 error_local: *error_local,
             },
@@ -1193,10 +1189,7 @@ mod tests {
         let fn_def = &c.fn_table[0];
         assert_eq!(fn_def.captures.len(), 1);
         assert_eq!(&*fn_def.captures[0].0, "x");
-        assert!(matches!(
-            fn_def.captures[0].1,
-            CaptureSource::Local(_)
-        ));
+        assert!(matches!(fn_def.captures[0].1, CaptureSource::Local(_)));
         let has_load_captured = fn_def.ops.iter().any(|o| matches!(o, Op::LoadCaptured(_)));
         assert!(has_load_captured);
     }
@@ -1322,15 +1315,14 @@ mod tests {
 
     /// Does any function in the chunk load a global by this name?
     fn chunk_loads_global(chunk: &Chunk, name: &str) -> bool {
-        let needle = chunk
-            .names
-            .names
-            .iter()
-            .position(|n| &**n == name);
+        let needle = chunk.names.names.iter().position(|n| &**n == name);
         let Some(idx) = needle else {
             return false;
         };
-        let hits = |ops: &[Op]| ops.iter().any(|op| matches!(op, Op::LoadGlobal(i) if *i == idx));
+        let hits = |ops: &[Op]| {
+            ops.iter()
+                .any(|op| matches!(op, Op::LoadGlobal(i) if *i == idx))
+        };
         hits(&chunk.top.ops) || chunk.fn_table.iter().any(|f| hits(&f.ops))
     }
 

@@ -233,7 +233,8 @@ fn is_stale(entry: &std::fs::DirEntry, now: std::time::SystemTime) -> bool {
     let Ok(mtime) = meta.modified() else {
         return false;
     };
-    now.duration_since(mtime).is_ok_and(|age| age >= STALE_AFTER)
+    now.duration_since(mtime)
+        .is_ok_and(|age| age >= STALE_AFTER)
 }
 
 /// Path helper for tests + callers that want to reason about our namespace.
@@ -272,7 +273,10 @@ mod tests {
             assert!(p.is_file());
             p
         };
-        assert!(!path.exists(), "a scratch file must not outlive the interpreter");
+        assert!(
+            !path.exists(),
+            "a scratch file must not outlive the interpreter"
+        );
     }
 
     /// A dir the script filled must still be removable — `remove_dir_all`, not
@@ -286,7 +290,10 @@ mod tests {
             std::fs::write(p.join("nested/deeper/file.txt"), b"content").expect("write");
             p
         };
-        assert!(!path.exists(), "a non-empty scratch dir must still be removed");
+        assert!(
+            !path.exists(),
+            "a non-empty scratch dir must still be removed"
+        );
     }
 
     /// Every entry is cleaned, not just the first — and the registry owns many.
@@ -311,7 +318,10 @@ mod tests {
         let mut r = ScratchRegistry::default();
         let a = r.dir().expect("a");
         let b = r.dir().expect("b");
-        assert_ne!(a, b, "a collision would make one script delete another's scratch");
+        assert_ne!(
+            a, b,
+            "a collision would make one script delete another's scratch"
+        );
         assert_eq!(r.len(), 2);
     }
 
@@ -370,8 +380,14 @@ mod tests {
         let mut b = ScratchRegistry::default();
         let mut seen = std::collections::BTreeSet::new();
         for _ in 0..64 {
-            assert!(seen.insert(a.dir().expect("a")), "collision from registry a");
-            assert!(seen.insert(b.dir().expect("b")), "collision from registry b");
+            assert!(
+                seen.insert(a.dir().expect("a")),
+                "collision from registry a"
+            );
+            assert!(
+                seen.insert(b.dir().expect("b")),
+                "collision from registry b"
+            );
         }
         assert_eq!(seen.len(), 128);
     }
@@ -391,5 +407,4 @@ mod tests {
             "a sibling registry's Drop deleted our live scratch: {p:?}"
         );
     }
-
 }

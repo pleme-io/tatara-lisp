@@ -303,7 +303,22 @@ impl Vm {
             }
         }
         if let Some(q) = self.budget.quantum {
-            if self.slice >= q {
+            // **A slice must always execute at least one instruction.** This
+            // is the scheduler's progress guarantee, and it is arithmetic
+            // rather than obvious, so it is spelled out:
+            //
+            // `charge` runs at the top of the loop, BEFORE the instruction it
+            // accounts for — `slice` therefore counts the instruction *about
+            // to* run, not one already run. Parking at `slice >= q` executed
+            // `q - 1` instructions per slice, which at `q == 1` is none:
+            // charge, park, resume, charge, park, forever, with the process
+            // permanently `Runnable` and the trace empty. Measured — three
+            // processes, 500 rounds, zero instructions.
+            //
+            // `>` accounts for the ordering, and `max(1)` closes the same hole
+            // at `q == 0`, so progress holds for every value the field can
+            // hold rather than for the ones anyone happened to try.
+            if self.slice > q.max(1) {
                 self.slice = 0;
                 return Ok(false);
             }
@@ -489,11 +504,7 @@ impl Vm {
                         self.stack.push(v);
                     } else {
                         let abs = f.locals_base + idx;
-                        let v = self
-                            .stack
-                            .get(abs)
-                            .cloned()
-                            .ok_or(VmError::BadLocal(idx))?;
+                        let v = self.stack.get(abs).cloned().ok_or(VmError::BadLocal(idx))?;
                         self.stack.push(v);
                     }
                 }
@@ -515,22 +526,14 @@ impl Vm {
 
                 Op::LoadCaptured(idx) => {
                     let f = &self.frames[frame_idx];
-                    let cell = f
-                        .captures
-                        .get(idx)
-                        .cloned()
-                        .ok_or(VmError::BadLocal(idx))?;
+                    let cell = f.captures.get(idx).cloned().ok_or(VmError::BadLocal(idx))?;
                     let v = cell.lock().unwrap().clone();
                     self.stack.push(v);
                 }
                 Op::StoreCaptured(idx) => {
                     let v = self.stack.pop().ok_or(VmError::Underflow { ip: 0 })?;
                     let f = &self.frames[frame_idx];
-                    let cell = f
-                        .captures
-                        .get(idx)
-                        .cloned()
-                        .ok_or(VmError::BadLocal(idx))?;
+                    let cell = f.captures.get(idx).cloned().ok_or(VmError::BadLocal(idx))?;
                     *cell.lock().unwrap() = v;
                 }
 
@@ -634,10 +637,7 @@ impl Vm {
                 Op::Return => {
                     let ret = self.stack.pop().ok_or(VmError::Underflow { ip: 0 })?;
                     // Drop locals for this frame.
-                    let f = self
-                        .frames
-                        .pop()
-                        .expect("Return with no active frame");
+                    let f = self.frames.pop().expect("Return with no active frame");
                     self.stack.truncate(f.locals_base);
                     if self.frames.is_empty() {
                         return Ok(Progress::Done(ret));
@@ -787,11 +787,7 @@ impl Vm {
         self.stack.pop().unwrap_or(Value::Nil)
     }
 
-    fn lookup_global<H: 'static>(
-        &self,
-        interp: &Interpreter<H>,
-        name: &str,
-    ) -> Option<Value> {
+    fn lookup_global<H: 'static>(&self, interp: &Interpreter<H>, name: &str) -> Option<Value> {
         interp.lookup_global(name)
     }
 
@@ -958,20 +954,7 @@ fn vm_err_to_value(err: &crate::error::EvalError) -> Value {
     if let User { value, .. } = err {
         return value.clone();
     }
-    let tag: Arc<str> = match err {
-        UnboundSymbol { .. } => Arc::from("unbound-symbol"),
-        ArityMismatch { .. } => Arc::from("arity-mismatch"),
-        TypeMismatch { .. } => Arc::from("type-mismatch"),
-        DivisionByZero { .. } => Arc::from("division-by-zero"),
-        MacroExpansionLimit { .. } => Arc::from("macro-expansion-limit"),
-        NotCallable { .. } => Arc::from("not-callable"),
-        BadSpecialForm { .. } => Arc::from("bad-special-form"),
-        NativeFn { .. } => Arc::from("native-fn"),
-        Reader(_) => Arc::from("reader"),
-        Halted => Arc::from("halted"),
-        NotImplemented(_) => Arc::from("not-implemented"),
-        User { .. } => unreachable!(),
-    };
+    let tag: Arc<str> = Arc::from(err.tag());
     Value::Error(Arc::new(crate::value::ErrorObj {
         tag,
         message: Arc::from(err.short_message()),
@@ -985,9 +968,10 @@ fn vm_runtime_err_to_value(err: &VmError) -> Value {
     let (tag, message): (&str, String) = match err {
         VmError::Underflow { ip } => ("vm-underflow", format!("stack underflow at op {ip}")),
         VmError::Unbound { name, .. } => ("unbound-symbol", format!("unbound symbol `{name}`")),
-        VmError::NotCallable { kind, .. } => {
-            ("not-callable", format!("value of type {kind} is not callable"))
-        }
+        VmError::NotCallable { kind, .. } => (
+            "not-callable",
+            format!("value of type {kind} is not callable"),
+        ),
         VmError::Arity { expected, got, .. } => (
             "arity-mismatch",
             format!("expected {expected} args, got {got}"),
@@ -1102,9 +1086,9 @@ impl std::fmt::Debug for CompiledClosure {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Interpreter;
     use crate::install_full_stdlib_with;
     use crate::vm::compile::compile_program;
+    use crate::Interpreter;
     use tatara_lisp::read_spanned;
 
     struct NoHost;
@@ -1493,16 +1477,22 @@ mod tests {
 
         let mut vm = Vm::new();
         let mut blocks = 0;
-        let mut progress = vm.step(chunk.clone(), &mut interp, &mut host).expect("step");
+        let mut progress = vm
+            .step(chunk.clone(), &mut interp, &mut host)
+            .expect("step");
         loop {
             match progress {
                 Progress::Blocked => {
                     blocks += 1;
                     assert!(blocks < 10, "did not converge");
-                    progress = vm.resume(chunk.clone(), &mut interp, &mut host).expect("resume");
+                    progress = vm
+                        .resume(chunk.clone(), &mut interp, &mut host)
+                        .expect("resume");
                 }
                 Progress::Yielded => {
-                    progress = vm.resume(chunk.clone(), &mut interp, &mut host).expect("resume");
+                    progress = vm
+                        .resume(chunk.clone(), &mut interp, &mut host)
+                        .expect("resume");
                 }
                 Progress::Done(v) => {
                     assert!(matches!(v, Value::Int(42)), "got {v:?}");
@@ -1510,7 +1500,10 @@ mod tests {
                 }
             }
         }
-        assert_eq!(blocks, 2, "the primitive parked twice, so the VM must have blocked twice");
+        assert_eq!(
+            blocks, 2,
+            "the primitive parked twice, so the VM must have blocked twice"
+        );
     }
 
     /// Anti-vacuity for the test above: with nothing to wait for, the same
@@ -1570,7 +1563,9 @@ mod tests {
         install_awaitable_take(&mut interp);
 
         let mut vm = Vm::new();
-        let mut progress = vm.step(chunk.clone(), &mut interp, &mut mail).expect("step");
+        let mut progress = vm
+            .step(chunk.clone(), &mut interp, &mut mail)
+            .expect("step");
         assert!(
             matches!(progress, Progress::Blocked),
             "an empty queue must park, got {progress:?}"
@@ -1622,7 +1617,9 @@ mod tests {
         let mut interp: Interpreter<std::cell::Cell<usize>> = Interpreter::new();
         install_parking_prim(&mut interp);
         let mut vm = Vm::new();
-        let err = vm.run(&chunk, &mut interp, &mut host).expect_err("must deadlock");
+        let err = vm
+            .run(&chunk, &mut interp, &mut host)
+            .expect_err("must deadlock");
         assert!(
             matches!(err, VmError::Deadlocked),
             "expected Deadlocked, got {err:?}"
@@ -1649,14 +1646,17 @@ mod tests {
                     assert!(matches!(v, Value::Int(1142)), "got {v:?}");
                     return;
                 }
-                _ => progress = vm.resume(chunk.clone(), &mut interp, &mut host).expect("resume"),
+                _ => {
+                    progress = vm
+                        .resume(chunk.clone(), &mut interp, &mut host)
+                        .expect("resume")
+                }
             }
         }
         panic!("did not converge: {progress:?}");
     }
 
-    #[test
-]
+    #[test]
     fn depth_exhaustion_is_a_typed_error_independent_of_fuel() {
         let budget = Budget {
             fuel: None,
@@ -1686,7 +1686,10 @@ mod tests {
             budget,
         )
         .expect_err("try/catch must not swallow a budget error");
-        assert!(matches!(err, VmError::BudgetExhausted { .. }), "got {err:?}");
+        assert!(
+            matches!(err, VmError::BudgetExhausted { .. }),
+            "got {err:?}"
+        );
     }
 
     /// Anti-vacuity: an ORDINARY error must still be catchable. If the
@@ -1715,8 +1718,11 @@ mod tests {
     /// embedder with its own supervision is not forced into ours.
     #[test]
     fn an_unbounded_budget_imposes_no_limit() {
-        let v = run_with("(define (loop n) (if (= n 0) 7 (loop (- n 1)))) (loop 100000)", Budget::unbounded())
-            .expect("unbounded must not stop a long tail-recursive run");
+        let v = run_with(
+            "(define (loop n) (if (= n 0) 7 (loop (- n 1)))) (loop 100000)",
+            Budget::unbounded(),
+        )
+        .expect("unbounded must not stop a long tail-recursive run");
         assert!(matches!(v, Value::Int(7)), "got {v:?}");
     }
 
@@ -1732,7 +1738,6 @@ mod tests {
         vm.run(&chunk, &mut interp, &mut ()).expect("run");
         assert!(vm.burned() > 0, "the VM reported doing no work");
     }
-
 
     // ---- preemption: the scheduler mechanism --------------------------
     //
@@ -1751,7 +1756,8 @@ mod tests {
     /// resuming reaches the same answer.
     #[test]
     fn a_long_run_parks_at_the_quantum_and_resumes_to_the_right_answer() {
-        let chunk = compile("(define (loop n acc) (if (= n 0) acc (loop (- n 1) (+ acc 1)))) (loop 200 0)");
+        let chunk =
+            compile("(define (loop n acc) (if (= n 0) acc (loop (- n 1) (+ acc 1)))) (loop 200 0)");
         let mut interp = Interpreter::new();
         crate::install_primitives(&mut interp);
         let mut vm = Vm::with_budget(Budget::preemptive(50));
@@ -1767,7 +1773,10 @@ mod tests {
                 Progress::Done(v) => break v,
             }
         };
-        assert!(parks > 0, "a 200-iteration loop must park under a 50-reduction quantum");
+        assert!(
+            parks > 0,
+            "a 200-iteration loop must park under a 50-reduction quantum"
+        );
         assert!(matches!(answer, Value::Int(200)), "got {answer:?}");
     }
 
@@ -1825,11 +1834,18 @@ mod tests {
             }
         }
         let got: Vec<i64> = fibers.iter().map(|(_, _, d)| d.unwrap()).collect();
-        assert_eq!(got, vec![1, 2, 3], "every fiber must finish with its own answer");
+        assert_eq!(
+            got,
+            vec![1, 2, 3],
+            "every fiber must finish with its own answer"
+        );
 
         // And the SHORT fiber must have finished long before the long one —
         // the point of fairness is that a big job does not block a small one.
-        assert!(rounds > 1, "the workloads should have taken multiple rounds");
+        assert!(
+            rounds > 1,
+            "the workloads should have taken multiple rounds"
+        );
     }
 
     /// Anti-vacuity: with NO quantum the VM must never park. If `step`
@@ -1877,4 +1893,87 @@ mod tests {
         assert_eq!(answers[0], "Int(1830)", "sum 1..60 should be 1830");
     }
 
+    /// **Every quantum makes progress — including the boundary ones.**
+    ///
+    /// `charge` runs before the instruction it accounts for, so parking at
+    /// `slice >= q` executed `q - 1` instructions per slice. At `q == 1` that
+    /// is zero: the VM charged, parked, resumed, charged, parked, forever.
+    /// Found from the scheduler side — three blue processes stayed `Runnable`
+    /// through 500 rounds with an empty trace — not from here, because
+    /// `the_quantum_does_not_change_the_result` samples 7, 50 and 1000 and the
+    /// bug lives only at 1 and 0.
+    ///
+    /// A corpus is only as strong as what is in it, so this one is a *range*
+    /// rather than a sample, and it starts at the value the field can actually
+    /// hold rather than at the smallest anyone thought to write.
+    ///
+    /// The step cap is load-bearing: without it the failure mode under test is
+    /// an infinite loop, which hangs a suite rather than failing it.
+    #[test]
+    fn every_quantum_makes_progress() {
+        // 30 recursive calls; a few hundred instructions. A quantum of 1 needs
+        // one step per instruction, so the cap is generous for a working VM
+        // and unreachable for a starving one.
+        let src = "(define (sum n acc) (if (= n 0) acc (sum (- n 1) (+ acc n)))) (sum 30 0)";
+        const CAP: usize = 100_000;
+
+        for q in 0..=8usize {
+            let chunk = compile(src);
+            let mut interp = Interpreter::new();
+            crate::install_primitives(&mut interp);
+            let mut vm = Vm::with_budget(Budget {
+                quantum: Some(q),
+                ..Budget::default()
+            });
+
+            let mut steps = 0usize;
+            let answer = loop {
+                steps += 1;
+                assert!(
+                    steps <= CAP,
+                    "quantum {q} made no progress in {CAP} steps — a slice that \
+                     executes zero instructions is a livelock, not a small slice"
+                );
+                match vm.step(chunk.clone(), &mut interp, &mut ()).expect("step") {
+                    Progress::Blocked => panic!("no primitive in this test parks"),
+                    Progress::Yielded => {}
+                    Progress::Done(v) => break v,
+                }
+            };
+            assert!(
+                matches!(answer, Value::Int(465)),
+                "quantum {q} gave {answer:?}, not sum 1..30"
+            );
+        }
+    }
+
+    /// And the smallest quantum really does preempt — otherwise
+    /// `every_quantum_makes_progress` could be satisfied by ignoring the
+    /// quantum entirely, which is the other way to make the livelock go away
+    /// and the wrong one.
+    #[test]
+    fn a_quantum_of_one_still_preempts() {
+        let chunk =
+            compile("(define (sum n acc) (if (= n 0) acc (sum (- n 1) (+ acc n)))) (sum 30 0)");
+        let mut interp = Interpreter::new();
+        crate::install_primitives(&mut interp);
+        let mut vm = Vm::with_budget(Budget {
+            quantum: Some(1),
+            ..Budget::default()
+        });
+
+        let mut parks = 0usize;
+        loop {
+            match vm.step(chunk.clone(), &mut interp, &mut ()).expect("step") {
+                Progress::Yielded => parks += 1,
+                Progress::Blocked => panic!("no primitive in this test parks"),
+                Progress::Done(_) => break,
+            }
+            assert!(parks < 100_000, "livelock");
+        }
+        assert!(
+            parks > 50,
+            "a 1-instruction quantum must park constantly, got {parks} parks"
+        );
+    }
 }

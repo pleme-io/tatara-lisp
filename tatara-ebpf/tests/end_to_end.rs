@@ -18,8 +18,8 @@
 
 use std::collections::HashMap;
 use tatara_ebpf::{
-    codegen, register, runtime::BpfRuntime, runtime::SimulatedRuntime, BpfMapSpec,
-    BpfPolicySpec, BpfProgramSpec,
+    codegen, register, runtime::BpfRuntime, runtime::SimulatedRuntime, BpfMapSpec, BpfPolicySpec,
+    BpfProgramSpec,
 };
 use tatara_lisp::read;
 
@@ -76,13 +76,11 @@ fn end_to_end_ebpf_authoring_pipeline() {
     for form in &forms {
         let list = form.as_list().expect("form is a list");
         let head = list[0].as_symbol().expect("head symbol");
-        let handler =
-            tatara_lisp::domain::lookup(head).expect("domain registered for this head");
+        let handler = tatara_lisp::domain::lookup(head).expect("domain registered for this head");
         let value = (handler.compile)(&list[1..]).expect("compile succeeds");
         match head {
             "defbpf-map" => {
-                let m: BpfMapSpec =
-                    serde_json::from_value(value).expect("BpfMapSpec round-trip");
+                let m: BpfMapSpec = serde_json::from_value(value).expect("BpfMapSpec round-trip");
                 maps_by_name.insert(m.name.clone(), m);
             }
             "defbpf-program" => {
@@ -105,7 +103,9 @@ fn end_to_end_ebpf_authoring_pipeline() {
         .expect("policy refs resolve cleanly");
 
     // Codegen — emit aya-compatible Rust for the program.
-    let prog = programs_by_name.get("drop_syn_flood").expect("program present");
+    let prog = programs_by_name
+        .get("drop_syn_flood")
+        .expect("program present");
     assert!(matches!(
         codegen::classify_source(&prog.source).unwrap(),
         codegen::SourceShape::RustFile(_)

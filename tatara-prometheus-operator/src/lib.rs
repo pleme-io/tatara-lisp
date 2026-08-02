@@ -16,58 +16,58 @@ use tatara_lisp_derive::TataraDomain;
 /// * The container ports to scrape.
 /// * Authentication credentials to use.
 /// * Target and metric relabeling.
-/// 
+///
 /// `Prometheus` and `PrometheusAgent` objects select `PodMonitor` objects using label and namespace selectors.
 #[derive(Debug, Clone, Serialize, Deserialize, TataraDomain)]
 #[tatara(keyword = "defpodmonitor")]
 pub struct PodMonitorSpec {
     /// `attachMetadata` defines additional metadata which is added to the
     /// discovered targets.
-    /// 
+    ///
     /// It requires Prometheus >= v2.35.0.
     #[serde(default)]
     pub attach_metadata: Option<PodMonitorAttachMetadata>,
     /// When defined, bodySizeLimit specifies a job level limit on the size
     /// of uncompressed response body that will be accepted by Prometheus.
-    /// 
+    ///
     /// It requires Prometheus >= v2.28.0.
     #[serde(default)]
     pub body_size_limit: Option<String>,
     /// The protocol to use if a scrape returns blank, unparseable, or otherwise invalid Content-Type.
-    /// 
+    ///
     /// It requires Prometheus >= v3.0.0.
     #[serde(default)]
     pub fallback_scrape_protocol: Option<PodMonitorFallbackScrapeProtocolKind>,
     /// The label to use to retrieve the job name from.
     /// `jobLabel` selects the label from the associated Kubernetes `Pod`
     /// object which will be used as the `job` label for all metrics.
-    /// 
+    ///
     /// For example if `jobLabel` is set to `foo` and the Kubernetes `Pod`
     /// object is labeled with `foo: bar`, then Prometheus adds the `job="bar"`
     /// label to all ingested metrics.
-    /// 
+    ///
     /// If the value of this field is empty, the `job` label of the metrics
     /// defaults to the namespace and name of the PodMonitor object (e.g. `<namespace>/<name>`).
     #[serde(default)]
     pub job_label: Option<String>,
     /// Per-scrape limit on the number of targets dropped by relabeling
     /// that will be kept in memory. 0 means no limit.
-    /// 
+    ///
     /// It requires Prometheus >= v2.47.0.
     #[serde(default)]
     pub keep_dropped_targets: Option<i64>,
     /// Per-scrape limit on number of labels that will be accepted for a sample.
-    /// 
+    ///
     /// It requires Prometheus >= v2.27.0.
     #[serde(default)]
     pub label_limit: Option<i64>,
     /// Per-scrape limit on length of labels name that will be accepted for a sample.
-    /// 
+    ///
     /// It requires Prometheus >= v2.27.0.
     #[serde(default)]
     pub label_name_length_limit: Option<i64>,
     /// Per-scrape limit on length of labels value that will be accepted for a sample.
-    /// 
+    ///
     /// It requires Prometheus >= v2.27.0.
     #[serde(default)]
     pub label_value_length_limit: Option<i64>,
@@ -105,9 +105,9 @@ pub struct PodMonitorSpec {
     pub scrape_classic_histograms: Option<bool>,
     /// `scrapeProtocols` defines the protocols to negotiate during a scrape. It tells clients the
     /// protocols supported by Prometheus in order of preference (from most to least preferred).
-    /// 
+    ///
     /// If unset, Prometheus uses its default value.
-    /// 
+    ///
     /// It requires Prometheus >= v2.49.0.
     #[serde(default)]
     pub scrape_protocols: Option<Vec<PodMonitorScrapeProtocolsItemKind>>,
@@ -117,7 +117,7 @@ pub struct PodMonitorSpec {
     /// By default, the selection process relies on relabel configurations to filter the discovered targets.
     /// Alternatively, you can opt in for role selectors, which may offer better efficiency in large clusters.
     /// Which strategy is best for your use case needs to be carefully evaluated.
-    /// 
+    ///
     /// It requires Prometheus >= v2.17.0.
     #[serde(default)]
     pub selector_mechanism: Option<PodMonitorSelectorMechanismKind>,
@@ -132,7 +132,7 @@ pub struct PodMonitorSpec {
 pub struct PodMonitorAttachMetadata {
     /// When set to true, Prometheus attaches node metadata to the discovered
     /// targets.
-    /// 
+    ///
     /// The Prometheus service account must have the `list` and `watch`
     /// permissions on the `Nodes` objects.
     #[serde(default)]
@@ -186,9 +186,9 @@ pub struct PodMonitorPodMetricsEndpointsItemAuthorization {
     #[serde(default)]
     pub credentials: Option<PodMonitorPodMetricsEndpointsItemAuthorizationCredentials>,
     /// Defines the authentication type. The value is case-insensitive.
-    /// 
+    ///
     /// "Basic" is not a supported value.
-    /// 
+    ///
     /// Default: "Bearer"
     #[serde(default)]
     pub r#type: Option<String>,
@@ -305,15 +305,15 @@ pub enum PodMonitorPodMetricsEndpointsItemMetricRelabelingsItemActionKind {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PodMonitorPodMetricsEndpointsItemMetricRelabelingsItem {
     /// Action to perform based on the regex matching.
-    /// 
+    ///
     /// `Uppercase` and `Lowercase` actions require Prometheus >= v2.36.0.
     /// `DropEqual` and `KeepEqual` actions require Prometheus >= v2.41.0.
-    /// 
+    ///
     /// Default: "Replace"
     #[serde(default)]
     pub action: Option<PodMonitorPodMetricsEndpointsItemMetricRelabelingsItemActionKind>,
     /// Modulus to take of the hash of the source label values.
-    /// 
+    ///
     /// Only applicable when the action is `HashMod`.
     #[serde(default)]
     pub modulus: Option<i64>,
@@ -322,7 +322,7 @@ pub struct PodMonitorPodMetricsEndpointsItemMetricRelabelingsItem {
     pub regex: Option<String>,
     /// Replacement value against which a Replace action is performed if the
     /// regular expression matches.
-    /// 
+    ///
     /// Regex capture groups are available.
     #[serde(default)]
     pub replacement: Option<String>,
@@ -335,10 +335,10 @@ pub struct PodMonitorPodMetricsEndpointsItemMetricRelabelingsItem {
     #[serde(default)]
     pub source_labels: Option<Vec<String>>,
     /// Label to which the resulting string is written in a replacement.
-    /// 
+    ///
     /// It is mandatory for `Replace`, `HashMod`, `Lowercase`, `Uppercase`,
     /// `KeepEqual` and `DropEqual` actions.
-    /// 
+    ///
     /// Regex capture groups are available.
     #[serde(default)]
     pub target_label: Option<String>,
@@ -557,12 +557,12 @@ pub struct PodMonitorPodMetricsEndpointsItemOauth2TlsConfig {
     #[serde(default)]
     pub key_secret: Option<PodMonitorPodMetricsEndpointsItemOauth2TlsConfigKeySecret>,
     /// Maximum acceptable TLS version.
-    /// 
+    ///
     /// It requires Prometheus >= v2.41.0.
     #[serde(default)]
     pub max_version: Option<PodMonitorPodMetricsEndpointsItemOauth2TlsConfigMaxVersionKind>,
     /// Minimum acceptable TLS version.
-    /// 
+    ///
     /// It requires Prometheus >= v2.35.0.
     #[serde(default)]
     pub min_version: Option<PodMonitorPodMetricsEndpointsItemOauth2TlsConfigMinVersionKind>,
@@ -586,18 +586,23 @@ pub struct PodMonitorPodMetricsEndpointsItemOauth2 {
     /// `noProxy` is a comma-separated string that can contain IPs, CIDR notation, domain names
     /// that should be excluded from proxying. IP and domain names can
     /// contain port numbers.
-    /// 
+    ///
     /// It requires Prometheus >= v2.43.0 or Alertmanager >= 0.25.0.
     #[serde(default)]
     pub no_proxy: Option<String>,
     /// ProxyConnectHeader optionally specifies headers to send to
     /// proxies during CONNECT requests.
-    /// 
+    ///
     /// It requires Prometheus >= v2.43.0 or Alertmanager >= 0.25.0.
     #[serde(default)]
-    pub proxy_connect_header: Option<std::collections::HashMap<String, Vec<PodMonitorPodMetricsEndpointsItemOauth2ProxyConnectHeaderValueItem>>>,
+    pub proxy_connect_header: Option<
+        std::collections::HashMap<
+            String,
+            Vec<PodMonitorPodMetricsEndpointsItemOauth2ProxyConnectHeaderValueItem>,
+        >,
+    >,
     /// Whether to use the proxy configuration defined by environment variables (HTTP_PROXY, HTTPS_PROXY, and NO_PROXY).
-    /// 
+    ///
     /// It requires Prometheus >= v2.43.0 or Alertmanager >= 0.25.0.
     #[serde(default)]
     pub proxy_from_environment: Option<bool>,
@@ -666,15 +671,15 @@ pub enum PodMonitorPodMetricsEndpointsItemRelabelingsItemActionKind {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PodMonitorPodMetricsEndpointsItemRelabelingsItem {
     /// Action to perform based on the regex matching.
-    /// 
+    ///
     /// `Uppercase` and `Lowercase` actions require Prometheus >= v2.36.0.
     /// `DropEqual` and `KeepEqual` actions require Prometheus >= v2.41.0.
-    /// 
+    ///
     /// Default: "Replace"
     #[serde(default)]
     pub action: Option<PodMonitorPodMetricsEndpointsItemRelabelingsItemActionKind>,
     /// Modulus to take of the hash of the source label values.
-    /// 
+    ///
     /// Only applicable when the action is `HashMod`.
     #[serde(default)]
     pub modulus: Option<i64>,
@@ -683,7 +688,7 @@ pub struct PodMonitorPodMetricsEndpointsItemRelabelingsItem {
     pub regex: Option<String>,
     /// Replacement value against which a Replace action is performed if the
     /// regular expression matches.
-    /// 
+    ///
     /// Regex capture groups are available.
     #[serde(default)]
     pub replacement: Option<String>,
@@ -696,10 +701,10 @@ pub struct PodMonitorPodMetricsEndpointsItemRelabelingsItem {
     #[serde(default)]
     pub source_labels: Option<Vec<String>>,
     /// Label to which the resulting string is written in a replacement.
-    /// 
+    ///
     /// It is mandatory for `Replace`, `HashMod`, `Lowercase`, `Uppercase`,
     /// `KeepEqual` and `DropEqual` actions.
-    /// 
+    ///
     /// Regex capture groups are available.
     #[serde(default)]
     pub target_label: Option<String>,
@@ -852,12 +857,12 @@ pub struct PodMonitorPodMetricsEndpointsItemTlsConfig {
     #[serde(default)]
     pub key_secret: Option<PodMonitorPodMetricsEndpointsItemTlsConfigKeySecret>,
     /// Maximum acceptable TLS version.
-    /// 
+    ///
     /// It requires Prometheus >= v2.41.0.
     #[serde(default)]
     pub max_version: Option<PodMonitorPodMetricsEndpointsItemTlsConfigMaxVersionKind>,
     /// Minimum acceptable TLS version.
-    /// 
+    ///
     /// It requires Prometheus >= v2.35.0.
     #[serde(default)]
     pub min_version: Option<PodMonitorPodMetricsEndpointsItemTlsConfigMinVersionKind>,
@@ -870,20 +875,20 @@ pub struct PodMonitorPodMetricsEndpointsItemTlsConfig {
 pub struct PodMonitorPodMetricsEndpointsItem {
     /// `authorization` configures the Authorization header credentials to use when
     /// scraping the target.
-    /// 
+    ///
     /// Cannot be set at the same time as `basicAuth`, or `oauth2`.
     #[serde(default)]
     pub authorization: Option<PodMonitorPodMetricsEndpointsItemAuthorization>,
     /// `basicAuth` configures the Basic Authentication credentials to use when
     /// scraping the target.
-    /// 
+    ///
     /// Cannot be set at the same time as `authorization`, or `oauth2`.
     #[serde(default)]
     pub basic_auth: Option<PodMonitorPodMetricsEndpointsItemBasicAuth>,
     /// `bearerTokenSecret` specifies a key of a Secret containing the bearer
     /// token for scraping targets. The secret needs to be in the same namespace
     /// as the PodMonitor object and readable by the Prometheus Operator.
-    /// 
+    ///
     /// Deprecated: use `authorization` instead.
     #[serde(default)]
     pub bearer_token_secret: Option<PodMonitorPodMetricsEndpointsItemBearerTokenSecret>,
@@ -892,9 +897,9 @@ pub struct PodMonitorPodMetricsEndpointsItem {
     pub enable_http2: Option<bool>,
     /// When true, the pods which are not running (e.g. either in Failed or
     /// Succeeded state) are dropped during the target discovery.
-    /// 
+    ///
     /// If unset, the filtering is enabled.
-    /// 
+    ///
     /// More info: https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#pod-phase
     #[serde(default)]
     pub filter_running: Option<bool>,
@@ -911,7 +916,7 @@ pub struct PodMonitorPodMetricsEndpointsItem {
     #[serde(default)]
     pub honor_timestamps: Option<bool>,
     /// Interval at which Prometheus scrapes the metrics from the target.
-    /// 
+    ///
     /// If empty, Prometheus uses the global scrape interval.
     #[serde(default)]
     pub interval: Option<String>,
@@ -920,9 +925,9 @@ pub struct PodMonitorPodMetricsEndpointsItem {
     #[serde(default)]
     pub metric_relabelings: Option<Vec<PodMonitorPodMetricsEndpointsItemMetricRelabelingsItem>>,
     /// `oauth2` configures the OAuth2 settings to use when scraping the target.
-    /// 
+    ///
     /// It requires Prometheus >= 2.27.0.
-    /// 
+    ///
     /// Cannot be set at the same time as `authorization`, or `basicAuth`.
     #[serde(default)]
     pub oauth2: Option<PodMonitorPodMetricsEndpointsItemOauth2>,
@@ -930,12 +935,12 @@ pub struct PodMonitorPodMetricsEndpointsItem {
     #[serde(default)]
     pub params: Option<std::collections::HashMap<String, Vec<String>>>,
     /// HTTP path from which to scrape for metrics.
-    /// 
+    ///
     /// If empty, Prometheus uses the default value (e.g. `/metrics`).
     #[serde(default)]
     pub path: Option<String>,
     /// The `Pod` port name which exposes the endpoint.
-    /// 
+    ///
     /// It takes precedence over the `portNumber` and `targetPort` fields.
     #[serde(default)]
     pub port: Option<String>,
@@ -948,31 +953,31 @@ pub struct PodMonitorPodMetricsEndpointsItem {
     pub proxy_url: Option<String>,
     /// `relabelings` configures the relabeling rules to apply the target's
     /// metadata labels.
-    /// 
+    ///
     /// The Operator automatically adds relabelings for a few standard Kubernetes fields.
-    /// 
+    ///
     /// The original scrape job's name is available via the `__tmp_prometheus_job_name` label.
-    /// 
+    ///
     /// More info: https://prometheus.io/docs/prometheus/latest/configuration/configuration/#relabel_config
     #[serde(default)]
     pub relabelings: Option<Vec<PodMonitorPodMetricsEndpointsItemRelabelingsItem>>,
     /// HTTP scheme to use for scraping.
-    /// 
+    ///
     /// `http` and `https` are the expected values unless you rewrite the
     /// `__scheme__` label via relabeling.
-    /// 
+    ///
     /// If empty, Prometheus uses the default value `http`.
     #[serde(default)]
     pub scheme: Option<PodMonitorPodMetricsEndpointsItemSchemeKind>,
     /// Timeout after which Prometheus considers the scrape to be failed.
-    /// 
+    ///
     /// If empty, Prometheus uses the global scrape timeout unless it is less
     /// than the target's scrape interval value in which the latter is used.
     #[serde(default)]
     pub scrape_timeout: Option<String>,
     /// Name or number of the target port of the `Pod` object behind the Service, the
     /// port must be specified with container port property.
-    /// 
+    ///
     /// Deprecated: use 'port' or 'portNumber' instead.
     #[serde(default)]
     pub target_port: Option<serde_json::Value>,
@@ -982,7 +987,7 @@ pub struct PodMonitorPodMetricsEndpointsItem {
     /// `trackTimestampsStaleness` defines whether Prometheus tracks staleness of
     /// the metrics that have an explicit timestamp present in scraped data.
     /// Has no effect if `honorTimestamps` is false.
-    /// 
+    ///
     /// It requires Prometheus >= v2.48.0.
     #[serde(default)]
     pub track_timestamps_staleness: Option<bool>,
@@ -1036,7 +1041,6 @@ pub enum PodMonitorSelectorMechanismKind {
     #[serde(rename = "RoleSelector")]
     RoleSelector,
 }
-
 
 // ── Render metadata (consumed by tatara-render) ──────────
 

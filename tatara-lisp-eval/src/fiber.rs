@@ -37,7 +37,7 @@ use crate::error::{EvalError, Result};
 use crate::eval::Interpreter;
 use crate::ffi::{Arity, Caller};
 use crate::value::Value;
-use crate::vm::{Chunk, Vm, compile_program};
+use crate::vm::{compile_program, Chunk, Vm};
 
 /// One fiber's state.
 #[derive(Debug, Clone, PartialEq)]
@@ -194,14 +194,7 @@ fn expect_fiber(v: &Value, sp: Span) -> Result<Arc<Mutex<Fiber>>> {
 }
 
 /// Names registered by `install_fibers`.
-pub const FIBER_NAMES: &[&str] = &[
-    "go",
-    "go-error",
-    "go-result",
-    "go-run",
-    "go-status",
-    "go?",
-];
+pub const FIBER_NAMES: &[&str] = &["go", "go-error", "go-result", "go-run", "go-status", "go?"];
 
 pub fn install_fibers<H: 'static>(interp: &mut Interpreter<H>) {
     // (go thunk) — defer thunk for later invocation. Returns a
@@ -235,17 +228,13 @@ pub fn install_fibers<H: 'static>(interp: &mut Interpreter<H>) {
         },
     );
 
-    interp.register_fn(
-        "go?",
-        Arity::Exact(1),
-        |args: &[Value], _h: &mut H, _sp| {
-            let is = match &args[0] {
-                Value::Foreign(any) => any.clone().downcast::<Mutex<Fiber>>().is_ok(),
-                _ => false,
-            };
-            Ok(Value::Bool(is))
-        },
-    );
+    interp.register_fn("go?", Arity::Exact(1), |args: &[Value], _h: &mut H, _sp| {
+        let is = match &args[0] {
+            Value::Foreign(any) => any.clone().downcast::<Mutex<Fiber>>().is_ok(),
+            _ => false,
+        };
+        Ok(Value::Bool(is))
+    });
 
     interp.register_fn(
         "go-status",
@@ -413,21 +402,17 @@ mod tests {
 
     #[test]
     fn go_run_drives_to_done() {
-        let v = run(
-            "(let ((f (go (lambda () (* 7 6)))))
+        let v = run("(let ((f (go (lambda () (* 7 6)))))
                (go-run f)
-               (go-status f))",
-        );
+               (go-status f))");
         assert!(matches!(v, Value::Keyword(s) if &*s == "done"));
     }
 
     #[test]
     fn go_result_after_explicit_run() {
-        let v = run(
-            "(let ((f (go (lambda () (* 7 6)))))
+        let v = run("(let ((f (go (lambda () (* 7 6)))))
                (go-run f)
-               (go-result f))",
-        );
+               (go-result f))");
         assert!(matches!(v, Value::Int(42)));
     }
 
@@ -463,12 +448,10 @@ mod tests {
 
     #[test]
     fn go_run_idempotent_after_done() {
-        let v = run(
-            "(let ((f (go (lambda () 100))))
+        let v = run("(let ((f (go (lambda () 100))))
                (go-run f)
                (go-run f)
-               (go-run f))",
-        );
+               (go-run f))");
         assert!(matches!(v, Value::Int(100)));
     }
 
@@ -476,11 +459,9 @@ mod tests {
     fn go_thunk_with_closure_captures() {
         // Thunk closes over a let-local — verifies deferred invocation
         // preserves the closure's captured environment.
-        let v = run(
-            "(let ((x 21))
+        let v = run("(let ((x 21))
                (let ((f (go (lambda () (* x 2)))))
-                 (go-run f)))",
-        );
+                 (go-run f)))");
         assert!(matches!(v, Value::Int(42)));
     }
 

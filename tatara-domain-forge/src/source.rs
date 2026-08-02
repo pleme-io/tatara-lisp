@@ -119,7 +119,11 @@ fn crd_to_resource(v: &serde_yaml_ng::Value) -> Result<Resource, FromCrdError> {
         fields
             .iter()
             .find(|(_, f)| {
-                f.required && matches!(f.ty, crate::ir::FieldType::Scalar(crate::ir::ScalarType::String))
+                f.required
+                    && matches!(
+                        f.ty,
+                        crate::ir::FieldType::Scalar(crate::ir::ScalarType::String)
+                    )
             })
             .map(|(k, _)| k.clone())
     };
@@ -222,10 +226,12 @@ fn lower_type(
         "integer" => Ok(FieldType::Scalar(ScalarType::I64)),
         "number" => Ok(FieldType::Scalar(ScalarType::F64)),
         "array" => {
-            let items = schema.get("items").ok_or_else(|| FromCrdError::Unsupported {
-                path: nested_name_seed.to_string(),
-                message: "array missing `items`".into(),
-            })?;
+            let items = schema
+                .get("items")
+                .ok_or_else(|| FromCrdError::Unsupported {
+                    path: nested_name_seed.to_string(),
+                    message: "array missing `items`".into(),
+                })?;
             let inner = lower_type(items, &format!("{nested_name_seed}_item"))?;
             Ok(FieldType::List(Box::new(inner)))
         }
@@ -419,7 +425,15 @@ spec:
         let names: Vec<&str> = r.fields.keys().map(String::as_str).collect();
         assert_eq!(
             names,
-            vec!["name", "query", "threshold", "window_seconds", "enabled", "labels", "severity"]
+            vec![
+                "name",
+                "query",
+                "threshold",
+                "window_seconds",
+                "enabled",
+                "labels",
+                "severity"
+            ]
         );
         assert!(r.fields["name"].required);
         assert!(!r.fields["threshold"].required);
@@ -456,6 +470,10 @@ spec:
             TINY_CRD
         );
         let domain = from_crd_str(&mixed, "tatara-test").unwrap();
-        assert_eq!(domain.resources.len(), 1, "Namespace skipped, only Monitor lifted");
+        assert_eq!(
+            domain.resources.len(),
+            1,
+            "Namespace skipped, only Monitor lifted"
+        );
     }
 }

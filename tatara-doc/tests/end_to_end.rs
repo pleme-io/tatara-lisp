@@ -55,7 +55,10 @@ fn fully_registered_keywords_lists_only_compile_render_doc_complete() {
 fn every_registered_keyword_has_all_required_layers() {
     register_all();
     let keywords = tatara_lisp::domain::registered_keywords();
-    assert!(!keywords.is_empty(), "register_all() actually registered domains");
+    assert!(
+        !keywords.is_empty(),
+        "register_all() actually registered domains"
+    );
 
     let mut missing: Vec<(String, &'static str)> = Vec::new();
     for kw in keywords {
@@ -120,47 +123,39 @@ fn nine_capability_layers_alive_for_one_domain() {
 
     // Layer 2 — Render (RenderableDomain). Forge-generated from
     // the CRD's group + version + kind.
-    let r = tatara_lisp::domain::lookup_render(kw)
-        .expect("L2 render: handler registered");
+    let r = tatara_lisp::domain::lookup_render(kw).expect("L2 render: handler registered");
     assert_eq!(r.api_version, "gateway.networking.k8s.io/v1");
     assert_eq!(r.kind, "Gateway");
 
     // Layer 3 — Documented. Forge-filled from CRD descriptions.
-    let d = tatara_lisp::domain::lookup_doc(kw)
-        .expect("L3 doc: handler registered");
+    let d = tatara_lisp::domain::lookup_doc(kw).expect("L3 doc: handler registered");
     assert!(!d.docstring.is_empty(), "L3 doc: docstring populated");
     assert!(!d.field_docs.is_empty(), "L3 doc: field_docs populated");
 
     // Layer 4 — Dependent. Default empty for forge-generated.
-    let dep = tatara_lisp::domain::lookup_deps(kw)
-        .expect("L4 deps: handler registered");
+    let dep = tatara_lisp::domain::lookup_deps(kw).expect("L4 deps: handler registered");
     assert_eq!(dep.depends_on.len(), 0, "L4 deps: forge default empty");
 
     // Layer 5 — Schematic. Forge-preserved CRD schema.
-    let s = tatara_lisp::domain::lookup_schema(kw)
-        .expect("L5 schema: handler registered");
+    let s = tatara_lisp::domain::lookup_schema(kw).expect("L5 schema: handler registered");
     let parsed: serde_json::Value = serde_json::from_str(s.schema_json).unwrap();
     assert!(parsed.is_object(), "L5 schema: parses as JSON");
 
     // Layer 6 — Attestable. Namespace = CRD group.
-    let a = tatara_lisp::domain::lookup_attest(kw)
-        .expect("L6 attest: handler registered");
+    let a = tatara_lisp::domain::lookup_attest(kw).expect("L6 attest: handler registered");
     assert_eq!(a.namespace, "gateway.networking.k8s.io");
 
     // Layer 7 — Validated (executable). Default fn returns Ok.
-    let v = tatara_lisp::domain::lookup_validate(kw)
-        .expect("L7 validate: handler registered");
+    let v = tatara_lisp::domain::lookup_validate(kw).expect("L7 validate: handler registered");
     let dummy = serde_json::json!({});
     (v.validate)(&dummy).expect("L7 validate: default impl is Ok");
 
     // Layer 8 — Lifecycle. Default Immediate for CRDs.
-    let l = tatara_lisp::domain::lookup_lifecycle(kw)
-        .expect("L8 lifecycle: handler registered");
+    let l = tatara_lisp::domain::lookup_lifecycle(kw).expect("L8 lifecycle: handler registered");
     assert_eq!(l.strategy, tatara_lisp::RolloutStrategy::Immediate);
 
     // Layer 9 — Compliance. Default empty.
-    let c = tatara_lisp::domain::lookup_compliance(kw)
-        .expect("L9 compliance: handler registered");
+    let c = tatara_lisp::domain::lookup_compliance(kw).expect("L9 compliance: handler registered");
     assert_eq!(c.frameworks.len(), 0, "L9 compliance: default empty");
     assert_eq!(c.controls.len(), 0);
 
@@ -171,13 +166,11 @@ fn nine_capability_layers_alive_for_one_domain() {
     assert_eq!(o.log_labels.len(), 0);
 
     // Layer 11 — Help. Default empty.
-    let h = tatara_lisp::domain::lookup_help(kw)
-        .expect("L11 help: handler registered");
+    let h = tatara_lisp::domain::lookup_help(kw).expect("L11 help: handler registered");
     assert_eq!(h.mnemonic, "");
 
     // Layer 12 — Stability. Default "stable" / "0.1.0".
-    let st = tatara_lisp::domain::lookup_stability(kw)
-        .expect("L12 stability: handler registered");
+    let st = tatara_lisp::domain::lookup_stability(kw).expect("L12 stability: handler registered");
     assert_eq!(st.stability, "stable");
     assert_eq!(st.since_version, "0.1.0");
 }
@@ -208,8 +201,8 @@ fn hand_written_domains_override_macro_defaults() {
     assert_eq!(l.drain_seconds, 5);
 
     // tatara-ebpf::BpfPolicySpec declares concrete deps.
-    let dep = tatara_lisp::domain::lookup_deps("defbpf-policy")
-        .expect("L4 deps: bpf policy registered");
+    let dep =
+        tatara_lisp::domain::lookup_deps("defbpf-policy").expect("L4 deps: bpf policy registered");
     assert!(dep.depends_on.contains(&"defbpf-program"));
     assert!(dep.depends_on.contains(&"defbpf-map"));
 }
@@ -225,8 +218,7 @@ fn forge_generated_domains_expose_their_source_schema() {
     let gw = tatara_lisp::domain::lookup_schema("defgateway").unwrap();
     // Schema is a non-empty JSON string; it parses; it has a
     // top-level type or properties (the OpenAPI v3 shape).
-    let parsed: serde_json::Value =
-        serde_json::from_str(gw.schema_json).expect("schema parses");
+    let parsed: serde_json::Value = serde_json::from_str(gw.schema_json).expect("schema parses");
     let obj = parsed.as_object().expect("schema is an object");
     assert!(
         obj.contains_key("type") || obj.contains_key("properties"),

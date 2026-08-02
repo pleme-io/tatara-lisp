@@ -35,7 +35,7 @@ pub mod type_check;
 pub mod value;
 pub mod vm;
 
-pub use env::Env;
+pub use env::{Env, Seal};
 pub use error::{EvalError, Result};
 pub use eval::Interpreter;
 pub use ffi::{Arity, Caller, FromValue, HigherOrderCallable, IntoValue, NativeCallable};

@@ -69,7 +69,11 @@ pub fn emit_cargo_toml(domain: &Domain, opts: &EmitOptions) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "[package]");
     let _ = writeln!(out, "name = \"{}\"", domain.name);
-    let _ = writeln!(out, "description = \"{}\"", escape_toml(&domain.description));
+    let _ = writeln!(
+        out,
+        "description = \"{}\"",
+        escape_toml(&domain.description)
+    );
     if opts.workspace_member {
         let _ = writeln!(out, "version.workspace = true");
         let _ = writeln!(out, "edition.workspace = true");
@@ -88,13 +92,12 @@ pub fn emit_cargo_toml(domain: &Domain, opts: &EmitOptions) -> String {
     }
     let _ = writeln!(out);
     let _ = writeln!(out, "[dependencies]");
+    let _ = writeln!(out, "tatara-lisp-derive = {}", opts.tatara_lisp_derive_dep);
+    let _ = writeln!(out, "tatara-lisp = {}", opts.tatara_lisp_dep);
     let _ = writeln!(
         out,
-        "tatara-lisp-derive = {}",
-        opts.tatara_lisp_derive_dep
+        "serde = {{ version = \"1\", features = [\"derive\"] }}"
     );
-    let _ = writeln!(out, "tatara-lisp = {}", opts.tatara_lisp_dep);
-    let _ = writeln!(out, "serde = {{ version = \"1\", features = [\"derive\"] }}");
     let _ = writeln!(out, "serde_json = \"1\"");
     out
 }
@@ -136,7 +139,10 @@ pub fn emit_lib_rs(domain: &Domain) -> String {
 
     // Pass 2: emit collected nested types in deterministic order.
     if !pending.is_empty() {
-        let _ = writeln!(out, "// ── Nested types ──────────────────────────────────────");
+        let _ = writeln!(
+            out,
+            "// ── Nested types ──────────────────────────────────────"
+        );
     }
     for (_name, body) in pending {
         out.push_str(&body);
@@ -159,7 +165,11 @@ pub fn emit_lib_rs(domain: &Domain) -> String {
             if let (Some(api), Some(kind)) = (&r.api_version, &r.kind) {
                 let name_field = r.name_field.as_deref().unwrap_or("name");
                 let _ = writeln!(out);
-                let _ = writeln!(out, "impl tatara_lisp::RenderableDomain for {} {{", r.struct_name);
+                let _ = writeln!(
+                    out,
+                    "impl tatara_lisp::RenderableDomain for {} {{",
+                    r.struct_name
+                );
                 let _ = writeln!(out, "    const API_VERSION: &'static str = {api:?};");
                 let _ = writeln!(out, "    const KIND: &'static str = {kind:?};");
                 let _ = writeln!(out, "    const NAME_FIELD: &'static str = {name_field:?};");
@@ -183,7 +193,11 @@ pub fn emit_lib_rs(domain: &Domain) -> String {
             .map(|s| escape_rust_str(&one_line(s)))
             .unwrap_or_default();
         let _ = writeln!(out);
-        let _ = writeln!(out, "impl tatara_lisp::DocumentedDomain for {} {{", r.struct_name);
+        let _ = writeln!(
+            out,
+            "impl tatara_lisp::DocumentedDomain for {} {{",
+            r.struct_name
+        );
         let _ = writeln!(out, "    const DOCSTRING: &'static str = \"{docstring}\";");
         let _ = writeln!(
             out,
@@ -241,8 +255,15 @@ pub fn emit_lib_rs(domain: &Domain) -> String {
             if let Some(api) = &r.api_version {
                 let namespace = api.split('/').next().unwrap_or(api);
                 let _ = writeln!(out);
-                let _ = writeln!(out, "impl tatara_lisp::AttestableDomain for {} {{", r.struct_name);
-                let _ = writeln!(out, "    const ATTESTATION_NAMESPACE: &'static str = {namespace:?};");
+                let _ = writeln!(
+                    out,
+                    "impl tatara_lisp::AttestableDomain for {} {{",
+                    r.struct_name
+                );
+                let _ = writeln!(
+                    out,
+                    "    const ATTESTATION_NAMESPACE: &'static str = {namespace:?};"
+                );
                 let _ = writeln!(out, "}}");
             }
         }
@@ -262,11 +283,14 @@ pub fn emit_lib_rs(domain: &Domain) -> String {
         );
         for r in &domain.resources {
             if let Some(schema) = &r.raw_schema {
-                let json = serde_json::to_string(schema)
-                    .unwrap_or_else(|_| "{}".to_string());
+                let json = serde_json::to_string(schema).unwrap_or_else(|_| "{}".to_string());
                 let escaped = escape_rust_str(&json);
                 let _ = writeln!(out);
-                let _ = writeln!(out, "impl tatara_lisp::SchematicDomain for {} {{", r.struct_name);
+                let _ = writeln!(
+                    out,
+                    "impl tatara_lisp::SchematicDomain for {} {{",
+                    r.struct_name
+                );
                 let _ = writeln!(out, "    const SCHEMA_JSON: &'static str = \"{escaped}\";");
                 let _ = writeln!(out, "}}");
             }
@@ -289,10 +313,7 @@ pub fn emit_lib_rs(domain: &Domain) -> String {
         out,
         "/// interpreter. Embedders call this once during boot."
     );
-    let _ = writeln!(
-        out,
-        "///"
-    );
+    let _ = writeln!(out, "///");
     let _ = writeln!(
         out,
         "/// Fallible: `register` refuses a keyword another type already holds,"
@@ -372,7 +393,10 @@ fn emit_resource_struct(
             let _ = writeln!(out, "/// {}", line.trim());
         }
     }
-    let _ = writeln!(out, "#[derive(Debug, Clone, Serialize, Deserialize, TataraDomain)]");
+    let _ = writeln!(
+        out,
+        "#[derive(Debug, Clone, Serialize, Deserialize, TataraDomain)]"
+    );
     let _ = writeln!(out, "#[tatara(keyword = \"{}\")]", r.keyword);
     let _ = writeln!(out, "pub struct {} {{", r.struct_name);
     for (rust_name, field) in &r.fields {
@@ -553,11 +577,11 @@ pub fn emit_readme(domain: &Domain) -> String {
     let _ = writeln!(out);
     let _ = writeln!(out, "{}", domain.description);
     let _ = writeln!(out);
+    let _ = writeln!(out, "Auto-generated by `tatara-domain-forge` from {kind}.");
     let _ = writeln!(
         out,
-        "Auto-generated by `tatara-domain-forge` from {kind}."
+        "Re-run the generator to refresh — hand edits will be overwritten."
     );
-    let _ = writeln!(out, "Re-run the generator to refresh — hand edits will be overwritten.");
     let _ = writeln!(out);
     let _ = writeln!(out, "## Resources");
     let _ = writeln!(out);

@@ -210,10 +210,7 @@ struct TypeEnv {
 
 impl TypeEnv {
     fn lookup(&self, name: &str) -> StaticType {
-        self.bindings
-            .get(name)
-            .cloned()
-            .unwrap_or(StaticType::Any)
+        self.bindings.get(name).cloned().unwrap_or(StaticType::Any)
     }
 
     fn define(&mut self, name: impl Into<Arc<str>>, ty: StaticType) {
@@ -374,9 +371,9 @@ fn infer(form: &Spanned, env: &TypeEnv) -> StaticType {
             StaticType::Any
         }
         SpannedForm::Quote(inner) => infer_quoted(inner),
-        SpannedForm::Quasiquote(_)
-        | SpannedForm::Unquote(_)
-        | SpannedForm::UnquoteSplice(_) => StaticType::Any,
+        SpannedForm::Quasiquote(_) | SpannedForm::Unquote(_) | SpannedForm::UnquoteSplice(_) => {
+            StaticType::Any
+        }
         _ => StaticType::Any,
     }
 }
@@ -421,10 +418,10 @@ fn least_upper_bound(a: StaticType, b: StaticType) -> StaticType {
     if matches!(a, StaticType::Any) || matches!(b, StaticType::Any) {
         return StaticType::Any;
     }
-    if matches!((&a, &b),
-        (StaticType::Int, StaticType::Float)
-            | (StaticType::Float, StaticType::Int))
-    {
+    if matches!(
+        (&a, &b),
+        (StaticType::Int, StaticType::Float) | (StaticType::Float, StaticType::Int)
+    ) {
         return StaticType::Number;
     }
     StaticType::Union(vec![a, b])
@@ -445,23 +442,22 @@ fn primitive_return_type(name: &str) -> Option<StaticType> {
 
         // comparisons + predicates — bool.
         "=" | "<" | ">" | "<=" | ">=" | "not=" | "null?" | "pair?" | "list?" | "symbol?"
-        | "string?" | "integer?" | "number?" | "boolean?" | "procedure?" | "foreign?"
-        | "atom?" | "keyword?" | "even?" | "odd?" | "zero?" | "positive?" | "negative?"
-        | "empty?" | "not-empty?" | "any?" | "every?" | "member?" | "is?"
-        | "hash-map?" | "hash-map-empty?" | "hash-map-has?" | "chan?" | "chan-closed?"
-        | "promise?" | "error?" => StaticType::Bool,
+        | "string?" | "integer?" | "number?" | "boolean?" | "procedure?" | "foreign?" | "atom?"
+        | "keyword?" | "even?" | "odd?" | "zero?" | "positive?" | "negative?" | "empty?"
+        | "not-empty?" | "any?" | "every?" | "member?" | "is?" | "hash-map?"
+        | "hash-map-empty?" | "hash-map-has?" | "chan?" | "chan-closed?" | "promise?"
+        | "error?" => StaticType::Bool,
 
         // list-returning.
-        "list" | "cons" | "reverse" | "append" | "take" | "drop" | "range" | "map"
-        | "filter" | "remove" | "concat" | "distinct" | "flatten" | "zip" | "partition"
-        | "scan-left" | "iterate" | "repeatedly" | "drain!" | "hash-map-keys"
-        | "hash-map-values" | "hash-map-entries" | "read-all" => {
-            StaticType::List(Box::new(StaticType::Any))
-        }
+        "list" | "cons" | "reverse" | "append" | "take" | "drop" | "range" | "map" | "filter"
+        | "remove" | "concat" | "distinct" | "flatten" | "zip" | "partition" | "scan-left"
+        | "iterate" | "repeatedly" | "drain!" | "hash-map-keys" | "hash-map-values"
+        | "hash-map-entries" | "read-all" => StaticType::List(Box::new(StaticType::Any)),
 
         // map-returning.
-        "hash-map" | "hash-map-set" | "hash-map-remove" | "hash-map-merge"
-        | "hash-map-update" => StaticType::Map(Box::new(StaticType::Any), Box::new(StaticType::Any)),
+        "hash-map" | "hash-map-set" | "hash-map-remove" | "hash-map-merge" | "hash-map-update" => {
+            StaticType::Map(Box::new(StaticType::Any), Box::new(StaticType::Any))
+        }
 
         // string-returning.
         "string-append" | "string" | "pr-str" | "symbol->string" | "keyword->string"
@@ -599,14 +595,18 @@ mod tests {
     fn conforms_to_total_for_any() {
         assert!(StaticType::Any.conforms_to(&StaticType::Int));
         assert!(StaticType::Int.conforms_to(&StaticType::Any));
-        assert!(StaticType::Union(vec![StaticType::Int, StaticType::Str])
-            .conforms_to(&StaticType::Any));
+        assert!(
+            StaticType::Union(vec![StaticType::Int, StaticType::Str]).conforms_to(&StaticType::Any)
+        );
     }
 
     #[test]
     fn render_round_trips_canonical_forms() {
         assert_eq!(StaticType::Int.render(), ":int");
-        assert_eq!(StaticType::List(Box::new(StaticType::Str)).render(), "(:list-of :string)");
+        assert_eq!(
+            StaticType::List(Box::new(StaticType::Str)).render(),
+            "(:list-of :string)"
+        );
         assert_eq!(
             StaticType::Map(Box::new(StaticType::Keyword), Box::new(StaticType::Int)).render(),
             "(:map-of :keyword :int)"

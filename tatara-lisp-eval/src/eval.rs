@@ -8,12 +8,10 @@
 
 use std::sync::Arc;
 
-use tatara_lisp::{
-    Atom, MacroDef, MacroParams, Span, Spanned, SpannedExpander, SpannedForm,
-};
+use tatara_lisp::{Atom, MacroDef, MacroParams, Span, Spanned, SpannedExpander, SpannedForm};
 
 use crate::code::{spanned_to_value, value_to_spanned};
-use crate::env::Env;
+use crate::env::{Env, Seal};
 use crate::error::{EvalError, Result};
 use crate::ffi::{
     Arity, Caller, FnEntry, FnImpl, FnRegistry, FromValue, HigherOrderCallable, IntoValue,
@@ -73,6 +71,56 @@ impl<H: 'static> Interpreter<H> {
             loader: Arc::new(NoLoader),
             macro_expansion_limit: DEFAULT_MACRO_EXPANSION_LIMIT,
             current_module: None,
+        }
+    }
+
+    /// Derive a child interpreter that **shares** this one's already-evaluated
+    /// globals instead of rebuilding them.
+    ///
+    /// Building an interpreter is dominated by *evaluating* the Lisp standard
+    /// library, not by registering the Rust primitives: measured at 945µs per
+    /// `install_full_stdlib_with`, which is essentially the entire cost of
+    /// running one short program. Any embedder that needs many isolated
+    /// interpreters — a test runner giving each test a clean slate, a
+    /// supervisor giving each process private state — pays that once per child
+    /// for a result that is identical every time.
+    ///
+    /// `fork` pays it once. The child gets:
+    ///
+    /// - **every global, readable.** Frames are `Arc`-shared, so the stdlib is
+    ///   not copied at all.
+    /// - **a private frame for its own `define`s.** They land above the shared
+    ///   frames, so the parent and every sibling are blind to them.
+    /// - **no write path to the shared frames.** They sit below the child's
+    ///   write floor, so a `set!` reaching for a parent binding raises
+    ///   `SetSealed` instead of mutating state another child can observe.
+    ///
+    /// That last property is why this is a fork and not a clone: `Env::set`
+    /// takes `&self` and writes *through* the `Arc`, so a plain clone would
+    /// share globals in the mutable direction too, and one child could edit
+    /// another's stdlib.
+    ///
+    /// # What is deliberately still shared
+    ///
+    /// The module registry, so a `(require ...)` resolved by one child is not
+    /// re-read by the next. Modules are immutable once loaded; this is a cache,
+    /// not shared program state.
+    ///
+    /// # What a fork is not
+    ///
+    /// It is not a snapshot. The shared frames stay live: a `define` the
+    /// *parent* runs after forking is visible to children already forked,
+    /// because they hold the same frame. Fork children, then stop defining in
+    /// the parent.
+    pub fn fork(&self) -> Self {
+        Self {
+            registry: self.registry.clone(),
+            globals: self.globals.sealed_below_top(Seal::Fork),
+            expander: self.expander.clone(),
+            modules: self.modules.clone(),
+            loader: Arc::clone(&self.loader),
+            macro_expansion_limit: self.macro_expansion_limit,
+            current_module: self.current_module.clone(),
         }
     }
 
@@ -399,19 +447,14 @@ impl<H: 'static> Interpreter<H> {
         if !self.modules.has(&path) {
             self.load_module(&path, span, host)?;
         }
-        let module = self
-            .modules
-            .get(&path)
-            .ok_or_else(|| EvalError::native_fn("require", "module disappeared after load", span))?;
+        let module = self.modules.get(&path).ok_or_else(|| {
+            EvalError::native_fn("require", "module disappeared after load", span)
+        })?;
 
         // Import bindings into the calling env.
         let chosen_alias = alias.unwrap_or_else(|| path.clone());
         for name in &module.exports {
-            let value = module
-                .bindings
-                .get(name)
-                .cloned()
-                .unwrap_or(Value::Nil);
+            let value = module.bindings.get(name).cloned().unwrap_or(Value::Nil);
             let qualified: Arc<str> = Arc::from(format!("{chosen_alias}/{name}"));
             self.globals.define(qualified, value);
         }
@@ -422,17 +465,19 @@ impl<H: 'static> Interpreter<H> {
                         self.globals.define(name.clone(), value.clone());
                     } else {
                         return Err(EvalError::User {
-                            value: error_value("not-exported", &format!(
-                                "{path} does not export {name}"
-                            )),
+                            value: error_value(
+                                "not-exported",
+                                &format!("{path} does not export {name}"),
+                            ),
                             at: span,
                         });
                     }
                 } else {
                     return Err(EvalError::User {
-                        value: error_value("not-defined", &format!(
-                            "{path} does not define {name}"
-                        )),
+                        value: error_value(
+                            "not-defined",
+                            &format!("{path} does not define {name}"),
+                        ),
                         at: span,
                     });
                 }
@@ -521,9 +566,7 @@ impl<H: 'static> Interpreter<H> {
         // Apply staged exports.
         let staged = {
             let mut g = self.modules.inner_lock();
-            g.exports_staging
-                .remove(path)
-                .unwrap_or_default()
+            g.exports_staging.remove(path).unwrap_or_default()
         };
         for n in staged {
             module.add_export(n);
@@ -684,7 +727,7 @@ impl<H: 'static> Interpreter<H> {
         // outward into the interpreter's globals is refused rather than
         // silently mutating compile-time state. Without this, expansion is
         // not deterministic and no expansion memo is sound.
-        let mut macro_env = self.globals.sealed_below_top();
+        let mut macro_env = self.globals.sealed_below_top(Seal::MacroExpansion);
         bind_macro_args(&mut macro_env, &def.name, &def.params, args, call_span)?;
 
         // Evaluate the body in the macro env using the live interpreter
@@ -748,7 +791,14 @@ impl<H: 'static> Interpreter<H> {
         host: &mut H,
         call_span: Span,
     ) -> Result<Value> {
-        apply_external(callee, args, call_span, &self.registry, &self.expander, host)
+        apply_external(
+            callee,
+            args,
+            call_span,
+            &self.registry,
+            &self.expander,
+            host,
+        )
     }
 
     /// Compile + execute a parsed program through the bytecode VM.
@@ -773,7 +823,11 @@ impl<H: 'static> Interpreter<H> {
         let mut vm = crate::vm::Vm::new();
         vm.run(&chunk, self, host).map_err(|e| match e {
             crate::vm::VmError::Eval(inner) => inner,
-            other => EvalError::native_fn(Arc::<str>::from("vm"), format!("{other}"), Span::synthetic()),
+            other => EvalError::native_fn(
+                Arc::<str>::from("vm"),
+                format!("{other}"),
+                Span::synthetic(),
+            ),
         })
     }
 
@@ -1962,19 +2016,16 @@ fn sf_set<H: 'static>(
     let v = eval_in(env, registry, expander, &items[2], host)?;
     if env.set(name, v) {
         Ok(Value::Nil)
-    } else if env.is_sealed_binding(name) {
-        // Distinguishes a sealed write from an unbound name. A macro body
-        // reaching outward to mutate the interpreter's globals lands here.
-        Err(EvalError::bad_form(
-            "set!",
-            format!(
-                "cannot `set!` {name:?} from a macro body — it is bound outside \
-                 the expansion and sealed. Macro expansion must be deterministic, \
-                 so compile-time state cannot outlive the expansion. Use a local \
-                 binding, or return the value in the expansion."
-            ),
-            items[1].span,
-        ))
+    } else if let (true, Some(seal)) = (env.is_sealed_binding(name), env.seal()) {
+        // Distinguishes a sealed write from an unbound name. The seal carries
+        // its own reason, so this raise site does not assume which boundary
+        // was crossed — it used to, and the assumption was wrong the moment a
+        // second caller started sealing.
+        Err(EvalError::SetSealed {
+            name: name.into(),
+            seal,
+            at: items[1].span,
+        })
     } else {
         Err(EvalError::unbound(name, items[1].span))
     }
@@ -2447,20 +2498,7 @@ fn macroexpand_one<H: 'static>(
 /// handler can observe runtime errors uniformly with user-thrown ones.
 fn rust_err_to_value_error(err: &EvalError) -> Value {
     use crate::value::ErrorObj;
-    let tag: Arc<str> = match err {
-        EvalError::UnboundSymbol { .. } => Arc::from("unbound-symbol"),
-        EvalError::ArityMismatch { .. } => Arc::from("arity-mismatch"),
-        EvalError::TypeMismatch { .. } => Arc::from("type-mismatch"),
-        EvalError::DivisionByZero { .. } => Arc::from("division-by-zero"),
-        EvalError::MacroExpansionLimit { .. } => Arc::from("macro-expansion-limit"),
-        EvalError::NotCallable { .. } => Arc::from("not-callable"),
-        EvalError::BadSpecialForm { .. } => Arc::from("bad-special-form"),
-        EvalError::NativeFn { .. } => Arc::from("native-fn"),
-        EvalError::Reader(_) => Arc::from("reader"),
-        EvalError::Halted => Arc::from("halted"),
-        EvalError::NotImplemented(_) => Arc::from("not-implemented"),
-        EvalError::User { .. } => Arc::from("user"),
-    };
+    let tag: Arc<str> = Arc::from(err.tag());
     let message: Arc<str> = Arc::from(err.short_message());
     Value::Error(Arc::new(ErrorObj {
         tag,
@@ -2989,9 +3027,8 @@ mod tests {
     /// the form a real codebase actually produces.
     #[test]
     fn a_mutually_recursive_macro_pair_is_caught_too() {
-        let err = eval_err(
-            "(defmacro ping (x) `(pong ,x))\n(defmacro pong (x) `(ping ,x))\n(ping 1)",
-        );
+        let err =
+            eval_err("(defmacro ping (x) `(pong ,x))\n(defmacro pong (x) `(ping ,x))\n(ping 1)");
         assert!(
             matches!(err, EvalError::MacroExpansionLimit { .. }),
             "a two-macro cycle must be bounded as well: {err:?}"
@@ -3020,9 +3057,8 @@ mod tests {
     #[test]
     fn a_terminating_chain_under_the_ceiling_still_expands() {
         // step -> step2 -> plain code: three rewrites, far under 256.
-        let v = eval_ok(
-            "(defmacro step (x) `(step2 ,x))\n(defmacro step2 (x) `(* ,x 3))\n(step 5)",
-        );
+        let v =
+            eval_ok("(defmacro step (x) `(step2 ,x))\n(defmacro step2 (x) `(* ,x 3))\n(step 5)");
         assert!(matches!(v, Value::Int(15)), "got {v:?}");
     }
 
@@ -3710,7 +3746,10 @@ mod tests {
     #[test]
     fn require_uses_path_as_default_alias() {
         let v = run_with_modules(
-            &[("lib/math", "(define double (lambda (x) (* x 2))) (provide double)")],
+            &[(
+                "lib/math",
+                "(define double (lambda (x) (* x 2))) (provide double)",
+            )],
             "(require \"lib/math\")
              (lib/math/double 21)",
         );
@@ -3843,10 +3882,7 @@ mod tests {
     #[test]
     fn require_caches_module_load_once() {
         let v = run_with_modules(
-            &[(
-                "lib/foo",
-                "(define x 42) (provide x)",
-            )],
+            &[("lib/foo", "(define x 42) (provide x)")],
             "(require \"lib/foo\" :as a)
              (require \"lib/foo\" :as b)
              (+ a/x b/x)",
@@ -3883,10 +3919,8 @@ mod tests {
     fn the_global_is_actually_unchanged_after_a_refused_macro_set() {
         let mut interp = Interpreter::new();
         install_primitives(&mut interp);
-        let forms = tatara_lisp::read_spanned(
-            "(define *g* 0) (defmacro leak () (set! *g* 99))",
-        )
-        .expect("parse");
+        let forms = tatara_lisp::read_spanned("(define *g* 0) (defmacro leak () (set! *g* 99))")
+            .expect("parse");
         interp.eval_program(&forms, &mut ()).expect("setup");
         // The expansion fails; the global must still read 0.
         let call = tatara_lisp::read_spanned("(leak)").expect("parse");
@@ -3905,8 +3939,7 @@ mod tests {
     fn ordinary_set_still_works_at_runtime() {
         let mut interp = Interpreter::new();
         install_primitives(&mut interp);
-        let forms =
-            tatara_lisp::read_spanned("(define x 1) (set! x 42) x").expect("parse");
+        let forms = tatara_lisp::read_spanned("(define x 1) (set! x 42) x").expect("parse");
         let v = interp.eval_program(&forms, &mut ()).expect("runtime set!");
         assert!(matches!(v, Value::Int(42)), "got {v:?}");
     }
@@ -3924,5 +3957,4 @@ mod tests {
             .expect("a macro must be able to mutate its own locals");
         assert!(matches!(v, Value::Int(2)), "got {v:?}");
     }
-
 }

@@ -165,9 +165,18 @@ impl CompareOp {
 /// surface grows; rejecting unknown calls is part of the safety
 /// guarantee.
 pub const BPF_HELPERS: &[(&str, &str)] = &[
-    ("get-current-cpu", "aya_ebpf::helpers::bpf_get_smp_processor_id"),
-    ("get-current-pid-tgid", "aya_ebpf::helpers::bpf_get_current_pid_tgid"),
-    ("get-current-uid-gid", "aya_ebpf::helpers::bpf_get_current_uid_gid"),
+    (
+        "get-current-cpu",
+        "aya_ebpf::helpers::bpf_get_smp_processor_id",
+    ),
+    (
+        "get-current-pid-tgid",
+        "aya_ebpf::helpers::bpf_get_current_pid_tgid",
+    ),
+    (
+        "get-current-uid-gid",
+        "aya_ebpf::helpers::bpf_get_current_uid_gid",
+    ),
     ("get-prandom", "aya_ebpf::helpers::bpf_get_prandom_u32"),
     ("ktime-ns", "aya_ebpf::helpers::bpf_ktime_get_ns"),
 ];
@@ -181,12 +190,18 @@ pub const RETURN_ACTIONS: &[(&str, &str)] = &[
     ("xdp-pass", "aya_ebpf::bindings::xdp_action::XDP_PASS"),
     ("xdp-drop", "aya_ebpf::bindings::xdp_action::XDP_DROP"),
     ("xdp-tx", "aya_ebpf::bindings::xdp_action::XDP_TX"),
-    ("xdp-redirect", "aya_ebpf::bindings::xdp_action::XDP_REDIRECT"),
+    (
+        "xdp-redirect",
+        "aya_ebpf::bindings::xdp_action::XDP_REDIRECT",
+    ),
     ("xdp-aborted", "aya_ebpf::bindings::xdp_action::XDP_ABORTED"),
     // TC
     ("tc-act-ok", "aya_ebpf::bindings::TC_ACT_OK as i32"),
     ("tc-act-shot", "aya_ebpf::bindings::TC_ACT_SHOT as i32"),
-    ("tc-act-redirect", "aya_ebpf::bindings::TC_ACT_REDIRECT as i32"),
+    (
+        "tc-act-redirect",
+        "aya_ebpf::bindings::TC_ACT_REDIRECT as i32",
+    ),
     // Generic 0 / 1 — for kprobes / tracepoints / cgroup-skb
     ("ok", "0"),
     ("err", "1"),
@@ -198,7 +213,11 @@ pub const RETURN_ACTIONS: &[(&str, &str)] = &[
 /// `codegen::emit_aya_program`.
 pub fn lower(f: &BpfFn) -> Result<String, LowerError> {
     let mut out = String::new();
-    let _ = writeln!(out, "pub fn {}(ctx: aya_ebpf::programs::XdpContext) -> u32 {{", f.name);
+    let _ = writeln!(
+        out,
+        "pub fn {}(ctx: aya_ebpf::programs::XdpContext) -> u32 {{",
+        f.name
+    );
     let mut indent = 1;
     let last = f.body.len().saturating_sub(1);
     for (i, expr) in f.body.iter().enumerate() {
@@ -251,7 +270,11 @@ fn lower_expr(e: &BpfExpr, indent: usize) -> Result<String, LowerError> {
             // expression context.
             Ok(format!("{{ {} }}", buf.trim_end()))
         }
-        BpfExpr::If { cond, then, otherwise } => {
+        BpfExpr::If {
+            cond,
+            then,
+            otherwise,
+        } => {
             let c = lower_expr(cond, indent)?;
             let t = lower_expr(then, indent + 1)?;
             let o = lower_expr(otherwise, indent + 1)?;
@@ -264,10 +287,7 @@ fn lower_expr(e: &BpfExpr, indent: usize) -> Result<String, LowerError> {
         }
         BpfExpr::MapGet { map, key } => {
             let k = lower_expr(key, indent)?;
-            Ok(format!(
-                "unsafe {{ {}.get(&{k}) }}",
-                rust_static_name(map)
-            ))
+            Ok(format!("unsafe {{ {}.get(&{k}) }}", rust_static_name(map)))
         }
         BpfExpr::MapSet { map, key, value } => {
             let k = lower_expr(key, indent)?;

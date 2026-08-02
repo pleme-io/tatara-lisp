@@ -11,6 +11,7 @@ use std::sync::Arc;
 use tatara_lisp::{caret_run, line_at, span_width_chars, Span};
 use thiserror::Error;
 
+use crate::env::Seal;
 use crate::ffi::Arity;
 
 pub type Result<T> = std::result::Result<T, EvalError>;
@@ -52,6 +53,20 @@ pub enum EvalError {
 
     #[error("not callable: value of type {value_kind} at {at}")]
     NotCallable { value_kind: &'static str, at: Span },
+
+    /// A `set!` reached a binding in a frame sealed against writes.
+    ///
+    /// Distinct from `UnboundSymbol`: the name *is* bound, and the write was
+    /// refused. Carrying the [`Seal`] rather than a prebuilt sentence is
+    /// deliberate — two callers seal for different reasons, and the wording
+    /// hard-coded for the first (macro expansion) actively misdirects a reader
+    /// who hit the second.
+    #[error("cannot `set!` `{name}`: {} at {at}", seal.refusal())]
+    SetSealed {
+        name: Arc<str>,
+        seal: Seal,
+        at: Span,
+    },
 
     #[error("bad special form `{form}`: {reason} at {at}")]
     BadSpecialForm {
@@ -115,6 +130,32 @@ impl EvalError {
         }
     }
 
+    /// The Lisp-visible tag this error surfaces as when a `(catch ...)`
+    /// handler observes it.
+    ///
+    /// One table. It used to be two — the tree-walker and the VM each carried
+    /// a copy, so `EvalError` had three edit sites per variant and no compiler
+    /// pressure keeping the two tags equal. A `catch` that matched under one
+    /// executor and not the other would have been silent.
+    #[must_use]
+    pub const fn tag(&self) -> &'static str {
+        match self {
+            Self::UnboundSymbol { .. } => "unbound-symbol",
+            Self::ArityMismatch { .. } => "arity-mismatch",
+            Self::TypeMismatch { .. } => "type-mismatch",
+            Self::DivisionByZero { .. } => "division-by-zero",
+            Self::MacroExpansionLimit { .. } => "macro-expansion-limit",
+            Self::NotCallable { .. } => "not-callable",
+            Self::BadSpecialForm { .. } => "bad-special-form",
+            Self::NativeFn { .. } => "native-fn",
+            Self::SetSealed { .. } => "set-sealed",
+            Self::Reader(_) => "reader",
+            Self::Halted => "halted",
+            Self::NotImplemented(_) => "not-implemented",
+            Self::User { .. } => "user",
+        }
+    }
+
     /// The span this error is attached to, if any.
     pub fn span(&self) -> Option<Span> {
         match self {
@@ -126,6 +167,7 @@ impl EvalError {
             | Self::NotCallable { at, .. }
             | Self::BadSpecialForm { at, .. }
             | Self::NativeFn { at, .. }
+            | Self::SetSealed { at, .. }
             | Self::User { at, .. } => Some(*at),
             Self::Reader(_) | Self::Halted | Self::NotImplemented(_) => None,
         }
@@ -196,6 +238,9 @@ impl EvalError {
     pub fn short_message(&self) -> String {
         match self {
             Self::UnboundSymbol { name, .. } => format!("unbound symbol `{name}`"),
+            Self::SetSealed { name, seal, .. } => {
+                format!("`set!` of sealed binding `{name}` ({seal:?})")
+            }
             Self::MacroExpansionLimit {
                 macro_name, limit, ..
             } => format!("macro `{macro_name}` exceeded {limit} expansion steps"),

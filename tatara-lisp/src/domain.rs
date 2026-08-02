@@ -1697,7 +1697,10 @@ where
         kind: T::KIND,
         name_field: T::NAME_FIELD,
     };
-    render_registry().lock().unwrap().insert(T::KEYWORD, handler);
+    render_registry()
+        .lock()
+        .unwrap()
+        .insert(T::KEYWORD, handler);
 }
 
 /// Look up render metadata by keyword.
@@ -1871,7 +1874,10 @@ where
         keyword: T::KEYWORD,
         schema_json: T::SCHEMA_JSON,
     };
-    schema_registry().lock().unwrap().insert(T::KEYWORD, handler);
+    schema_registry()
+        .lock()
+        .unwrap()
+        .insert(T::KEYWORD, handler);
 }
 
 #[must_use]
@@ -1924,7 +1930,10 @@ where
         keyword: T::KEYWORD,
         namespace: T::ATTESTATION_NAMESPACE,
     };
-    attest_registry().lock().unwrap().insert(T::KEYWORD, handler);
+    attest_registry()
+        .lock()
+        .unwrap()
+        .insert(T::KEYWORD, handler);
 }
 
 #[must_use]
@@ -2011,7 +2020,10 @@ where
         keyword: T::KEYWORD,
         validate: <T as ValidatedDomain>::validate_value,
     };
-    validate_registry().lock().unwrap().insert(T::KEYWORD, handler);
+    validate_registry()
+        .lock()
+        .unwrap()
+        .insert(T::KEYWORD, handler);
 }
 
 #[must_use]
@@ -2021,7 +2033,12 @@ pub fn lookup_validate(keyword: &str) -> Option<ValidateHandler> {
 
 #[must_use]
 pub fn registered_validate_keywords() -> Vec<&'static str> {
-    validate_registry().lock().unwrap().keys().copied().collect()
+    validate_registry()
+        .lock()
+        .unwrap()
+        .keys()
+        .copied()
+        .collect()
 }
 
 // ── Lifecycle capability ──────────────────────────────────────────
@@ -2093,7 +2110,10 @@ where
         strategy: T::STRATEGY,
         drain_seconds: T::DRAIN_SECONDS,
     };
-    lifecycle_registry().lock().unwrap().insert(T::KEYWORD, handler);
+    lifecycle_registry()
+        .lock()
+        .unwrap()
+        .insert(T::KEYWORD, handler);
 }
 
 #[must_use]
@@ -2103,7 +2123,12 @@ pub fn lookup_lifecycle(keyword: &str) -> Option<LifecycleHandler> {
 
 #[must_use]
 pub fn registered_lifecycle_keywords() -> Vec<&'static str> {
-    lifecycle_registry().lock().unwrap().keys().copied().collect()
+    lifecycle_registry()
+        .lock()
+        .unwrap()
+        .keys()
+        .copied()
+        .collect()
 }
 
 // ── Meta-compounder: capability_layer! macro ──────────────────────

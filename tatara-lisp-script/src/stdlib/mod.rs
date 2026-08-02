@@ -195,10 +195,7 @@ mod surface_tests {
 
     #[test]
     fn hof_find_first_match() {
-        eval_eq(
-            "(find (lambda (x) (> x 2)) (list 1 2 3 4))",
-            "Int(3)",
-        );
+        eval_eq("(find (lambda (x) (> x 2)) (list 1 2 3 4))", "Int(3)");
     }
 
     #[test]
@@ -313,9 +310,6 @@ mod surface_tests {
 
     #[test]
     fn end_to_end_threading_with_aliases() {
-        eval_eq(
-            "(-> 1 inc inc inc inc)",
-            "Int(5)",
-        );
+        eval_eq("(-> 1 inc inc inc inc)", "Int(5)");
     }
 }

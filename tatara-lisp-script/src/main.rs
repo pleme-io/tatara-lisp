@@ -262,7 +262,10 @@ fn collect_tlisp_files(dir: &Path, acc: &mut Vec<PathBuf>) {
         let name = entry.file_name();
         let name = name.to_string_lossy();
         if path.is_dir() {
-            if matches!(name.as_ref(), ".git" | "target" | "node_modules" | ".direnv") {
+            if matches!(
+                name.as_ref(),
+                ".git" | "target" | "node_modules" | ".direnv"
+            ) {
                 continue;
             }
             collect_tlisp_files(&path, acc);

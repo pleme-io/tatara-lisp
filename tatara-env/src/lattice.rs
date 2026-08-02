@@ -146,10 +146,7 @@ impl Env {
         Env {
             spec: EnvSpec {
                 name: format!("{}∩{}", self.spec.name, other.spec.name),
-                description: format!(
-                    "meet({}, {})",
-                    self.spec.name, other.spec.name
-                ),
+                description: format!("meet({}, {})", self.spec.name, other.spec.name),
                 imports,
                 labels,
             },
@@ -193,10 +190,7 @@ impl Env {
         Env {
             spec: EnvSpec {
                 name: format!("{}∪{}", self.spec.name, other.spec.name),
-                description: format!(
-                    "join({}, {})",
-                    self.spec.name, other.spec.name
-                ),
+                description: format!("join({}, {})", self.spec.name, other.spec.name),
                 imports,
                 labels,
             },
@@ -490,14 +484,8 @@ mod tests {
     fn join_right_bias_on_collisions() {
         // Two envs both declare the same resource id with
         // different content. Join takes the right.
-        let left = env_with(
-            "L",
-            vec![r("defbpf-map", "x", json!({"value_size": 8}))],
-        );
-        let right = env_with(
-            "R",
-            vec![r("defbpf-map", "x", json!({"value_size": 16}))],
-        );
+        let left = env_with("L", vec![r("defbpf-map", "x", json!({"value_size": 8}))]);
+        let right = env_with("R", vec![r("defbpf-map", "x", json!({"value_size": 16}))]);
         let j = left.join(&right);
         let v = &j.resources[0].value;
         assert_eq!(v["value_size"], 16, "right-bias on collision");
@@ -507,7 +495,11 @@ mod tests {
     fn slice_by_crate_keeps_only_matching_keywords() {
         let (_, _, z) = sample();
         let bpf_only = z.slice_by_crate("tatara-ebpf");
-        let kws: Vec<&str> = bpf_only.resources.iter().map(|r| r.keyword.as_str()).collect();
+        let kws: Vec<&str> = bpf_only
+            .resources
+            .iter()
+            .map(|r| r.keyword.as_str())
+            .collect();
         assert!(kws.iter().all(|k| k.starts_with("defbpf-")));
         assert_eq!(bpf_only.resources.len(), 3);
     }

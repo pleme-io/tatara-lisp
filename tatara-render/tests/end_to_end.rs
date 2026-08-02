@@ -70,11 +70,19 @@ fn full_pipeline_declare_validate_render() {
         .iter()
         .find(|m| m.path.starts_with("gateway/"))
         .expect("gateway manifest present");
-    assert!(gw.content.contains("apiVersion: gateway.networking.k8s.io/v1"));
+    assert!(gw
+        .content
+        .contains("apiVersion: gateway.networking.k8s.io/v1"));
     assert!(gw.content.contains("kind: Gateway"));
     assert!(gw.content.contains("nginx"), "gateway_class_name embedded");
-    assert!(gw.content.contains("pleme.io/env: production"), "env label propagates");
-    assert!(gw.content.contains("pleme.io/tier: prod"), "user labels propagate");
+    assert!(
+        gw.content.contains("pleme.io/env: production"),
+        "env label propagates"
+    );
+    assert!(
+        gw.content.contains("pleme.io/tier: prod"),
+        "user labels propagate"
+    );
 
     // Spot-check the BPF program ConfigMap.
     let bpf = manifests
@@ -160,7 +168,10 @@ fn forge_generated_domains_auto_render_via_registry() {
     // kind) AND no `defbpf-*` (hand-written, intentionally no
     // RenderableDomain because BPF resources don't have a single
     // CR shape).
-    assert!(kws.contains(&"defgateway"), "defgateway has render metadata");
+    assert!(
+        kws.contains(&"defgateway"),
+        "defgateway has render metadata"
+    );
     assert!(
         !kws.contains(&"defbpf-program"),
         "defbpf-program intentionally omitted from render registry"

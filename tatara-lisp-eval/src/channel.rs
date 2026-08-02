@@ -208,32 +208,24 @@ pub fn install_channels<H: 'static>(interp: &mut Interpreter<H>) {
         },
     );
 
-    interp.register_fn(
-        ">!",
-        Arity::Exact(2),
-        |args: &[Value], _h: &mut H, sp| {
-            let ch = expect_channel(&args[0], sp)?;
-            Ok(Value::Bool(ch.try_send(args[1].clone())))
-        },
-    );
+    interp.register_fn(">!", Arity::Exact(2), |args: &[Value], _h: &mut H, sp| {
+        let ch = expect_channel(&args[0], sp)?;
+        Ok(Value::Bool(ch.try_send(args[1].clone())))
+    });
 
-    interp.register_fn(
-        "<!",
-        Arity::Exact(1),
-        |args: &[Value], _h: &mut H, sp| {
-            let ch = expect_channel(&args[0], sp)?;
-            match ch.try_recv() {
-                Some(v) => Ok(v),
-                None => {
-                    if ch.is_closed() {
-                        Ok(Value::Keyword(Arc::from("closed")))
-                    } else {
-                        Ok(Value::Keyword(Arc::from("empty")))
-                    }
+    interp.register_fn("<!", Arity::Exact(1), |args: &[Value], _h: &mut H, sp| {
+        let ch = expect_channel(&args[0], sp)?;
+        match ch.try_recv() {
+            Some(v) => Ok(v),
+            None => {
+                if ch.is_closed() {
+                    Ok(Value::Keyword(Arc::from("closed")))
+                } else {
+                    Ok(Value::Keyword(Arc::from("empty")))
                 }
             }
-        },
-    );
+        }
+    });
 
     interp.register_fn(
         "close!",
@@ -258,8 +250,8 @@ pub fn install_channels<H: 'static>(interp: &mut Interpreter<H>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Interpreter;
     use crate::install_full_stdlib_with;
+    use crate::Interpreter;
     use tatara_lisp::read_spanned;
 
     struct NoHost;
@@ -274,25 +266,21 @@ mod tests {
 
     #[test]
     fn unbounded_chan_send_recv_round_trip() {
-        let v = run(
-            "(define ch (chan))
+        let v = run("(define ch (chan))
              (>! ch 1)
              (>! ch 2)
              (>! ch 3)
-             (list (<! ch) (<! ch) (<! ch))",
-        );
+             (list (<! ch) (<! ch) (<! ch))");
         assert_eq!(format!("{v}"), "(1 2 3)");
     }
 
     #[test]
     fn fifo_order_preserved() {
-        let v = run(
-            "(define ch (chan))
+        let v = run("(define ch (chan))
              (>! ch :a)
              (>! ch :b)
              (>! ch :c)
-             (list (<! ch) (<! ch) (<! ch))",
-        );
+             (list (<! ch) (<! ch) (<! ch))");
         assert_eq!(format!("{v}"), "(:a :b :c)");
     }
 
@@ -304,67 +292,55 @@ mod tests {
 
     #[test]
     fn bounded_chan_rejects_overflow() {
-        let v = run(
-            "(define ch (chan 2))
-             (list (>! ch 1) (>! ch 2) (>! ch 3))",
-        );
+        let v = run("(define ch (chan 2))
+             (list (>! ch 1) (>! ch 2) (>! ch 3))");
         assert_eq!(format!("{v}"), "(#t #t #f)");
     }
 
     #[test]
     fn close_blocks_further_sends() {
-        let v = run(
-            "(define ch (chan))
+        let v = run("(define ch (chan))
              (close! ch)
-             (>! ch :v)",
-        );
+             (>! ch :v)");
         assert!(matches!(v, Value::Bool(false)));
     }
 
     #[test]
     fn closed_drained_recv_returns_closed_keyword() {
-        let v = run(
-            "(define ch (chan))
+        let v = run("(define ch (chan))
              (>! ch :one)
              (close! ch)
-             (list (<! ch) (<! ch))",
-        );
+             (list (<! ch) (<! ch))");
         // First recv: :one; second recv: :closed (drained + closed).
         assert_eq!(format!("{v}"), "(:one :closed)");
     }
 
     #[test]
     fn drain_empties_and_closes() {
-        let v = run(
-            "(define ch (chan))
+        let v = run("(define ch (chan))
              (>! ch 1)
              (>! ch 2)
              (define drained (drain! ch))
-             (list drained (chan-closed? ch) (<! ch))",
-        );
+             (list drained (chan-closed? ch) (<! ch))");
         assert_eq!(format!("{v}"), "((1 2) #t :closed)");
     }
 
     #[test]
     fn chan_capacity_introspection() {
-        let v = run(
-            "(list (chan-capacity (chan)) (chan-capacity (chan 5)))",
-        );
+        let v = run("(list (chan-capacity (chan)) (chan-capacity (chan 5)))");
         assert_eq!(format!("{v}"), "(:unbounded 5)");
     }
 
     #[test]
     fn chan_len_tracks_depth() {
-        let v = run(
-            "(define ch (chan))
+        let v = run("(define ch (chan))
              (>! ch 1)
              (>! ch 2)
              (>! ch 3)
              (define before (chan-len ch))
              (<! ch)
              (define after (chan-len ch))
-             (list before after)",
-        );
+             (list before after)");
         assert_eq!(format!("{v}"), "(3 2)");
     }
 

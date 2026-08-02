@@ -194,10 +194,7 @@ pub enum ModuleError {
     #[error("module not found: {0}")]
     NotFound(String),
     #[error("circular require: {path} (load stack: {stack})")]
-    Circular {
-        path: String,
-        stack: String,
-    },
+    Circular { path: String, stack: String },
     #[error("name not exported: {1} from module {0}")]
     NotExported(String, String),
 }

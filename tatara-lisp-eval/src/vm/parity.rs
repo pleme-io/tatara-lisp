@@ -352,10 +352,7 @@ mod tests {
                 .map(|(n, t, v)| format!("  {n:30} tree={t:?} vm={v:?}"))
                 .collect::<Vec<_>>()
                 .join("\n");
-            panic!(
-                "VM parity failures in {} cases:\n{msg}",
-                PARITY_CASES.len()
-            );
+            panic!("VM parity failures in {} cases:\n{msg}", PARITY_CASES.len());
         }
     }
 
@@ -370,5 +367,4 @@ mod tests {
             PARITY_CASES.len()
         );
     }
-
 }

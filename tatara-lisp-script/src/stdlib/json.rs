@@ -278,7 +278,10 @@ mod tests {
     fn non_empty_objects_stay_alists() {
         // The authoring surface (alist-get / alist-upsert) depends on this.
         let v = json_to_value(&serde_json::json!({"a": 1}));
-        assert!(matches!(v, Value::List(_)), "non-empty object must be an alist");
+        assert!(
+            matches!(v, Value::List(_)),
+            "non-empty object must be an alist"
+        );
         // `Value` has no PartialEq, so match the shape rather than compare.
         assert!(matches!(alist_lookup(&v, "a"), Some(Value::Int(1))));
     }

@@ -8,6 +8,20 @@
 //!   (sh-exec STR)                → convenience: run STR through `sh -c`
 //!                                   returning the capture-form result
 //!
+//! Credential-carrying variants. Use these instead of putting a secret in an
+//! argument: argv is world-readable from the process table, and in CI it is
+//! readable by co-tenant steps and sibling containers.
+//!
+//!   (exec-with-stdin IN CMD ARG…)  → capture form; IN is written to the
+//!                                   child's stdin. The `--password-stdin`
+//!                                   shape that docker / helm / skopeo / gh
+//!                                   already support. Preferred.
+//!   (exec-with-env ENV CMD ARG…)   → capture form; ENV is an alist of
+//!                                   (KEY VALUE) pairs set for the child only.
+//!                                   For tools with no stdin form. Weaker than
+//!                                   stdin — the environment is readable by the
+//!                                   same uid — but far stronger than argv.
+//!
 //! No implicit shell interpolation. Arguments are passed literally to
 //! the underlying process; no glob / word-splitting / $VAR substitution.
 //! Scripts that want shell features use `sh-exec` explicitly.
@@ -68,6 +82,54 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
     );
 
     interp.register_fn(
+        "exec-with-stdin",
+        Arity::AtLeast(2),
+        |args: &[Value], _ctx: &mut ScriptCtx, sp| {
+            use std::io::Write;
+            let payload = str_arg(&args[0], "exec-with-stdin", sp)?;
+            let (cmd, rest) = split_cmd(&args[1..], "exec-with-stdin", sp)?;
+            let mut child = Command::new(&*cmd)
+                .args(rest.iter().map(|s| s.as_ref()))
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .map_err(|e| EvalError::native_fn("exec-with-stdin", e.to_string(), sp))?;
+            // `take()` so the pipe is dropped before we wait — a tool reading
+            // stdin to EOF deadlocks otherwise.
+            if let Some(mut sink) = child.stdin.take() {
+                sink.write_all(payload.as_bytes())
+                    .map_err(|e| EvalError::native_fn("exec-with-stdin", e.to_string(), sp))?;
+            }
+            let out = child
+                .wait_with_output()
+                .map_err(|e| EvalError::native_fn("exec-with-stdin", e.to_string(), sp))?;
+            Ok(capture_result(&out))
+        },
+    );
+
+    interp.register_fn(
+        "exec-with-env",
+        Arity::AtLeast(2),
+        |args: &[Value], _ctx: &mut ScriptCtx, sp| {
+            let pairs = env_pairs(&args[0], "exec-with-env", sp)?;
+            let (cmd, rest) = split_cmd(&args[1..], "exec-with-env", sp)?;
+            let mut c = Command::new(&*cmd);
+            c.args(rest.iter().map(|s| s.as_ref()))
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            for (k, v) in &pairs {
+                c.env(k.as_ref(), v.as_ref());
+            }
+            let out = c
+                .output()
+                .map_err(|e| EvalError::native_fn("exec-with-env", e.to_string(), sp))?;
+            Ok(capture_result(&out))
+        },
+    );
+
+    interp.register_fn(
         "sh-exec",
         Arity::Exact(1),
         |args: &[Value], _ctx: &mut ScriptCtx, sp| {
@@ -100,6 +162,44 @@ fn split_cmd(
         .map(|v| str_arg(v, fname, sp))
         .collect::<Result<Vec<_>, _>>()?;
     Ok((cmd, rest))
+}
+
+/// Read an alist of `(KEY VALUE)` string pairs.
+///
+/// Rejects a malformed entry rather than skipping it: a silently-dropped pair
+/// would run the child WITHOUT the credential and report success, which is a
+/// worse failure than an error.
+fn env_pairs(
+    v: &Value,
+    fname: &'static str,
+    sp: tatara_lisp::Span,
+) -> Result<Vec<(Arc<str>, Arc<str>)>, EvalError> {
+    let items = match v {
+        Value::List(items) => items,
+        _ => {
+            return Err(EvalError::native_fn(
+                fname,
+                "first argument must be an alist of (KEY VALUE) pairs".to_string(),
+                sp,
+            ));
+        }
+    };
+    let mut out = Vec::with_capacity(items.len());
+    for it in items.iter() {
+        match it {
+            Value::List(kv) if kv.len() == 2 => {
+                out.push((str_arg(&kv[0], fname, sp)?, str_arg(&kv[1], fname, sp)?));
+            }
+            _ => {
+                return Err(EvalError::native_fn(
+                    fname,
+                    "each env entry must be a 2-element (KEY VALUE) list".to_string(),
+                    sp,
+                ));
+            }
+        }
+    }
+    Ok(out)
 }
 
 fn capture_result(out: &std::process::Output) -> Value {

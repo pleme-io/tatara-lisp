@@ -247,23 +247,26 @@ fn run_lint(args: &[String]) -> ExitCode {
     // `core.hooksPath` — where one unbound symbol blocks every commit in every
     // repo on the machine, including the commit that would fix it.
     //
-    // ★ OPT-IN (`--unbound`), NOT DEFAULT-ON, and the reason is measured rather
-    // than cautious: enabled across the existing fleet it reported 422
-    // violations over 27 `.tlisp` files, essentially all FALSE POSITIVES. Three
-    // known causes, none yet handled:
-    //   1. `(defmacro name (params) body…)` — the three-part shape. The rule
-    //      only understands `define`'s two shapes, so every macro parameter
-    //      (`name`, `body`, `binding`, `x`, …) reads as unbound. This is the
-    //      bulk of the noise.
-    //   2. lambda-list keywords — `&rest` is not a binding.
-    //   3. macro- and driver-level heads (`deftest`, `defreversal`, `defphase`,
-    //      `aferir`) are absent from `reserved_head_names()`, so the head itself
-    //      reports.
-    // Until those are fixed, default-on would flood every existing script and
+    // ★ STILL OPT-IN (`--unbound`), and the reason is now a MEASURED FLOOR
+    // rather than a to-do list. Fleet sweep over 27 `.tlisp` files: 422 → 87
+    // after handling the `defmacro` three-part shape, lambda-list keywords,
+    // generic `def…` heads, the `fn` / `λ` aliases and `catch`.
+    //
+    // The residual 87 are one irreducible class: binding forms that are
+    // themselves user macros (`dolist`, `when-let`, `if-let`, `with-gensyms`)
+    // and macro-DSL data symbols (`:losses nothing`). Which forms bind is decided
+    // by a `defmacro` that may live in another file, so no syntactic rule can
+    // know. Enumerating more heads here would not close it — the set is open by
+    // construction.
+    //
+    // The fix is to run the rule over MACRO-EXPANDED forms
+    // (`Interpreter::fully_expand`, already used by the runtime, so the expansion
+    // is authoritative rather than a second guess). That is what would let this
+    // go default-on. Until then, default-on would flood every existing script and
     // train operators to ignore lint output — strictly worse than no rule, since
-    // it still costs a run. Opt-in makes the rule immediately useful for its
-    // motivating case (pre-flighting a standalone hook, which is FP-clean today:
-    // verified against the live `commit-msg` hook) without that cost.
+    // it still costs a run. Opt-in keeps it useful for its motivating case
+    // (pre-flighting a standalone hook: FP-clean, verified against the live
+    // `commit-msg` hook) without that cost.
     if check_unbound {
         let mut interp: Interpreter<ScriptCtx> = Interpreter::new();
         let mut ctx = ScriptCtx::with_argv(Vec::<String>::new());

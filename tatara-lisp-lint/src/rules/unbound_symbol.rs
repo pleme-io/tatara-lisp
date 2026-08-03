@@ -41,6 +41,35 @@
 //!     scripts (the hook shape) and abstains where it cannot see.
 //!   * keywords (`:foo`) and literals are never references.
 //! Suppress a deliberate case with `;; lint:allow unbound-symbol <reason>`.
+//!
+//! ★ THE REMAINING FALSE-POSITIVE FLOOR IS STRUCTURAL, NOT A MISSING CASE LIST.
+//! Fleet sweep over 27 `.tlisp` files: 422 → 87 after handling the `defmacro`
+//! three-part shape, lambda-list keywords, generic `def…` heads, the `fn` / `λ`
+//! aliases and `catch`. The residual 87 are all ONE class, and no amount of
+//! syntactic special-casing closes it:
+//!
+//!   * BINDING FORMS THAT ARE THEMSELVES USER MACROS — `(dolist (entry xs) …)`,
+//!     `(when-let (f expr) …)`, `(if-let …)`, `(with-gensyms (loop) …)`. Each
+//!     binds a name, and which forms bind is decided by a `defmacro` that may
+//!     live in another file. A purely syntactic pass cannot know.
+//!   * MACRO-DSL DATA — `(defreversal decouple :losses nothing)`. `nothing` is a
+//!     symbolic constant consumed by the macro, never evaluated. Indistinguishable
+//!     from a reference without knowing the macro.
+//!
+//! Both dissolve at the same place: run this rule over MACRO-EXPANDED forms
+//! rather than raw source. `Interpreter::fully_expand` already exists and is
+//! what the runtime itself uses, so the expansion is authoritative rather than a
+//! second guess — the same "ask the interpreter, don't reimplement it" move that
+//! `known` already makes for primitives. That is the fix that would let this rule
+//! go default-on; enumerating more binding heads here would not, because the set
+//! is open by construction. Until then the rule stays opt-in (`--unbound`) and is
+//! FP-clean on standalone, macro-light scripts — the hook shape it was built for.
+//!
+//! One further honest limit, unrelated to macros: a file meant to be CONCATENATED
+//! before running (substrate's `aferir.test.tlisp` documents
+//! `cat aferir.tlisp aferir.test.tlisp > /tmp/t.tlisp`) genuinely does not bind
+//! its own helpers. Those reports are CORRECT about the file and useless about
+//! the program. There is no file-wide suppression today.
 
 use std::collections::BTreeSet;
 
@@ -55,6 +84,15 @@ use crate::{head_symbol, line_col, suppressed, Rule, Violation};
 const SYNTAX: &[&str] = &[
     "define",
     "defmacro",
+    // Lambda-list keywords. `&rest` is a marker in a parameter list, never a
+    // value reference — it accounted for 20 of the 422 false positives in the
+    // first fleet sweep.
+    "&rest",
+    "&optional",
+    "&body",
+    "&key",
+    "&aux",
+    "&whole",
     "lambda",
     "let",
     "let*",
@@ -95,18 +133,18 @@ pub fn unbound_symbol<I: IntoIterator<Item = String>>(known: I) -> UnboundSymbol
 /// Names a binding form introduces, given the form's items.
 fn binder_names(items: &[Spanned]) -> Vec<String> {
     let mut out = Vec::new();
-    match head_symbol(items) {
-        // (define NAME v) | (define (NAME . params) body...)
-        Some("define" | "defmacro") => {
-            if let Some(target) = items.get(1) {
-                match &target.form {
-                    SpannedForm::Atom(Atom::Symbol(s)) => out.push(s.clone()),
-                    SpannedForm::List(sig) => out.extend(symbol_names(sig)),
-                    _ => {}
-                }
+    // Any `def…` head: `define`'s two shapes, plus `defmacro` / `deftest` /
+    // user-macro forms. Pass 1 uses only the FIRST name returned here, so
+    // covering every definition head is what stops a top-level macro from
+    // reporting at its own call sites.
+    if head_symbol(items).is_some_and(|h| h.starts_with("def")) {
+        if let Some(target) = items.get(1) {
+            match &target.form {
+                SpannedForm::Atom(Atom::Symbol(s)) => out.push(s.clone()),
+                SpannedForm::List(sig) => out.extend(symbol_names(sig)),
+                _ => {}
             }
         }
-        _ => {}
     }
     out
 }
@@ -218,9 +256,11 @@ impl UnboundSymbol {
         match head_symbol(items) {
             Some("quote") => {}
 
-            Some("define" | "defmacro") => {
+            Some("define") => {
                 // The bound name belongs to the ENCLOSING scope; parameters to a
-                // fresh inner one.
+                // fresh inner one. `define`'s third item is a VALUE, never a
+                // parameter list — which is exactly why it cannot share the
+                // generic `def*` arm below.
                 let mut names = binder_names(items);
                 let params: Vec<String> = if names.len() > 1 { names.split_off(1) } else { vec![] };
                 if let Some(scope) = scopes.last_mut() {
@@ -233,7 +273,74 @@ impl UnboundSymbol {
                 scopes.pop();
             }
 
-            Some("lambda") => {
+            // Every OTHER `def…` head: `defmacro`, plus driver and user-macro
+            // definition forms (`deftest`, `defcheck`, `defphase`,
+            // `defreversal`, `defsuite`, …).
+            //
+            // This arm exists because the first fleet sweep's false positives
+            // were overwhelmingly ONE shape: `(defmacro -> (x &rest steps) …)`,
+            // i.e. NAME and PARAMS as separate items. Treating that like
+            // `define` left every macro parameter unbound — `name`, `body`,
+            // `binding`, `x`, `step`, `steps`, `params` were 100+ reports on
+            // their own.
+            //
+            // Handled generically rather than by listing known heads, because
+            // the set is open: `deftest` is a driver form the interpreter never
+            // registers, and the others are user macros that may be defined in a
+            // file we are not looking at. A `def…` head is therefore never
+            // itself reported. The cost is a typo'd `def…` head going unnoticed;
+            // that is the right trade, since lint cannot verify those heads
+            // exist anyway.
+            Some(head) if head.starts_with("def") => {
+                let mut inner: BTreeSet<String> = BTreeSet::new();
+                match items.get(1).map(|t| &t.form) {
+                    // (defmacro NAME (params…) body…)
+                    Some(SpannedForm::Atom(Atom::Symbol(s))) => {
+                        if let Some(scope) = scopes.last_mut() {
+                            scope.insert(s.clone());
+                        }
+                    }
+                    // (defthing (NAME params…) body…)
+                    Some(SpannedForm::List(sig)) => {
+                        let names = symbol_names(sig);
+                        if let Some((first, rest)) = names.split_first() {
+                            if let Some(scope) = scopes.last_mut() {
+                                scope.insert(first.clone());
+                            }
+                            inner.extend(rest.iter().cloned());
+                        }
+                    }
+                    // A string-named form, e.g. (deftest "does a thing" body…).
+                    _ => {}
+                }
+
+                // A list of ONLY symbols directly after the name is a parameter
+                // list; anything else is body. This is what separates
+                // `(defmacro -> (x &rest steps) …)` from a form whose third item
+                // is data. When in doubt it treats the list as params, which can
+                // only ever SUPPRESS a report, never invent one.
+                let mut body_start = 2;
+                if let Some(SpannedForm::List(sig)) = items.get(2).map(|p| &p.form) {
+                    let names = symbol_names(sig);
+                    if !sig.is_empty() && names.len() == sig.len() {
+                        inner.extend(names);
+                        body_start = 3;
+                    }
+                }
+
+                scopes.push(inner);
+                for item in items.iter().skip(body_start) {
+                    self.walk(item, scopes, out);
+                }
+                scopes.pop();
+            }
+
+            // `fn` and `λ` are lambda aliases and are used more than `lambda`
+            // itself in places — `(fn (acc t) …)` in a `reduce` accounted for a
+            // large share of the residual false positives. `catch` is the same
+            // SHAPE: `(catch (e) handler…)` binds its parameter list exactly like
+            // a lambda does.
+            Some("lambda" | "fn" | "λ" | "catch") => {
                 let params = match items.get(1).map(|p| &p.form) {
                     Some(SpannedForm::List(sig)) => symbol_names(sig),
                     // `(lambda rest body)` — variadic with a single rest name.

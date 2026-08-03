@@ -115,6 +115,48 @@ const CASES: &[Case] = &[
         src: "(display `(a ,missing))",
         expect: Some("missing"),
     },
+    // ── the shapes that caused the first fleet sweep's 422 FPs ────────
+    Case {
+        name: "defmacro three-part shape binds NAME and PARAMS separately",
+        src: "(defmacro arrow (x step) `(,step ,x))\n(arrow 1 2)",
+        expect: None,
+    },
+    Case {
+        name: "&rest in a macro parameter list is not a reference",
+        src: "(defmacro thread (x &rest steps) `(,x ,@steps))\n(thread 1)",
+        expect: None,
+    },
+    Case {
+        name: "a driver/user-macro def head is never itself reported",
+        src: "(deftest \"a thing\" (display 1))",
+        expect: None,
+    },
+    Case {
+        name: "a def* form's name is bound for later call sites",
+        src: "(defphase build (target) (display target))\n(build \"x\")",
+        expect: None,
+    },
+    Case {
+        name: "`fn` is a lambda alias",
+        src: "(display (fn (acc t) (list acc t)))",
+        expect: None,
+    },
+    Case {
+        name: "`catch` binds its parameter list like a lambda",
+        src: "(display (catch (e) (display e)))",
+        expect: None,
+    },
+    // …and the rule must still SEE inside all of those.
+    Case {
+        name: "unbound inside a defmacro body still reports",
+        src: "(defmacro arrow (x) (bogus-helper x))",
+        expect: Some("bogus-helper"),
+    },
+    Case {
+        name: "unbound inside an fn body still reports",
+        src: "(display (fn (p) (nope p)))",
+        expect: Some("nope"),
+    },
     // ── conservatism ──────────────────────────────────────────────────
     Case {
         name: "keywords are not references",

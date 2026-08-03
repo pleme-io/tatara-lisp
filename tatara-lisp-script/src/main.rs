@@ -93,7 +93,7 @@ fn print_help() {
            tatara-script <path-or-url> [arg ...]      run a script\n  \
            tatara-script --test <path-or-url>          collect + run (deftest …) forms\n  \
            tatara-script lint [path ...]               semantic lint (.tlisp); no paths = walk cwd\n  \
-           tatara-script lint --unbound <path>         + flag symbols nothing binds (opt-in; see note)\n  \
+           tatara-script lint --no-unbound <path>      skip the unbound-symbol rule\n  \
            tatara-script lint --shapes                 print the unbound-symbol shape catalog\n  \
            tatara-script --repl                        interactive read-eval-print loop\n  \
            tatara-script --help                        this banner\n\
@@ -206,7 +206,9 @@ fn install_canonical_loader(interp: &mut Interpreter<ScriptCtx>, script_path: &P
 /// warning-only pass.
 fn run_lint(args: &[String]) -> ExitCode {
     let warn_only = args.iter().any(|a| a == "--warn");
-    let check_unbound = args.iter().any(|a| a == "--unbound");
+    // DEFAULT-ON since 2026-08-03. `--unbound` is still accepted (no-op) so
+    // existing invocations keep working; `--no-unbound` opts out.
+    let check_unbound = !args.iter().any(|a| a == "--no-unbound");
 
     // Reflect the unbound-symbol shape catalog. GENERATED from the catalog
     // itself, so the documented coverage cannot drift from the implemented
@@ -257,26 +259,15 @@ fn run_lint(args: &[String]) -> ExitCode {
     // `core.hooksPath` — where one unbound symbol blocks every commit in every
     // repo on the machine, including the commit that would fix it.
     //
-    // ★ STILL OPT-IN (`--unbound`), and the reason is now a MEASURED FLOOR
-    // rather than a to-do list. Fleet sweep over 27 `.tlisp` files: 422 → 87
-    // after handling the `defmacro` three-part shape, lambda-list keywords,
-    // generic `def…` heads, the `fn` / `λ` aliases and `catch`.
-    //
-    // The residual 87 are one irreducible class: binding forms that are
-    // themselves user macros (`dolist`, `when-let`, `if-let`, `with-gensyms`)
-    // and macro-DSL data symbols (`:losses nothing`). Which forms bind is decided
-    // by a `defmacro` that may live in another file, so no syntactic rule can
-    // know. Enumerating more heads here would not close it — the set is open by
-    // construction.
-    //
-    // The fix is to run the rule over MACRO-EXPANDED forms
-    // (`Interpreter::fully_expand`, already used by the runtime, so the expansion
-    // is authoritative rather than a second guess). That is what would let this
-    // go default-on. Until then, default-on would flood every existing script and
-    // train operators to ignore lint output — strictly worse than no rule, since
-    // it still costs a run. Opt-in keeps it useful for its motivating case
-    // (pre-flighting a standalone hook: FP-clean, verified against the live
-    // `commit-msg` hook) without that cost.
+    // ★ DEFAULT-ON, earned by measurement: fleet false positives went
+    // 422 → 87 → 0 across 27 `.tlisp` files in tatara-lisp + nix + substrate.
+    //   422 → 87  handling the `defmacro` three-part shape, lambda-list
+    //             keywords, generic `def…` heads, `fn`/`λ` aliases, `catch`,
+    //             and a real `letrec` scoping bug.
+    //    87 → 0   macro EXPANSION below (which alone took tatara-lisp 26 → 0),
+    //             plus `lint:allow-file` on the two files in the fleet that are
+    //             genuinely not self-contained.
+    // Opt out per-run with `--no-unbound`.
     if check_unbound {
         let mut interp: Interpreter<ScriptCtx> = Interpreter::new();
         let mut ctx = ScriptCtx::with_argv(Vec::<String>::new());
@@ -312,7 +303,57 @@ fn run_lint(args: &[String]) -> ExitCode {
             }
         };
         scanned += 1;
-        match tatara_lisp_lint::lint_source(&src, &rules) {
+
+        // MACRO-EXPAND BEFORE LINTING when the unbound-symbol rule is on.
+        //
+        // Two of that rule's three unresolved shapes are undecidable on raw
+        // source and simply vanish after expansion: binding forms that are
+        // themselves macros (`dolist`, `when-let`, `with-gensyms`) and macro-DSL
+        // data (`:losses nothing`). Expanding with the REAL expander is the same
+        // "ask the interpreter, don't reimplement it" move the rule already makes
+        // for primitives — one level up.
+        //
+        // ★ ZERO EVALUATION. Macros are registered via
+        // `expander_mut().try_register_macro(form)`, which stores a template and
+        // runs nothing. Linting must never execute the file it is linting — a
+        // top-level `(exec …)` or `(write-file …)` would fire just because
+        // someone ran `lint`. `eval_top_form` would also have registered them,
+        // but it evaluates everything else, so it is the wrong tool here.
+        //
+        // Best-effort by design: a form that fails to expand is linted in its
+        // original shape rather than dropped, so expansion can only ever improve
+        // the result. `src` stays the ORIGINAL text — spans map back to it for
+        // line/column and `lint:allow` suppression.
+        let forms = if check_unbound {
+            match read_spanned(&src) {
+                Ok(parsed) => {
+                    let mut interp: Interpreter<ScriptCtx> = Interpreter::new();
+                    let mut ctx = ScriptCtx::with_argv(Vec::<String>::new());
+                    install_stdlib(&mut interp, &mut ctx);
+                    install_canonical_loader(&mut interp, file);
+                    for form in &parsed {
+                        let _ = interp.expander_mut().try_register_macro(form);
+                    }
+                    Some(
+                        parsed
+                            .iter()
+                            .map(|f| interp.fully_expand(f, &mut ctx).unwrap_or_else(|_| f.clone()))
+                            .collect::<Vec<_>>(),
+                    )
+                }
+                // Unparseable: fall through to lint_source, which reports the
+                // parse error properly rather than swallowing it here.
+                Err(_) => None,
+            }
+        } else {
+            None
+        };
+
+        let result = match &forms {
+            Some(expanded) => tatara_lisp_lint::lint_forms(expanded, &src, &rules),
+            None => tatara_lisp_lint::lint_source(&src, &rules),
+        };
+        match result {
             Ok(found) => {
                 for v in found {
                     violations += 1;

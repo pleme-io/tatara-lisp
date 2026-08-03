@@ -126,6 +126,11 @@ pub enum Prescription {
     /// Cannot be resolved syntactically. The rule deliberately reports NOTHING
     /// for the whole program rather than guessing.
     Abstain,
+    /// The RULE ALONE reports here; the CALLER dissolves it by macro-expanding
+    /// before linting (`tatara-script lint` does). Split from `Binds` because the
+    /// distinction is real and load-bearing: an embedder calling `lint_source` on
+    /// raw text still sees these, so the honest answer depends on who is asking.
+    ResolvedByCallerExpansion,
     /// Known to produce FALSE POSITIVES today. Recorded so the limit is a row in
     /// a table rather than folklore, and pinned by a characterization test so a
     /// future fix visibly flips it.
@@ -226,26 +231,26 @@ pub const SHAPES: &[Shape] = &[
     Shape {
         name: "macro-binding-form",
         heads: &[],
-        prescription: Prescription::UnresolvedFalsePositive,
+        prescription: Prescription::ResolvedByCallerExpansion,
         example: "(dolist (entry xs) ...) / (when-let (f e) ...) / (with-gensyms (loop) ...)",
-        note: "FALSE POSITIVES TODAY (the bulk of the residual 87 in the fleet sweep). These forms BIND, but which forms bind is decided by a `defmacro` that may live in another file — unknowable syntactically. Fix: run the rule over macro-EXPANDED forms via `Interpreter::fully_expand`, which the runtime already uses, making the expansion authoritative rather than a second guess. Enumerating more heads here cannot close it; the set is open by construction.",
-        covered_by: "LIMITATION macro-binding-form: dolist's binding reports",
+        note: "RESOLVED BY THE CALLER, not by this crate. These forms bind, but which forms bind is decided by a `defmacro` — unknowable syntactically. `tatara-script lint` therefore macro-EXPANDS (Interpreter::fully_expand, registering macros with ZERO evaluation) before calling `lint_forms`, and the shape disappears. Measured: that alone took tatara-lisp 26 -> 0. A caller using `lint_source` on raw text still sees these; the characterization case pins that.",
+        covered_by: "RULE-ALONE macro-binding-form: dolist reports without caller expansion",
     },
     Shape {
         name: "macro-dsl-data",
         heads: &[],
-        prescription: Prescription::UnresolvedFalsePositive,
+        prescription: Prescription::ResolvedByCallerExpansion,
         example: "(defreversal decouple :losses nothing)",
-        note: "FALSE POSITIVES TODAY. `nothing` is a symbolic constant the macro consumes and never evaluates — indistinguishable from a reference without knowing the macro. Same fix as macro-binding-form: expand first.",
-        covered_by: "LIMITATION macro-dsl-data: a DSL constant reports",
+        note: "RESOLVED BY THE CALLER, same mechanism as macro-binding-form: once the macro is expanded, its keyword-argument constants are no longer read as references. Only holds when the defmacro is IN THE FILE; a DSL supplied by a driver is the non-self-contained row below.",
+        covered_by: "RULE-ALONE macro-dsl-data: a DSL constant reports without caller expansion",
     },
     Shape {
-        name: "concatenated-fragment",
+        name: "non-self-contained-file",
         heads: &[],
-        prescription: Prescription::UnresolvedFalsePositive,
-        example: "substrate's aferir.test.tlisp, run as `cat aferir.tlisp aferir.test.tlisp > t.tlisp`",
-        note: "FALSE POSITIVES TODAY, and NOT a macro problem: the file genuinely does not bind its own helpers, so the reports are correct about the file and useless about the program. Unfixable by expansion — it needs a file-wide suppression, which does not exist today (`lint:allow` is per-line).",
-        covered_by: "LIMITATION concatenated-fragment: a fragment's own helper reports",
+        prescription: Prescription::Abstain,
+        example: "substrate's aferir.test.tlisp (concatenated before running); nix's pkgs/tebiki/runbooks/*.tlisp (DSL macros supplied by the driver, zero defmacro in-file)",
+        note: "The ONE class expansion cannot reach: the file genuinely does not bind its own names, so nothing is there to register. Reports are correct about the FILE and useless about the PROGRAM. Handled by `;; lint:allow-file unbound-symbol <reason>` in the header (first 20 lines) — one honest line instead of dozens of per-line comments that rot. Exactly two files in the fleet needed it.",
+        covered_by: "file-wide suppression silences a non-self-contained file",
     },
 ];
 
@@ -261,6 +266,7 @@ impl Prescription {
             Prescription::Data => "data         (not walked)",
             Prescription::DataWithHoles => "data+holes   (only unquoted parts walked)",
             Prescription::Abstain => "abstain      (whole program skipped)",
+            Prescription::ResolvedByCallerExpansion => "expand-first (caller macro-expands; rule alone reports)",
             Prescription::UnresolvedFalsePositive => "UNRESOLVED   (false positives today)",
         }
     }

@@ -76,6 +76,32 @@ pub fn lint_source(src: &str, rules: &[Box<dyn Rule>]) -> Result<Vec<Violation>,
     Ok(out)
 }
 
+/// Run every rule over forms the CALLER has already parsed (and possibly
+/// transformed), rather than re-parsing `src`.
+///
+/// Exists so the binary can macro-EXPAND before linting. Several shapes are
+/// undecidable on raw source — `(dolist (entry xs) …)` binds `entry`, but which
+/// forms bind is decided by a `defmacro` that may live anywhere — and they
+/// simply disappear once the macro is expanded. `src` is still required: rules
+/// map spans back to it for line/column and read `lint:allow` suppressions, so
+/// it must be the ORIGINAL text even when `forms` are expanded.
+///
+/// # Errors
+/// Never returns `Err` today; the signature matches [`lint_source`] so callers
+/// can swap one for the other.
+pub fn lint_forms(
+    forms: &[Spanned],
+    src: &str,
+    rules: &[Box<dyn Rule>],
+) -> Result<Vec<Violation>, String> {
+    let mut out = Vec::new();
+    for rule in rules {
+        out.extend(rule.check(forms, src));
+    }
+    out.sort_by(|a, b| (a.line, a.col).cmp(&(b.line, b.col)));
+    Ok(out)
+}
+
 /// Map a byte offset into `src` to a 1-based `(line, col)`.
 #[must_use]
 pub fn line_col(src: &str, byte: usize) -> (usize, usize) {
@@ -100,6 +126,9 @@ pub fn line_col(src: &str, byte: usize) -> (usize, usize) {
 /// carries an inline `lint:allow <rule>` suppression for `rule`.
 #[must_use]
 pub fn suppressed(src: &str, byte: usize, rule: &str) -> bool {
+    if suppressed_file_wide(src, rule) {
+        return true;
+    }
     let (line, _) = line_col(src, byte);
     let mut needle = String::from("lint:allow ");
     needle.push_str(rule);
@@ -107,6 +136,30 @@ pub fn suppressed(src: &str, byte: usize, rule: &str) -> bool {
         let n = idx + 1;
         (n == line || n + 1 == line) && text.contains(&needle)
     })
+}
+
+/// Whole-file suppression: `;; lint:allow-file <rule> <reason>` in the header.
+///
+/// Per-line suppression cannot express "this FILE is not self-contained", which
+/// is the one remaining class of `unbound-symbol` false positives after macro
+/// expansion. Two real shapes, both measured 2026-08-02:
+///   * a fragment meant to be CONCATENATED before running (substrate's
+///     `aferir.test.tlisp`: `cat aferir.tlisp aferir.test.tlisp > t.tlisp`);
+///   * a DSL whose macros are supplied by the DRIVER, not the file (nix's
+///     `pkgs/tebiki/runbooks/*.tlisp` — `defreversal` and friends, zero
+///     `defmacro` in-file, so nothing can register them).
+/// Both are CORRECT about the file and useless about the program. Annotating
+/// them per-line would mean dozens of comments that rot; one header line says
+/// the true thing once.
+///
+/// Deliberately confined to the HEADER — the first 20 lines, before any code —
+/// so it reads as a property of the file rather than something buried mid-way
+/// that silently disables a rule for everything below it.
+#[must_use]
+pub fn suppressed_file_wide(src: &str, rule: &str) -> bool {
+    let mut needle = String::from("lint:allow-file ");
+    needle.push_str(rule);
+    src.lines().take(20).any(|text| text.contains(&needle))
 }
 
 /// Head symbol of a list form, if its first element is a plain symbol.

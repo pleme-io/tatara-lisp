@@ -246,19 +246,24 @@ const CASES: &[Case] = &[
     // these tests FAIL, which is the signal to flip the row to Binds/Data. A
     // limitation with no test is folklore.
     Case {
-        name: "LIMITATION macro-binding-form: dolist's binding reports",
+        name: "RULE-ALONE macro-binding-form: dolist reports without caller expansion",
         src: "(dolist (entry (list 1)) (display entry))",
         expect: Some("entry"),
     },
     Case {
-        name: "LIMITATION macro-dsl-data: a DSL constant reports",
+        name: "RULE-ALONE macro-dsl-data: a DSL constant reports without caller expansion",
         src: "(defreversal decouple :losses nothing)",
         expect: Some("nothing"),
     },
     Case {
-        name: "LIMITATION concatenated-fragment: a fragment's own helper reports",
-        src: "(display (helper-from-the-other-half 1))",
-        expect: Some("helper-from-the-other-half"),
+        name: "file-wide suppression silences a non-self-contained file",
+        src: ";;; frag.tlisp — concatenated with its other half before running.\n;; lint:allow-file unbound-symbol fragment; helpers come from the other half\n(display (helper-from-elsewhere 1))\n(display (another-one 2))",
+        expect: None,
+    },
+    Case {
+        name: "file-wide suppression must be in the HEADER, not buried mid-file",
+        src: ";; filler\n;; filler\n;; filler\n;; filler\n;; filler\n;; filler\n;; filler\n;; filler\n;; filler\n;; filler\n;; filler\n;; filler\n;; filler\n;; filler\n;; filler\n;; filler\n;; filler\n;; filler\n;; filler\n;; filler\n;; filler\n;; lint:allow-file unbound-symbol buried, must NOT count\n(display (still-reported 1))",
+        expect: Some("still-reported"),
     },
     Case {
         name: "suppression comment silences a deliberate case",
@@ -272,13 +277,14 @@ fn matrix() {
     for case in CASES {
         let found = violations(case.src);
         match case.expect {
-            // A LIMITATION case characterizes a known false positive. Those
+            // A RULE-ALONE case characterizes what the rule reports WITHOUT the
+            // caller's macro expansion. Those
             // cascade by nature — an unmodelled binding form reports its head AND
             // every use of the name it should have bound — so the assertion is
             // "at least one, naming the symbol". Pinning an exact count here
             // would make the test brittle against unrelated improvements while
             // proving nothing extra.
-            Some(sym) if case.name.starts_with("LIMITATION") => {
+            Some(sym) if case.name.starts_with("RULE-ALONE") => {
                 assert!(
                     found.iter().any(|m| m.contains(sym)),
                     "case `{}`: expected a violation naming `{sym}` (characterizing today's \
@@ -362,26 +368,35 @@ fn every_shape_has_a_matrix_case() {
 /// loudly instead of passing silently. A limitation with no failing signal is
 /// folklore.
 #[test]
-fn unresolved_rows_are_characterized_not_merely_described() {
-    for shape in SHAPES
+fn caller_dependent_and_unresolved_rows_are_characterized() {
+    // A row that admits the rule alone reports — whether because a caller must
+    // expand first, or because it is an outright false positive — must be pinned
+    // by a POSITIVE case. Otherwise the admission is prose, and the day it stops
+    // being true nothing tells us.
+    let admitting: Vec<&rules::Shape> = SHAPES
         .iter()
-        .filter(|s| s.prescription == Prescription::UnresolvedFalsePositive)
-    {
+        .filter(|s| {
+            matches!(
+                s.prescription,
+                Prescription::ResolvedByCallerExpansion | Prescription::UnresolvedFalsePositive
+            )
+        })
+        .collect();
+    assert!(
+        !admitting.is_empty(),
+        "no row admits rule-alone reporting; if that became true, delete this test deliberately \
+         rather than letting it pass vacuously"
+    );
+    for shape in admitting {
         let case = CASES
             .iter()
             .find(|c| c.name == shape.covered_by)
             .expect("covered_by exists (see every_shape_has_a_matrix_case)");
         assert!(
             case.expect.is_some(),
-            "catalog row `{}` is UnresolvedFalsePositive, so its case {:?} must assert the \
-             CURRENT (wrong) report — otherwise fixing the limitation changes nothing visible",
+            "row `{}` admits the rule alone reports, so its case {:?} must assert that report",
             shape.name,
             shape.covered_by
-        );
-        assert!(
-            !shape.note.is_empty() && shape.note.contains("FALSE POSITIVES"),
-            "row `{}` must say plainly in its note that it produces false positives today",
-            shape.name
         );
     }
 }

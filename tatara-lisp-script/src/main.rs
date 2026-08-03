@@ -93,6 +93,7 @@ fn print_help() {
            tatara-script <path-or-url> [arg ...]      run a script\n  \
            tatara-script --test <path-or-url>          collect + run (deftest …) forms\n  \
            tatara-script lint [path ...]               semantic lint (.tlisp); no paths = walk cwd\n  \
+           tatara-script lint --unbound <path>         + flag symbols nothing binds (opt-in; see note)\n  \
            tatara-script --repl                        interactive read-eval-print loop\n  \
            tatara-script --help                        this banner\n\
          \n\
@@ -143,6 +144,29 @@ fn resolve_input(input: &str) -> Result<(String, PathBuf), String> {
     Ok((text, pseudo))
 }
 
+/// Drop a Unix shebang line so `.tlisp` files can be marked executable and
+/// invoked directly (`./script.tlisp`, or as a git hook). The line is REPLACED
+/// with an empty one rather than removed, so every subsequent line number still
+/// matches the original file.
+///
+/// Shared by the run path and the lint path deliberately. It used to live only
+/// in the runner, which meant `lint` parsed `#!/usr/bin/env tatara-script` as
+/// two ordinary symbols. No rule noticed until `unbound-symbol` landed and
+/// reported both as unbound on the real deployed `commit-msg` hook — a false
+/// positive on the single most important shape tlisp ships in. Any future rule
+/// would have inherited the same bug from the same missing call, so the fix
+/// belongs here, once, rather than as a shebang special-case inside a rule.
+fn strip_shebang(raw: String) -> String {
+    if !raw.starts_with("#!") {
+        return raw;
+    }
+    let newline = raw.find('\n').map_or(raw.len(), |i| i + 1);
+    let mut s = String::with_capacity(raw.len());
+    s.push('\n');
+    s.push_str(&raw[newline..]);
+    s
+}
+
 fn dirs_cache_root() -> PathBuf {
     if let Ok(s) = std::env::var("XDG_CACHE_HOME") {
         return PathBuf::from(s);
@@ -181,6 +205,7 @@ fn install_canonical_loader(interp: &mut Interpreter<ScriptCtx>, script_path: &P
 /// warning-only pass.
 fn run_lint(args: &[String]) -> ExitCode {
     let warn_only = args.iter().any(|a| a == "--warn");
+    let check_unbound = args.iter().any(|a| a == "--unbound");
     let explicit: Vec<PathBuf> = args
         .iter()
         .filter(|a| !a.starts_with("--"))
@@ -205,14 +230,68 @@ fn run_lint(args: &[String]) -> ExitCode {
     files.sort();
     files.dedup();
 
-    let rules = tatara_lisp_lint::default_rules();
+    let mut rules = tatara_lisp_lint::default_rules();
+
+    // `unbound-symbol` is appended here rather than living in `default_rules()`
+    // because it needs THIS binary's actual environment, and the only honest
+    // source for that is a real interpreter with the real stdlib installed —
+    // the same `install_stdlib` a script run uses. A table of primitive names
+    // kept inside the lint crate would drift the first time a primitive landed,
+    // which is the failure shape this repo already paid for once with the
+    // Co-Authored-By / Claude-Session trailer pair.
+    //
+    // Closes a measured gap (2026-08-02): a script calling the nonexistent
+    // `string-downcase` linted as "0 violations, 0 parse errors" and failed only
+    // at runtime. That matters most for the hook shape — the tatara-script
+    // `commit-msg` hook that `blackmatter.components.gitconfig` installs via
+    // `core.hooksPath` — where one unbound symbol blocks every commit in every
+    // repo on the machine, including the commit that would fix it.
+    //
+    // ★ OPT-IN (`--unbound`), NOT DEFAULT-ON, and the reason is measured rather
+    // than cautious: enabled across the existing fleet it reported 422
+    // violations over 27 `.tlisp` files, essentially all FALSE POSITIVES. Three
+    // known causes, none yet handled:
+    //   1. `(defmacro name (params) body…)` — the three-part shape. The rule
+    //      only understands `define`'s two shapes, so every macro parameter
+    //      (`name`, `body`, `binding`, `x`, …) reads as unbound. This is the
+    //      bulk of the noise.
+    //   2. lambda-list keywords — `&rest` is not a binding.
+    //   3. macro- and driver-level heads (`deftest`, `defreversal`, `defphase`,
+    //      `aferir`) are absent from `reserved_head_names()`, so the head itself
+    //      reports.
+    // Until those are fixed, default-on would flood every existing script and
+    // train operators to ignore lint output — strictly worse than no rule, since
+    // it still costs a run. Opt-in makes the rule immediately useful for its
+    // motivating case (pre-flighting a standalone hook, which is FP-clean today:
+    // verified against the live `commit-msg` hook) without that cost.
+    if check_unbound {
+        let mut interp: Interpreter<ScriptCtx> = Interpreter::new();
+        let mut ctx = ScriptCtx::with_argv(Vec::<String>::new());
+        install_stdlib(&mut interp, &mut ctx);
+        let mut known: Vec<String> = interp
+            .reserved_head_names()
+            .iter()
+            .map(|n| n.to_string())
+            .collect();
+        known.extend(
+            interp
+                .globals_snapshot()
+                .iter_top_level()
+                .into_iter()
+                .map(|(name, _)| name.to_string()),
+        );
+        rules.push(Box::new(tatara_lisp_lint::rules::unbound_symbol(known)));
+    }
+
     let mut violations = 0usize;
     let mut errors = 0usize;
     let mut scanned = 0usize;
 
     for file in &files {
         let src = match std::fs::read_to_string(file) {
-            Ok(s) => s,
+            // Same shebang handling as the run path — an executable hook or
+            // script must lint as the interpreter will actually see it.
+            Ok(s) => strip_shebang(s),
             Err(e) => {
                 eprintln!("tatara-script lint: read {}: {e}", file.display());
                 errors += 1;
@@ -291,20 +370,7 @@ fn run_script(script_path: &str, rest: Vec<String>) -> ExitCode {
     install_canonical_loader(&mut interp, &path);
     ctx.current_file = Some(path.clone());
 
-    // Allow Unix shebang on the first line so `.tlisp` files can be
-    // marked executable and invoked directly (`./script.tlisp`).
-    // Skip the first line iff it starts with `#!`; replace it with an
-    // empty line so subsequent line numbers in parse-error messages
-    // stay aligned with the original file.
-    let src = if raw_src.starts_with("#!") {
-        let newline = raw_src.find('\n').map_or(raw_src.len(), |i| i + 1);
-        let mut s = String::with_capacity(raw_src.len());
-        s.push('\n');
-        s.push_str(&raw_src[newline..]);
-        s
-    } else {
-        raw_src
-    };
+    let src = strip_shebang(raw_src);
 
     let forms = match read_spanned(&src) {
         Ok(f) => f,

@@ -12,4 +12,7 @@ pub use mutation_discard::{
 // interpreter environment injected (see `unbound_symbol`'s module docs — the
 // source of truth must be the live interpreter, never a table in this crate),
 // and `default_rules()` takes no arguments. The binary constructs it.
-pub use unbound_symbol::{unbound_symbol, UnboundSymbol};
+pub use unbound_symbol::{
+    CatalogListing, special_cased_heads, unbound_symbol, Prescription, Shape, UnboundSymbol,
+    SHAPES,
+};

@@ -7,6 +7,7 @@
 //! `matrix_has_both_polarities` below: a table that drifted to all-clean would
 //! silently stop proving the rule detects anything.
 
+use tatara_lisp_lint::rules::{Prescription, SHAPES};
 use tatara_lisp_lint::{lint_source, rules, Rule};
 
 /// A stand-in for the interpreter-injected environment. The real caller passes
@@ -178,6 +179,87 @@ const CASES: &[Case] = &[
         src: "(cond (#t (display 1)) (else (display 2)))",
         expect: None,
     },
+    // ── deeper nesting / interaction between shapes ───────────────────
+    Case {
+        name: "lambda nested inside a let sees both scopes",
+        src: "(let ((a 1)) (display (fn (b) (list a b))))",
+        expect: None,
+    },
+    Case {
+        name: "define inside a lambda body binds locally",
+        src: "(display (fn (x) (define y x)))",
+        expect: None,
+    },
+    Case {
+        name: "a let binding may shadow a primitive name",
+        src: "(let ((car 1)) (display car))",
+        expect: None,
+    },
+    Case {
+        name: "nested quasiquote holes are still walked",
+        src: "(define q 1)\n(display `(a `(b ,q)))",
+        expect: None,
+    },
+    Case {
+        name: "quoted data inside a quasiquote hole stays data",
+        src: "(display `(a ,'(untouched-symbol)))",
+        expect: None,
+    },
+    Case {
+        name: "letrec mutual recursion is legal",
+        src: "(letrec ((ping (fn () (pong))) (pong (fn () (ping)))) (ping))",
+        expect: None,
+    },
+    Case {
+        name: "letrec self-reference is legal",
+        src: "(letrec ((f (fn () (f)))) (f))",
+        expect: None,
+    },
+    Case {
+        name: "symbols inside a string literal are not references",
+        src: "(display \"(nope not-a-symbol)\")",
+        expect: None,
+    },
+    Case {
+        name: "empty program yields nothing",
+        src: "",
+        expect: None,
+    },
+    Case {
+        name: "comment-only program yields nothing",
+        src: ";; just a comment\n",
+        expect: None,
+    },
+    Case {
+        name: "deeply nested unbound is still found",
+        src: "(let ((a 1)) (display (fn (b) (let ((c 2)) (deep-nope a b c)))))",
+        expect: Some("deep-nope"),
+    },
+    Case {
+        name: "suppression on the PRECEDING line works",
+        src: ";; lint:allow unbound-symbol host provides it\n(host-thing)",
+        expect: None,
+    },
+    // ── CHARACTERIZATION of the catalog's UnresolvedFalsePositive rows ────
+    // These pin CURRENT WRONG behaviour on purpose. Each is a known false
+    // positive with its fix recorded in the catalog; when macro expansion lands,
+    // these tests FAIL, which is the signal to flip the row to Binds/Data. A
+    // limitation with no test is folklore.
+    Case {
+        name: "LIMITATION macro-binding-form: dolist's binding reports",
+        src: "(dolist (entry (list 1)) (display entry))",
+        expect: Some("entry"),
+    },
+    Case {
+        name: "LIMITATION macro-dsl-data: a DSL constant reports",
+        src: "(defreversal decouple :losses nothing)",
+        expect: Some("nothing"),
+    },
+    Case {
+        name: "LIMITATION concatenated-fragment: a fragment's own helper reports",
+        src: "(display (helper-from-the-other-half 1))",
+        expect: Some("helper-from-the-other-half"),
+    },
     Case {
         name: "suppression comment silences a deliberate case",
         src: ";; lint:allow unbound-symbol provided by the host at runtime\n(host-injected)",
@@ -190,6 +272,20 @@ fn matrix() {
     for case in CASES {
         let found = violations(case.src);
         match case.expect {
+            // A LIMITATION case characterizes a known false positive. Those
+            // cascade by nature — an unmodelled binding form reports its head AND
+            // every use of the name it should have bound — so the assertion is
+            // "at least one, naming the symbol". Pinning an exact count here
+            // would make the test brittle against unrelated improvements while
+            // proving nothing extra.
+            Some(sym) if case.name.starts_with("LIMITATION") => {
+                assert!(
+                    found.iter().any(|m| m.contains(sym)),
+                    "case `{}`: expected a violation naming `{sym}` (characterizing today's \
+                     false positive), got {found:?}",
+                    case.name
+                );
+            }
             Some(sym) => {
                 assert_eq!(
                     found.len(),
@@ -220,6 +316,117 @@ fn matrix() {
 fn matrix_has_both_polarities() {
     assert!(CASES.iter().any(|c| c.expect.is_some()), "no positive case");
     assert!(CASES.iter().any(|c| c.expect.is_none()), "no negative case");
+}
+
+// ── CATALOG COHERENCE ────────────────────────────────────────────────────────
+// The shape catalog is only worth having if it cannot drift from the walker or
+// from the evidence. These three tests are what make it binding rather than
+// decorative — the "a variant cannot land without a row" property.
+
+/// Every head the walker special-cases must appear in exactly one catalog row.
+/// Adding a head to a match arm without cataloguing it fails here.
+#[test]
+fn catalog_covers_every_special_cased_head() {
+    for head in rules::special_cased_heads() {
+        let rows: Vec<&str> = SHAPES
+            .iter()
+            .filter(|s| s.heads.contains(&head))
+            .map(|s| s.name)
+            .collect();
+        assert_eq!(
+            rows.len(),
+            1,
+            "head `{head}` is special-cased by the walker but appears in {} catalog rows ({rows:?}); \
+             every head belongs to exactly one shape",
+            rows.len()
+        );
+    }
+}
+
+/// Every catalog row must name a matrix case that actually exists — so a shape
+/// cannot be catalogued without evidence, and a renamed case cannot orphan a row.
+#[test]
+fn every_shape_has_a_matrix_case() {
+    for shape in SHAPES {
+        assert!(
+            CASES.iter().any(|c| c.name == shape.covered_by),
+            "catalog row `{}` cites matrix case {:?}, which does not exist",
+            shape.name,
+            shape.covered_by
+        );
+    }
+}
+
+/// A row admitting a false positive must be pinned by a POSITIVE case — the
+/// wrong behaviour is characterized, so the eventual fix makes a test fail
+/// loudly instead of passing silently. A limitation with no failing signal is
+/// folklore.
+#[test]
+fn unresolved_rows_are_characterized_not_merely_described() {
+    for shape in SHAPES
+        .iter()
+        .filter(|s| s.prescription == Prescription::UnresolvedFalsePositive)
+    {
+        let case = CASES
+            .iter()
+            .find(|c| c.name == shape.covered_by)
+            .expect("covered_by exists (see every_shape_has_a_matrix_case)");
+        assert!(
+            case.expect.is_some(),
+            "catalog row `{}` is UnresolvedFalsePositive, so its case {:?} must assert the \
+             CURRENT (wrong) report — otherwise fixing the limitation changes nothing visible",
+            shape.name,
+            shape.covered_by
+        );
+        assert!(
+            !shape.note.is_empty() && shape.note.contains("FALSE POSITIVES"),
+            "row `{}` must say plainly in its note that it produces false positives today",
+            shape.name
+        );
+    }
+}
+
+/// The generated listing must show EVERY catalog row. A reflection surface that
+/// silently omits a row is worse than none: it reads as complete coverage.
+#[test]
+fn catalog_listing_shows_every_row() {
+    let listing = rules::CatalogListing.to_string();
+    for shape in SHAPES {
+        assert!(
+            listing.contains(shape.name),
+            "generated listing omits catalog row `{}`",
+            shape.name
+        );
+        assert!(
+            listing.contains(shape.example),
+            "generated listing omits the example for `{}`",
+            shape.name
+        );
+    }
+    assert!(
+        listing.contains("shapes catalogued"),
+        "listing must state its own totals so a reader knows the denominator"
+    );
+}
+
+/// TYPED EMISSION: no `format!()` in this crate's code. The rule's first draft
+/// introduced eight, in a crate that had zero — so the ban is asserted rather
+/// than trusted to review. Doc comments may still *name* it.
+#[test]
+fn no_format_macro_in_crate_code() {
+    for entry in ["src/rules/unbound_symbol.rs", "src/rules/mutation_discard.rs", "src/lib.rs"] {
+        let src = std::fs::read_to_string(entry).expect("source readable");
+        for (n, line) in src.lines().enumerate() {
+            let trimmed = line.trim_start();
+            let is_doc = trimmed.starts_with("///") || trimmed.starts_with("//!") || trimmed.starts_with("//");
+            assert!(
+                is_doc || !line.contains("format!"),
+                "{entry}:{}: `format!()` is banned for emitted strings — build the text with \
+                 String::from + push_str, or implement Display and use write!/writeln!",
+                n + 1
+            );
+        }
+    }
 }
 
 /// The rule must not depend on a hardcoded primitive table: with an EMPTY

@@ -94,6 +94,7 @@ fn print_help() {
            tatara-script --test <path-or-url>          collect + run (deftest …) forms\n  \
            tatara-script lint [path ...]               semantic lint (.tlisp); no paths = walk cwd\n  \
            tatara-script lint --unbound <path>         + flag symbols nothing binds (opt-in; see note)\n  \
+           tatara-script lint --shapes                 print the unbound-symbol shape catalog\n  \
            tatara-script --repl                        interactive read-eval-print loop\n  \
            tatara-script --help                        this banner\n\
          \n\
@@ -206,6 +207,15 @@ fn install_canonical_loader(interp: &mut Interpreter<ScriptCtx>, script_path: &P
 fn run_lint(args: &[String]) -> ExitCode {
     let warn_only = args.iter().any(|a| a == "--warn");
     let check_unbound = args.iter().any(|a| a == "--unbound");
+
+    // Reflect the unbound-symbol shape catalog. GENERATED from the catalog
+    // itself, so the documented coverage cannot drift from the implemented
+    // coverage — the alternative is a hand-written list in the help text that
+    // goes stale the first time a shape is added.
+    if args.iter().any(|a| a == "--shapes") {
+        print!("{}", tatara_lisp_lint::rules::CatalogListing);
+        return ExitCode::SUCCESS;
+    }
     let explicit: Vec<PathBuf> = args
         .iter()
         .filter(|a| !a.starts_with("--"))

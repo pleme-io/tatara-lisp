@@ -72,10 +72,257 @@
 //! the program. There is no file-wide suppression today.
 
 use std::collections::BTreeSet;
+use std::fmt;
 
 use tatara_lisp::{Atom, Spanned, SpannedForm};
 
 use crate::{head_symbol, line_col, suppressed, Rule, Violation};
+
+// ── THE SHAPE CATALOG ────────────────────────────────────────────────────────
+//
+// Every form shape this rule can meet, each with a PRESCRIBED handling — including
+// the shapes we cannot resolve, whose prescription is an explicit abstention
+// rather than silence. Enumerated rather than implicit so that "which shapes are
+// handled" is answerable by reading one table instead of the walker, and so a new
+// shape cannot land without a row (see `tests/unbound_symbol.rs`:
+// `catalog_covers_every_special_cased_head` and `every_shape_has_a_matrix_case`).
+//
+// The head lists below are the SINGLE SOURCE for both the walker's match arms and
+// this catalog, so an arm cannot drift from its row — the same discipline `known`
+// applies to primitives, one level up.
+
+/// `(define NAME v)` / `(define (NAME params…) body…)`. Third item is a VALUE,
+/// which is why `define` cannot share the generic `def…` arm.
+const DEFINE_HEADS: &[&str] = &["define"];
+
+/// Lambda-shaped: a parameter list (or a bare rest symbol) followed by a body.
+/// `fn` / `λ` are aliases; `catch` binds `(e)` exactly the same way.
+const LAMBDA_HEADS: &[&str] = &["lambda", "fn", "λ", "catch"];
+
+/// `((name init) …)` bindings then a body. `let` evaluates initialisers in the
+/// OUTER scope; `let*` / `letrec` see the names bound so far.
+const LET_HEADS: &[&str] = &["let", "let*", "letrec"];
+
+/// Contents are data, never references.
+const QUOTE_HEADS: &[&str] = &["quote"];
+
+/// Prefix for every other definition form — `defmacro`, plus driver and
+/// user-macro heads (`deftest`, `defphase`, `defreversal`, …). A prefix rather
+/// than a list because the set is OPEN: those heads may be defined in a file we
+/// are not looking at, or by the test driver rather than the interpreter.
+const DEF_PREFIX: &str = "def";
+
+/// What the rule does with a shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Prescription {
+    /// Head and every item are ordinary value references.
+    Application,
+    /// Introduces names; the walker tracks them so they never report.
+    Binds,
+    /// Contents are data — not walked at all.
+    Data,
+    /// Data except for evaluated holes, which are walked.
+    DataWithHoles,
+    /// Cannot be resolved syntactically. The rule deliberately reports NOTHING
+    /// for the whole program rather than guessing.
+    Abstain,
+    /// Known to produce FALSE POSITIVES today. Recorded so the limit is a row in
+    /// a table rather than folklore, and pinned by a characterization test so a
+    /// future fix visibly flips it.
+    UnresolvedFalsePositive,
+}
+
+/// One catalog row.
+pub struct Shape {
+    /// Stable identifier, also the key a matrix case cites.
+    pub name: &'static str,
+    /// Heads this row governs; empty when the row is structural (application,
+    /// quasiquote, whole-program abstention) or prefix-matched.
+    pub heads: &'static [&'static str],
+    pub prescription: Prescription,
+    pub example: &'static str,
+    /// Why this prescription — and for the unresolved rows, what would fix it.
+    pub note: &'static str,
+    /// Name of the matrix case in `tests/unbound_symbol.rs` that proves this row.
+    /// Test-enforced to exist, so a shape cannot be catalogued without evidence.
+    pub covered_by: &'static str,
+}
+
+/// The catalog. Adding a shape to the walker means adding a row here and a matrix
+/// case naming it; both are test-enforced.
+pub const SHAPES: &[Shape] = &[
+    Shape {
+        name: "application",
+        heads: &[],
+        prescription: Prescription::Application,
+        example: "(string-lowercase x)",
+        note: "The default. Head and arguments are all references; this is what makes a typo detectable at all.",
+        covered_by: "the measured 2026-08-02 miss: a primitive that does not exist",
+    },
+    Shape {
+        name: "define",
+        heads: DEFINE_HEADS,
+        prescription: Prescription::Binds,
+        example: "(define (f x) x)",
+        note: "Name into the enclosing scope, parameters into a fresh inner one. Kept separate from def* because item 3 is a value, not a parameter list.",
+        covered_by: "define function shorthand binds name AND params",
+    },
+    Shape {
+        name: "def-family",
+        heads: &[],
+        prescription: Prescription::Binds,
+        example: "(defmacro -> (x &rest steps) ...)",
+        note: "Prefix-matched on `def`. Covers defmacro's three-part shape plus driver/user-macro heads. The head is never itself reported, because lint cannot verify heads it did not see defined.",
+        covered_by: "defmacro three-part shape binds NAME and PARAMS separately",
+    },
+    Shape {
+        name: "lambda-shaped",
+        heads: LAMBDA_HEADS,
+        prescription: Prescription::Binds,
+        example: "(fn (acc t) (list acc t))",
+        note: "Parameter list or bare rest symbol, then a body. `fn`/`λ` are aliases; `catch` is the same shape.",
+        covered_by: "`fn` is a lambda alias",
+    },
+    Shape {
+        name: "let-family",
+        heads: LET_HEADS,
+        prescription: Prescription::Binds,
+        example: "(let* ((a 1) (b a)) b)",
+        note: "`let` evaluates initialisers in the outer scope — so `(let ((a a)) …)` correctly reports. `let*`/`letrec` bind incrementally.",
+        covered_by: "let* sees earlier bindings",
+    },
+    Shape {
+        name: "quote",
+        heads: QUOTE_HEADS,
+        prescription: Prescription::Data,
+        example: "'(alpha beta)",
+        note: "Symbols inside are data. Walking them would report every quoted list in the fleet.",
+        covered_by: "quoted list is data",
+    },
+    Shape {
+        name: "quasiquote",
+        heads: &[],
+        prescription: Prescription::DataWithHoles,
+        example: "`(a ,x)",
+        note: "Only unquote / unquote-splicing subtrees are evaluated, so only those are walked. This is what lets macro templates be checked without false-reporting their literal structure.",
+        covered_by: "quasiquote holes ARE evaluated",
+    },
+    Shape {
+        name: "lambda-list-keyword",
+        heads: &["&rest", "&optional", "&body", "&key", "&aux", "&whole"],
+        prescription: Prescription::Data,
+        example: "(defmacro m (x &rest ys) ...)",
+        note: "A marker inside a parameter list, never a value reference.",
+        covered_by: "&rest in a macro parameter list is not a reference",
+    },
+    Shape {
+        name: "require-program",
+        heads: &["require"],
+        prescription: Prescription::Abstain,
+        example: "(require \"m\")",
+        note: "A program with any `require` is skipped WHOLESALE: imported bindings are invisible here, so every reference to them would report. Abstaining is the honest answer; a partial guard would read like a working one.",
+        covered_by: "a program using require abstains wholesale",
+    },
+    Shape {
+        name: "macro-binding-form",
+        heads: &[],
+        prescription: Prescription::UnresolvedFalsePositive,
+        example: "(dolist (entry xs) ...) / (when-let (f e) ...) / (with-gensyms (loop) ...)",
+        note: "FALSE POSITIVES TODAY (the bulk of the residual 87 in the fleet sweep). These forms BIND, but which forms bind is decided by a `defmacro` that may live in another file — unknowable syntactically. Fix: run the rule over macro-EXPANDED forms via `Interpreter::fully_expand`, which the runtime already uses, making the expansion authoritative rather than a second guess. Enumerating more heads here cannot close it; the set is open by construction.",
+        covered_by: "LIMITATION macro-binding-form: dolist's binding reports",
+    },
+    Shape {
+        name: "macro-dsl-data",
+        heads: &[],
+        prescription: Prescription::UnresolvedFalsePositive,
+        example: "(defreversal decouple :losses nothing)",
+        note: "FALSE POSITIVES TODAY. `nothing` is a symbolic constant the macro consumes and never evaluates — indistinguishable from a reference without knowing the macro. Same fix as macro-binding-form: expand first.",
+        covered_by: "LIMITATION macro-dsl-data: a DSL constant reports",
+    },
+    Shape {
+        name: "concatenated-fragment",
+        heads: &[],
+        prescription: Prescription::UnresolvedFalsePositive,
+        example: "substrate's aferir.test.tlisp, run as `cat aferir.tlisp aferir.test.tlisp > t.tlisp`",
+        note: "FALSE POSITIVES TODAY, and NOT a macro problem: the file genuinely does not bind its own helpers, so the reports are correct about the file and useless about the program. Unfixable by expansion — it needs a file-wide suppression, which does not exist today (`lint:allow` is per-line).",
+        covered_by: "LIMITATION concatenated-fragment: a fragment's own helper reports",
+    },
+];
+
+impl Prescription {
+    /// Stable operator-facing label. Derived here so every surface that shows a
+    /// prescription — the `--shapes` listing, a future doc generator — spells it
+    /// the same way, instead of each caller inventing its own wording.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Prescription::Application => "application  (head + args are references)",
+            Prescription::Binds => "binds        (names tracked; never report)",
+            Prescription::Data => "data         (not walked)",
+            Prescription::DataWithHoles => "data+holes   (only unquoted parts walked)",
+            Prescription::Abstain => "abstain      (whole program skipped)",
+            Prescription::UnresolvedFalsePositive => "UNRESOLVED   (false positives today)",
+        }
+    }
+}
+
+/// Operator-facing listing of the shape catalog.
+///
+/// A `Display` newtype, not a `String`-building function: TYPED EMISSION bans
+/// `format!()` for emitted text, and a `Display`-family `write!()` is the
+/// sanctioned surface. (This crate had ZERO `format!` before; the first draft of
+/// this listing reintroduced eight and had to be rewritten.) It also streams
+/// straight into any formatter — stdout, or a test's `to_string()` — with no
+/// per-row allocation.
+///
+/// GENERATED, never hand-maintained: `tatara-script lint --shapes` prints this,
+/// and `catalog_listing_shows_every_row` asserts every row appears, so documented
+/// coverage cannot diverge from implemented coverage. This is the reflection half
+/// of the catalog; the coherence tests are the enforcement half.
+pub struct CatalogListing;
+
+impl fmt::Display for CatalogListing {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "unbound-symbol — form shapes and their prescribed handling")?;
+        writeln!(f)?;
+        writeln!(f, "Each row is what the rule DOES with a shape. Rows marked UNRESOLVED")?;
+        writeln!(f, "produce false positives today and say what would fix them; that is")?;
+        writeln!(f, "why the rule is opt-in (`--unbound`) rather than default-on.")?;
+        writeln!(f)?;
+        for shape in SHAPES {
+            writeln!(f, "  {}", shape.name)?;
+            writeln!(f, "    prescription : {}", shape.prescription.label())?;
+            if !shape.heads.is_empty() {
+                writeln!(f, "    heads        : {}", shape.heads.join(" "))?;
+            }
+            writeln!(f, "    example      : {}", shape.example)?;
+            writeln!(f, "    note         : {}", shape.note)?;
+            writeln!(f, "    proven by    : {}", shape.covered_by)?;
+            writeln!(f)?;
+        }
+        let unresolved = SHAPES
+            .iter()
+            .filter(|s| s.prescription == Prescription::UnresolvedFalsePositive)
+            .count();
+        writeln!(
+            f,
+            "{} shapes catalogued; {unresolved} still unresolved.",
+            SHAPES.len()
+        )
+    }
+}
+
+/// Heads the walker special-cases, drawn from the same consts the match arms
+/// use — so the catalog cannot drift from the implementation.
+#[must_use]
+pub fn special_cased_heads() -> Vec<&'static str> {
+    let mut v: Vec<&'static str> = Vec::new();
+    v.extend(DEFINE_HEADS);
+    v.extend(LAMBDA_HEADS);
+    v.extend(LET_HEADS);
+    v.extend(QUOTE_HEADS);
+    v
+}
 
 /// Syntactic heads that are never *value* references, independent of whatever
 /// the interpreter registers. Kept tiny and local: these are reader/special-form
@@ -137,7 +384,7 @@ fn binder_names(items: &[Spanned]) -> Vec<String> {
     // user-macro forms. Pass 1 uses only the FIRST name returned here, so
     // covering every definition head is what stops a top-level macro from
     // reporting at its own call sites.
-    if head_symbol(items).is_some_and(|h| h.starts_with("def")) {
+    if head_symbol(items).is_some_and(|h| h.starts_with(DEF_PREFIX)) {
         if let Some(target) = items.get(1) {
             match &target.form {
                 SpannedForm::Atom(Atom::Symbol(s)) => out.push(s.clone()),
@@ -197,6 +444,21 @@ fn uses_require(node: &Spanned) -> bool {
 }
 
 impl UnboundSymbol {
+    /// Build the violation text. `String::from` + `push_str`, matching this
+    /// crate's existing rule — TYPED EMISSION bans `format!()` for emitted
+    /// strings, and the crate had zero `format!` before this rule.
+    fn message(name: &str) -> String {
+        let mut m = String::from("`");
+        m.push_str(name);
+        m.push_str(
+            "` is not bound by the interpreter or this program. It parses fine and fails only \
+             when evaluation reaches it — check the spelling against the installed primitives \
+             (e.g. `string-lowercase`, not `string-downcase`), or define it. Suppress with \
+             `;; lint:allow unbound-symbol <reason>`.",
+        );
+        m
+    }
+
     fn resolves(&self, name: &str, scopes: &[BTreeSet<String>]) -> bool {
         self.known.contains(name)
             || SYNTAX.contains(&name)
@@ -254,9 +516,9 @@ impl UnboundSymbol {
         out: &mut Vec<(usize, String)>,
     ) {
         match head_symbol(items) {
-            Some("quote") => {}
+            Some(h) if QUOTE_HEADS.contains(&h) => {}
 
-            Some("define") => {
+            Some(h) if DEFINE_HEADS.contains(&h) => {
                 // The bound name belongs to the ENCLOSING scope; parameters to a
                 // fresh inner one. `define`'s third item is a VALUE, never a
                 // parameter list — which is exactly why it cannot share the
@@ -291,7 +553,7 @@ impl UnboundSymbol {
             // itself reported. The cost is a typo'd `def…` head going unnoticed;
             // that is the right trade, since lint cannot verify those heads
             // exist anyway.
-            Some(head) if head.starts_with("def") => {
+            Some(head) if head.starts_with(DEF_PREFIX) => {
                 let mut inner: BTreeSet<String> = BTreeSet::new();
                 match items.get(1).map(|t| &t.form) {
                     // (defmacro NAME (params…) body…)
@@ -340,7 +602,7 @@ impl UnboundSymbol {
             // large share of the residual false positives. `catch` is the same
             // SHAPE: `(catch (e) handler…)` binds its parameter list exactly like
             // a lambda does.
-            Some("lambda" | "fn" | "λ" | "catch") => {
+            Some(h) if LAMBDA_HEADS.contains(&h) => {
                 let params = match items.get(1).map(|p| &p.form) {
                     Some(SpannedForm::List(sig)) => symbol_names(sig),
                     // `(lambda rest body)` — variadic with a single rest name.
@@ -354,27 +616,46 @@ impl UnboundSymbol {
                 scopes.pop();
             }
 
-            Some(kind @ ("let" | "let*" | "letrec")) => {
+            Some(kind) if LET_HEADS.contains(&kind) => {
                 let pairs = items.get(1).map(let_binding_pairs).unwrap_or_default();
-                // `let` evaluates every initialiser in the OUTER scope; `let*`
-                // and `letrec` see the names bound so far (letrec sees all of
-                // them, which the incremental walk approximates safely — it can
-                // only ever report fewer, never more).
-                if kind == "let" {
-                    for (_, init) in &pairs {
-                        if let Some(v) = init {
-                            self.walk(v, scopes, out);
+                // THREE genuinely different scoping rules — collapsing `let*`
+                // and `letrec` together was a real false positive, not a safe
+                // approximation. An earlier version of this comment claimed the
+                // incremental walk "can only report fewer, never more"; the
+                // canonical `(letrec ((f (fn () (f)))) (f))` disproved it, and
+                // only a test found that, which is why the claim now has one.
+                match kind {
+                    // `let`: initialisers are evaluated in the OUTER scope, so a
+                    // self-reference like `(let ((a a)) …)` correctly reports.
+                    "let" => {
+                        for (_, init) in &pairs {
+                            if let Some(v) = init {
+                                self.walk(v, scopes, out);
+                            }
+                        }
+                        scopes.push(pairs.into_iter().map(|(n, _)| n).collect());
+                    }
+                    // `letrec`: EVERY name is visible in EVERY initialiser,
+                    // including its own — that is the whole point of the form
+                    // (mutual and self recursion). Bind all, then walk.
+                    "letrec" => {
+                        scopes.push(pairs.iter().map(|(n, _)| n.clone()).collect());
+                        for (_, init) in &pairs {
+                            if let Some(v) = init {
+                                self.walk(v, scopes, out);
+                            }
                         }
                     }
-                    scopes.push(pairs.into_iter().map(|(n, _)| n).collect());
-                } else {
-                    scopes.push(BTreeSet::new());
-                    for (name, init) in pairs {
-                        if let Some(v) = init {
-                            self.walk(v, scopes, out);
-                        }
-                        if let Some(scope) = scopes.last_mut() {
-                            scope.insert(name);
+                    // `let*`: each initialiser sees the names bound BEFORE it.
+                    _ => {
+                        scopes.push(BTreeSet::new());
+                        for (name, init) in pairs {
+                            if let Some(v) = init {
+                                self.walk(v, scopes, out);
+                            }
+                            if let Some(scope) = scopes.last_mut() {
+                                scope.insert(name);
+                            }
                         }
                     }
                 }
@@ -435,12 +716,7 @@ impl Rule for UnboundSymbol {
                     rule: self.name(),
                     line,
                     col,
-                    message: format!(
-                        "`{name}` is not bound by the interpreter or this program. It parses fine \
-                         and fails only when evaluation reaches it — check the spelling against the \
-                         installed primitives (e.g. `string-lowercase`, not `string-downcase`), or \
-                         define it. Suppress with `;; lint:allow unbound-symbol <reason>`."
-                    ),
+                    message: Self::message(&name),
                 }
             })
             .collect()

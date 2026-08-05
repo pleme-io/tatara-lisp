@@ -1,5 +1,12 @@
 [workspace]
 members = [
+    # Not a `tatara-*` crate, on purpose: monosashi is lisp-AGNOSTIC. It is a
+    # member here because `blue` already resolves three crates from this one
+    # git source at one rev, so a fourth member costs no new repo — and
+    # because the vocabulary must sit BELOW both lisps (blue depends on
+    # tatara-lisp, so tatara-lisp cannot depend on blue). It takes no
+    # dependency on any other member.
+    "monosashi",
     "tatara",
     "tatara-cilium",
     "tatara-closed-set",
@@ -101,6 +108,12 @@ tatara-closed-set-derive = { path = "tatara-closed-set-derive", version = "=0.3.
 # bumped version, AND living here means the bumper rewrites them anyway
 # so they can no longer drift. The `=` above is reserved for the ONE
 # pairing where it is load-bearing (the derive emits ::tatara_lisp:: paths).
+#
+# monosashi lives here for the same reason, even though it is not a
+# `tatara-*` crate: an inline pin in `tatara-lisp-eval/Cargo.toml` is
+# exactly the shape that went stale for three releases above, because
+# rust-workspace-bump only rewrites pins inside THIS section.
+monosashi = { path = "monosashi", version = "0.3.31" }
 tatara-lisp = { path = "tatara-lisp", version = "0.3.31" }
 tatara-closed-set = { path = "tatara-closed-set", version = "0.3.31" }
 tatara-lisp-eval = { path = "tatara-lisp-eval", version = "0.3.31" }

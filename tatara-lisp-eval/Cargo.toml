@@ -12,5 +12,11 @@ homepage.workspace = true
 workspace = true
 
 [dependencies]
+# The shared strictness vocabulary, consumed by `src/strictness.rs`. A LEAF
+# with no dependencies of its own (see monosashi/Cargo.toml), so this edge
+# adds nothing to any consumer's graph but the vocabulary itself — and it is
+# the same vocabulary `blue` reads, which is the point: two lisps reporting
+# one reading rather than two that are free to disagree.
+monosashi.workspace = true
 tatara-lisp.workspace = true
 thiserror = "2"

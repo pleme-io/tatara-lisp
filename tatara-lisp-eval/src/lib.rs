@@ -31,6 +31,7 @@ pub mod module;
 pub mod primitive;
 pub mod repl;
 pub mod special;
+pub mod strictness;
 pub mod type_check;
 pub mod value;
 pub mod vm;
@@ -48,6 +49,7 @@ pub use module::{
 };
 pub use primitive::install_primitives;
 pub use repl::ReplSession;
+pub use strictness::{evidence_of_span, reading_of, TataraFactor, TATARA_LADDER};
 pub use value::{ErrorObj, MapKey, Value};
 
 /// One-stop installer: registers the full battery — Rust primitives

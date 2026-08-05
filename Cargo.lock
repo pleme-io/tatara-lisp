@@ -718,6 +718,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "monosashi"
+version = "0.3.31"
+
+[[package]]
 name = "num-conv"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1198,6 +1202,7 @@ dependencies = [
 name = "tatara-lisp-eval"
 version = "0.3.31"
 dependencies = [
+ "monosashi",
  "tatara-lisp",
  "thiserror 2.0.18",
 ]

@@ -1,0 +1,23 @@
+[package]
+name = "monosashi"
+description = "物差し — the measuring stick. One lisp-agnostic strictness reading: a rung on a consumer-supplied ladder, plus the factors that put a program there, each carrying located evidence or a STATED blind spot."
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# DELIBERATELY EMPTY, and it is the point of the crate.
+#
+# monosashi sits BELOW every lisp that reports a reading. `blue` depends on
+# `tatara-lisp`, so `tatara-lisp` cannot depend on `blue` — a shared reading
+# vocabulary living in either one is a cycle in one direction and a parallel
+# vocabulary in the other. It therefore depends on NEITHER, and on no
+# serialization crate either: a consumer that wants `serde` derives it on its
+# OWN `FactorKind` enum and on a projection of `Reading`, rather than every
+# consumer paying for a feature one of them wanted.

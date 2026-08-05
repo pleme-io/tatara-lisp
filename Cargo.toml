@@ -127,6 +127,17 @@ opt-level = "z"
 strip = true
 
 [patch.crates-io]
-# Collapse the duplicate `tatara-lisp` that caixa-fmt drags in from crates.io
-# at the SAME version as this workspace, which made `-p tatara-lisp` ambiguous.
+# Collapse the duplicate `tatara-lisp` that caixa-ast (via caixa-fmt, via
+# tatara-kanmon's build gate) drags in from crates.io. Without this there are
+# two packages named `tatara-lisp` in the graph and `cargo build -p tatara-lisp`
+# fails as ambiguous — which it did, unnoticed, between the gate landing and
+# this line.
+#
+# Works because caixa-ast requires `tatara-lisp ^0.3.26`, which this workspace
+# satisfies. If it ever pins an exact older version the patch silently stops
+# applying and the duplicate returns; the symptom is the ambiguity error again,
+# NOT a wrong build, and `-p tatara-lisp@<version>` is the fallback spec.
+#
+# Note the lock does not re-resolve on its own after a workspace version bump —
+# it kept a stale 0.3.27 entry until `cargo update caixa-ast` was run.
 tatara-lisp = { path = "tatara-lisp" }

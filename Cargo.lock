@@ -146,7 +146,7 @@ checksum = "de8a628b06669a102b2d4c31b6831c3e19cfaf33830a53b6a20d94407ad1011a"
 dependencies = [
  "logos",
  "serde",
- "tatara-lisp 0.3.27",
+ "tatara-lisp",
  "thiserror 2.0.18",
 ]
 
@@ -158,7 +158,7 @@ checksum = "4a3e65605c2740b8ed0bed798772013fc36b3ff3814ba19d2e58e366f90e27c1"
 dependencies = [
  "caixa-ast",
  "serde",
- "tatara-lisp 0.3.27",
+ "tatara-lisp",
  "thiserror 2.0.18",
 ]
 
@@ -1064,7 +1064,7 @@ dependencies = [
  "tatara-domain-forge",
  "tatara-ebpf",
  "tatara-gateway-api",
- "tatara-lisp 0.3.28",
+ "tatara-lisp",
  "tatara-lisp-eval",
  "tatara-lisp-source",
  "tatara-platform-checks",
@@ -1077,36 +1077,16 @@ version = "0.3.28"
 dependencies = [
  "serde",
  "serde_json",
- "tatara-lisp 0.3.28",
- "tatara-lisp-derive 0.3.28",
-]
-
-[[package]]
-name = "tatara-closed-set"
-version = "0.3.27"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c270ba04ecfd2268f817e0d41fd19e829315f890bc97d372f1fbe291083d603c"
-dependencies = [
- "tatara-closed-set-derive 0.3.27",
+ "tatara-lisp",
+ "tatara-lisp-derive",
 ]
 
 [[package]]
 name = "tatara-closed-set"
 version = "0.3.28"
 dependencies = [
- "tatara-closed-set-derive 0.3.28",
+ "tatara-closed-set-derive",
  "thiserror 2.0.18",
-]
-
-[[package]]
-name = "tatara-closed-set-derive"
-version = "0.3.27"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "efc4de162992884b188fac459128bb0546a776f4f33a48604302fcae47f008cf"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]
@@ -1125,7 +1105,7 @@ dependencies = [
  "serde_json",
  "tatara-ebpf",
  "tatara-gateway-api",
- "tatara-lisp 0.3.28",
+ "tatara-lisp",
 ]
 
 [[package]]
@@ -1148,8 +1128,8 @@ dependencies = [
  "indexmap",
  "serde",
  "serde_json",
- "tatara-lisp 0.3.28",
- "tatara-lisp-derive 0.3.28",
+ "tatara-lisp",
+ "tatara-lisp-derive",
  "thiserror 2.0.18",
 ]
 
@@ -1162,8 +1142,8 @@ dependencies = [
  "serde_json",
  "tatara-ebpf",
  "tatara-gateway-api",
- "tatara-lisp 0.3.28",
- "tatara-lisp-derive 0.3.28",
+ "tatara-lisp",
+ "tatara-lisp-derive",
  "thiserror 2.0.18",
 ]
 
@@ -1173,8 +1153,8 @@ version = "0.3.28"
 dependencies = [
  "serde",
  "serde_json",
- "tatara-lisp 0.3.28",
- "tatara-lisp-derive 0.3.28",
+ "tatara-lisp",
+ "tatara-lisp-derive",
 ]
 
 [[package]]
@@ -1189,21 +1169,7 @@ name = "tatara-keywords"
 version = "0.3.28"
 dependencies = [
  "serde",
- "tatara-lisp 0.3.28",
-]
-
-[[package]]
-name = "tatara-lisp"
-version = "0.3.27"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6d4818fc60a03547e3722cc197aaec740130f433e4d022613ba36e36a406ee9"
-dependencies = [
- "blake3",
- "serde",
- "serde_json",
- "tatara-closed-set 0.3.27",
- "tatara-lisp-derive 0.3.27",
- "thiserror 2.0.18",
+ "tatara-lisp",
 ]
 
 [[package]]
@@ -1214,20 +1180,9 @@ dependencies = [
  "caixa-fmt",
  "serde",
  "serde_json",
- "tatara-closed-set 0.3.28",
- "tatara-lisp-derive 0.3.28",
+ "tatara-closed-set",
+ "tatara-lisp-derive",
  "thiserror 2.0.18",
-]
-
-[[package]]
-name = "tatara-lisp-derive"
-version = "0.3.27"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02e392fa6003be174dfa7a96d9d577c50ddc51a12fccf2caee401f7cc5376fb9"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]
@@ -1243,7 +1198,7 @@ dependencies = [
 name = "tatara-lisp-eval"
 version = "0.3.28"
 dependencies = [
- "tatara-lisp 0.3.28",
+ "tatara-lisp",
  "thiserror 2.0.18",
 ]
 
@@ -1251,7 +1206,7 @@ dependencies = [
 name = "tatara-lisp-lint"
 version = "0.3.28"
 dependencies = [
- "tatara-lisp 0.3.28",
+ "tatara-lisp",
 ]
 
 [[package]]
@@ -1268,7 +1223,7 @@ dependencies = [
  "serde_yaml",
  "sha1",
  "sha2",
- "tatara-lisp 0.3.28",
+ "tatara-lisp",
  "tatara-lisp-eval",
  "tatara-lisp-lint",
  "tatara-lisp-source",
@@ -1299,7 +1254,7 @@ dependencies = [
  "tatara-cilium",
  "tatara-ebpf",
  "tatara-gateway-api",
- "tatara-lisp 0.3.28",
+ "tatara-lisp",
  "tatara-prometheus-operator",
 ]
 
@@ -1309,8 +1264,8 @@ version = "0.3.28"
 dependencies = [
  "serde",
  "serde_json",
- "tatara-lisp 0.3.28",
- "tatara-lisp-derive 0.3.28",
+ "tatara-lisp",
+ "tatara-lisp-derive",
 ]
 
 [[package]]
@@ -1324,7 +1279,7 @@ dependencies = [
  "tatara-ebpf",
  "tatara-env",
  "tatara-gateway-api",
- "tatara-lisp 0.3.28",
+ "tatara-lisp",
  "thiserror 2.0.18",
 ]
 
@@ -1339,7 +1294,7 @@ dependencies = [
  "tatara-ebpf",
  "tatara-env",
  "tatara-gateway-api",
- "tatara-lisp 0.3.28",
+ "tatara-lisp",
  "thiserror 2.0.18",
 ]
 

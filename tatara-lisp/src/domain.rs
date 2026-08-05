@@ -1459,6 +1459,107 @@ impl NarrowNumeric<f64> for f32 {
     }
 }
 
+// ── Runtime-dispatched narrowing (the `(cast T x)` axis) ───────────
+//
+// `NarrowNumeric` carries the target width in the TYPE, which is right
+// for `#[derive(TataraDomain)]` — the derive knows the field's Rust
+// type at expansion time and emits `extract_int_narrowed::<u32>`. A
+// tatara-lisp `(cast :u32 x)` does NOT: it learns the width from a
+// runtime keyword. The two must nevertheless reject the same values,
+// so the runtime path is a DISPATCH onto the same trait impls, never a
+// second bounds table. Every arm below is `<T as NarrowNumeric<_>>::
+// narrow` verbatim; the only thing written twice is the
+// variant-to-Rust-type mapping, which `narrow_literal_agrees_with_the_
+// typed_projection` pins across `NumericWidth::ALL`.
+//
+// It lives HERE rather than in `error.rs` beside the enum because it
+// delegates to trait impls that live here — an eighth width added to
+// `NumericWidth` fails rustc's exhaustiveness check on both matches
+// below, which is the same compile-error-at-the-consumer posture the
+// enum's own doc claims for the derive.
+
+/// The reader-side wide axis a [`NumericWidth`] narrows FROM — the
+/// typed answer to "which extractor produced the value this width has
+/// to hold", `extract_int` (`-> i64`) or `extract_float` (`-> f64`).
+///
+/// A runtime caster needs this BEFORE it narrows: an `(cast :u32 3.5)`
+/// is a SHAPE rejection (the derive's `extract_int` would refuse a
+/// float `Sexp` outright with [`LispError::TypeMismatch`]), not a range
+/// rejection, and conflating the two would report `3.5 is out of range
+/// for u32` — true-sounding and wrong about which gate fired.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum NumericAxis {
+    /// Widths reached from the reader's `i64`: `i32` `i64` `u32` `u64`
+    /// `usize`.
+    Int,
+    /// Widths reached from the reader's `f64`: `f32` `f64`.
+    Float,
+}
+
+impl NumericWidth {
+    /// Which wide axis this width narrows from.
+    #[must_use]
+    pub const fn axis(self) -> NumericAxis {
+        match self {
+            Self::I32 | Self::I64 | Self::U32 | Self::U64 | Self::Usize => NumericAxis::Int,
+            Self::F32 | Self::F64 => NumericAxis::Float,
+        }
+    }
+
+    /// Checked narrowing with the target width supplied at RUNTIME.
+    ///
+    /// `None` means exactly what [`NarrowNumeric::narrow`]'s `None`
+    /// means — "this wide value has no representation at this width" —
+    /// and is the same rejection [`extract_int_narrowed`] turns into
+    /// [`LispError::KwargOutOfRange`]. It never means "here is a nearby
+    /// value instead".
+    ///
+    /// The returned literal is re-projected back onto the reader's wide
+    /// axis, because that is the only width a tatara-lisp `Value` has.
+    /// On the int axis that round-trip is EXACT (a successful
+    /// `TryFrom<i64>` is injective, so the i64 that comes back is the
+    /// i64 that went in). On the float axis it is not, and deliberately
+    /// so: `f32`'s narrowing accepts precision loss, so
+    /// `narrow_literal(F32, 0.1)` answers with `0.1_f32 as f64` — the
+    /// value the field would actually hold, not the value the author
+    /// typed. A caster that echoed the input back would be reporting a
+    /// coercion it did not perform.
+    ///
+    /// A literal on the WRONG axis is rejected rather than converted;
+    /// routing by [`Self::axis`] first is what keeps that unreachable
+    /// on the good path.
+    #[must_use]
+    pub fn narrow_literal(self, value: NumericLiteral) -> Option<NumericLiteral> {
+        match (self, value) {
+            (Self::I32, NumericLiteral::Int(w)) => {
+                <i32 as NarrowNumeric<i64>>::narrow(w).map(|_| NumericLiteral::Int(w))
+            }
+            (Self::I64, NumericLiteral::Int(w)) => {
+                <i64 as NarrowNumeric<i64>>::narrow(w).map(NumericLiteral::Int)
+            }
+            (Self::U32, NumericLiteral::Int(w)) => {
+                <u32 as NarrowNumeric<i64>>::narrow(w).map(|_| NumericLiteral::Int(w))
+            }
+            (Self::U64, NumericLiteral::Int(w)) => {
+                <u64 as NarrowNumeric<i64>>::narrow(w).map(|_| NumericLiteral::Int(w))
+            }
+            (Self::Usize, NumericLiteral::Int(w)) => {
+                <usize as NarrowNumeric<i64>>::narrow(w).map(|_| NumericLiteral::Int(w))
+            }
+            (Self::F32, NumericLiteral::Float(w)) => {
+                <f32 as NarrowNumeric<f64>>::narrow(w).map(|n| NumericLiteral::Float(f64::from(n)))
+            }
+            (Self::F64, NumericLiteral::Float(w)) => {
+                <f64 as NarrowNumeric<f64>>::narrow(w).map(NumericLiteral::Float)
+            }
+            // Cross-axis: the caller failed to route by `axis()` first.
+            // Rejecting is the only answer that cannot invent a number.
+            (Self::I32 | Self::I64 | Self::U32 | Self::U64 | Self::Usize, _)
+            | (Self::F32 | Self::F64, _) => None,
+        }
+    }
+}
+
 /// Required integer kwarg projected into the field's own width —
 /// [`extract_int`] followed by the typed [`NarrowNumeric`] projection,
 /// with [`LispError::KwargOutOfRange`] on a value the width cannot
@@ -2830,10 +2931,8 @@ mod tests {
     /// but-representable is accepted: an `f32` field asked for `f32`.
     #[test]
     fn narrowing_accepts_every_in_range_value_including_lossy_f32() {
-        let forms = read(
-            r"(defnarrow :port 8080 :offset -42 :scale 0.1 :retries 3 :ratio 2.5)",
-        )
-        .expect("reads");
+        let forms = read(r"(defnarrow :port 8080 :offset -42 :scale 0.1 :retries 3 :ratio 2.5)")
+            .expect("reads");
         let spec = NarrowSpec::compile_from_sexp(&forms[0]).expect("in-range values must parse");
         assert_eq!(
             spec,
@@ -2875,7 +2974,11 @@ mod tests {
         assert!(
             matches!(
                 &err,
-                LispError::KwargOutOfRange { target: NumericWidth::U32, value: NumericLiteral::Int(-1), .. }
+                LispError::KwargOutOfRange {
+                    target: NumericWidth::U32,
+                    value: NumericLiteral::Int(-1),
+                    ..
+                }
             ),
             "expected a u32 range rejection of -1, got {err:?}"
         );
@@ -2920,12 +3023,14 @@ mod tests {
     /// value would be the same corruption in a different costume.
     #[test]
     fn optional_numeric_arms_reject_out_of_range_rather_than_yielding_none() {
-        let int_err =
-            narrow_form(r"(defnarrow :port 0 :offset 0 :scale 1.0 :retries 4294967296)");
+        let int_err = narrow_form(r"(defnarrow :port 0 :offset 0 :scale 1.0 :retries 4294967296)");
         assert!(
             matches!(
                 &int_err,
-                LispError::KwargOutOfRange { target: NumericWidth::U32, .. }
+                LispError::KwargOutOfRange {
+                    target: NumericWidth::U32,
+                    ..
+                }
             ),
             "expected an Option<u32> range rejection, got {int_err:?}"
         );
@@ -2934,7 +3039,10 @@ mod tests {
         assert!(
             matches!(
                 &float_err,
-                LispError::KwargOutOfRange { target: NumericWidth::F32, .. }
+                LispError::KwargOutOfRange {
+                    target: NumericWidth::F32,
+                    ..
+                }
             ),
             "expected an Option<f32> range rejection, got {float_err:?}"
         );
@@ -2992,6 +3100,167 @@ mod tests {
         assert_eq!(<usize as NarrowNumeric<i64>>::WIDTH, NumericWidth::Usize);
         assert_eq!(<f32 as NarrowNumeric<f64>>::WIDTH, NumericWidth::F32);
         assert_eq!(<f64 as NarrowNumeric<f64>>::WIDTH, NumericWidth::F64);
+    }
+
+    /// The float axis WIDENS an int literal — `Sexp::as_float` is
+    /// `a.as_float().or_else(|| a.as_int().map(|n| n as f64))`, so an
+    /// `f32` field accepts `:scale 7`. The int axis does NOT narrow a
+    /// float (`Sexp::as_int` is strict), so `:port 3.5` is a shape
+    /// rejection.
+    ///
+    /// Neither half is new here; both are pinned because the
+    /// tatara-lisp `(cast T x)` caster COPIES this asymmetry rather than
+    /// tidying it, and a change to `Sexp::as_float` that moved one
+    /// surface without the other would put the two back into
+    /// disagreement — the exact defect the caster was built to avoid.
+    #[test]
+    fn the_float_axis_widens_an_int_literal_and_the_int_axis_does_not_narrow_a_float() {
+        let forms = read(r"(defnarrow :port 8080 :offset 0 :scale 7)").expect("reads");
+        let spec = NarrowSpec::compile_from_sexp(&forms[0])
+            .expect("an int literal widens into an f32 field");
+        assert!((spec.scale - 7.0).abs() < f32::EPSILON);
+
+        let err = narrow_form(r"(defnarrow :port 3.5 :offset 0 :scale 1.0)");
+        assert!(
+            matches!(&err, LispError::TypeMismatch { .. }),
+            "a float into an int field is a SHAPE rejection, got {err:?}"
+        );
+    }
+
+    // ── Runtime-dispatched narrowing (`NumericWidth::narrow_literal`) ──
+    //
+    // The `(cast :u32 x)` surface in tatara-lisp-eval learns its target
+    // width from a keyword, so it cannot call the type-parameterized
+    // `NarrowNumeric::narrow`. These pin the dispatch as EQUIVALENT to
+    // the typed path rather than merely similar — the whole reason the
+    // caster and the derive can be claimed to agree.
+
+    /// Axis assignment is the closed set's own partition: the five int
+    /// widths come from `extract_int`'s `i64`, the two float widths from
+    /// `extract_float`'s `f64`. Swept over `ALL` so an eighth width
+    /// cannot be added without landing here.
+    #[test]
+    fn every_width_declares_the_axis_its_extractor_produces() {
+        for w in NumericWidth::ALL {
+            let expected = match w {
+                NumericWidth::I32
+                | NumericWidth::I64
+                | NumericWidth::U32
+                | NumericWidth::U64
+                | NumericWidth::Usize => NumericAxis::Int,
+                NumericWidth::F32 | NumericWidth::F64 => NumericAxis::Float,
+            };
+            assert_eq!(w.axis(), expected, "{w} declared the wrong wide axis");
+        }
+    }
+
+    /// THE AGREEMENT PIN. For every width, at every boundary value that
+    /// matters, `narrow_literal`'s accept/reject verdict is the verdict
+    /// `NarrowNumeric::narrow` gives. The two are written in different
+    /// styles — one generic, one a runtime match — and this is what
+    /// stops the runtime one from drifting into its own bounds table.
+    #[test]
+    fn narrow_literal_agrees_with_the_typed_projection() {
+        macro_rules! agree_int {
+            ($ty:ty => $width:ident, $($v:expr),+ $(,)?) => {$(
+                let v: i64 = $v;
+                let typed = <$ty as NarrowNumeric<i64>>::narrow(v).is_some();
+                let dynamic = NumericWidth::$width
+                    .narrow_literal(NumericLiteral::Int(v))
+                    .is_some();
+                assert_eq!(
+                    typed, dynamic,
+                    "NumericWidth::{} disagreed with <{} as NarrowNumeric<i64>> on {}",
+                    stringify!($width), stringify!($ty), v
+                );
+            )+};
+        }
+        agree_int!(i32 => I32, 0, -1, i64::from(i32::MAX), 2_147_483_648, i64::MIN);
+        agree_int!(i64 => I64, 0, -1, i64::MAX, i64::MIN);
+        agree_int!(u32 => U32, 0, -1, 4_294_967_295, 4_294_967_296, i64::MIN);
+        agree_int!(u64 => U64, 0, -1, i64::MAX, i64::MIN);
+        agree_int!(usize => Usize, 0, -1, i64::MAX);
+
+        for v in [0.0_f64, 0.1, 2.5, 1.0e300, -1.0e300, f64::INFINITY] {
+            for (w, typed) in [
+                (
+                    NumericWidth::F32,
+                    <f32 as NarrowNumeric<f64>>::narrow(v).is_some(),
+                ),
+                (
+                    NumericWidth::F64,
+                    <f64 as NarrowNumeric<f64>>::narrow(v).is_some(),
+                ),
+            ] {
+                assert_eq!(
+                    typed,
+                    w.narrow_literal(NumericLiteral::Float(v)).is_some(),
+                    "{w} disagreed with its NarrowNumeric impl on {v}"
+                );
+            }
+        }
+    }
+
+    /// The int axis round-trips EXACTLY — a successful `TryFrom<i64>` is
+    /// injective, so the literal handed back is the literal handed in.
+    /// A dispatch that re-widened through the narrow type (`u32 as i64`)
+    /// would pass this too; a dispatch that reconstructed the number
+    /// some other way would not.
+    #[test]
+    fn accepted_int_literals_come_back_unchanged() {
+        for (w, v) in [
+            (NumericWidth::I32, -2_147_483_648_i64),
+            (NumericWidth::I64, i64::MIN),
+            (NumericWidth::U32, 4_294_967_295),
+            (NumericWidth::U64, i64::MAX),
+            (NumericWidth::Usize, 8080),
+        ] {
+            assert_eq!(
+                w.narrow_literal(NumericLiteral::Int(v)),
+                Some(NumericLiteral::Int(v)),
+                "{w} must return the author's own literal, not a re-derived one"
+            );
+        }
+    }
+
+    /// The float axis does NOT round-trip, on purpose: `f32` accepts
+    /// precision loss, so the honest answer is the value the field would
+    /// actually hold. `0.1` is the canonical witness — the same literal
+    /// `narrowing_accepts_every_in_range_value_including_lossy_f32`
+    /// pins on the derive side.
+    #[test]
+    fn accepted_f32_literals_come_back_at_f32_precision() {
+        #[allow(clippy::cast_possible_truncation)]
+        let expected = f64::from(0.1_f64 as f32);
+        assert_eq!(
+            NumericWidth::F32.narrow_literal(NumericLiteral::Float(0.1)),
+            Some(NumericLiteral::Float(expected))
+        );
+        assert_ne!(expected, 0.1_f64, "the f32 round-trip must actually differ");
+        // f64 is the identity width — it must NOT perturb anything.
+        assert_eq!(
+            NumericWidth::F64.narrow_literal(NumericLiteral::Float(0.1)),
+            Some(NumericLiteral::Float(0.1))
+        );
+    }
+
+    /// A literal on the wrong axis is REJECTED, never converted. This is
+    /// the off-the-good-path arm — a caster routes by `axis()` first —
+    /// and it must never invent a number, because a silent float→int
+    /// conversion here would be the exact class of corruption S2 removed.
+    #[test]
+    fn a_cross_axis_literal_is_rejected_rather_than_converted() {
+        for w in NumericWidth::ALL {
+            let wrong = match w.axis() {
+                NumericAxis::Int => NumericLiteral::Float(3.0),
+                NumericAxis::Float => NumericLiteral::Int(3),
+            };
+            assert_eq!(
+                w.narrow_literal(wrong),
+                None,
+                "{w} converted a cross-axis literal instead of rejecting it"
+            );
+        }
     }
 
     /// `f32`'s narrowing rejects exactly one thing — a FINITE input that

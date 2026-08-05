@@ -6,6 +6,10 @@
 //!
 //! * `(the type expr)` — assert at runtime that `expr` produces a
 //!   value of `type`. Raises a typed Value::Error on mismatch.
+//! * `(cast type expr)` — CHECKED COERCION. Same assertion as `the`
+//!   for every non-numeric type, plus a genuine narrowing at the seven
+//!   Rust numeric widths, rejecting a value the width cannot hold
+//!   instead of returning a truncated one.
 //! * `(type-of v)` — return a keyword naming the value's runtime type.
 //! * `(is? v type)` — boolean predicate; never raises.
 //! * `(declare name type ...)` — top-level declaration of expected
@@ -17,6 +21,7 @@
 //! ```text
 //!   :int :float :bool :string :symbol :keyword :nil
 //!   :list :map :error :promise :procedure :foreign
+//!   :i32 :i64 :u32 :u64 :usize :f32 :f64   ;; the seven Rust widths
 //!   (:list-of T)
 //!   (:map-of K V)
 //!   (:fn (T1 T2 ...) -> R)
@@ -29,13 +34,13 @@
 
 use std::sync::Arc;
 
-use tatara_lisp::Span;
+use tatara_lisp::{NumericAxis, NumericLiteral, NumericWidth, Span};
 
 use crate::error::{EvalError, Result};
 use crate::value::{ErrorObj, Value};
 
 /// Names registered by `install_type_check`.
-pub const TYPE_NAMES: &[&str] = &["the", "type-of", "is?"];
+pub const TYPE_NAMES: &[&str] = &["the", "type-of", "is?", "cast"];
 
 /// Top-level keyword shapes. Atomic types are bare keywords;
 /// parameterized types are list-shaped Values starting with one of
@@ -95,6 +100,165 @@ pub fn install_type_check<H: 'static>(interp: &mut crate::eval::Interpreter<H>) 
             Ok(args[1].clone())
         },
     );
+
+    interp.register_fn(
+        "cast",
+        Arity::Exact(2),
+        // (cast type value) — same argument order as `the`, because it
+        // is the same act with a stronger obligation: assert, and where
+        // the target is a numeric WIDTH, actually perform the narrowing.
+        |args: &[Value], _h: &mut H, sp: Span| coerce_value(&args[1], &args[0], sp),
+    );
+}
+
+/// Decode a type keyword into one of the seven Rust numeric widths, or
+/// `None` if it names something else.
+///
+/// The vocabulary is swept out of [`NumericWidth::ALL`] rather than
+/// re-listed here. That is the whole point: the derive's closed set and
+/// the caster's accepted keywords are the SAME seven, so an eighth
+/// width added to the enum is reachable from lisp the moment it exists
+/// and cannot be reachable under a name the derive would not recognise.
+///
+/// `:int` and `:float` are ALIASES for the two identity widths — the
+/// tatara-lisp spellings of the reader's own `i64` / `f64` axes, which
+/// is exactly what `extract_int` / `extract_float` return. Aliasing
+/// them (rather than routing them down the plain-assertion path) is
+/// what makes `(cast :int x)` literally the derive's `i64` narrowing:
+/// total, so it never rejects — the same answer `NarrowNumeric<i64>
+/// for i64` gives.
+fn numeric_width_of(name: &str) -> Option<NumericWidth> {
+    match name {
+        "int" => return Some(NumericWidth::I64),
+        "float" => return Some(NumericWidth::F64),
+        _ => {}
+    }
+    NumericWidth::ALL.into_iter().find(|w| w.label() == name)
+}
+
+/// Project a runtime `Value` onto the wide axis a [`NumericWidth`]
+/// narrows from. `None` means the value is not on that axis at all —
+/// the SHAPE gate, which the derive fails inside `extract_int` /
+/// `extract_float` before any narrowing is attempted.
+///
+/// The two axes are DELIBERATELY ASYMMETRIC, mirroring
+/// `tatara_lisp::Sexp` exactly:
+///
+/// * `Sexp::as_int` is strict — a float atom is not an int, so
+///   `(cast :u32 3.5)` is a shape mismatch, as `:port 3.5` is on the
+///   derive.
+/// * `Sexp::as_float` is `a.as_float().or_else(|| a.as_int().map(|n| n
+///   as f64))` — it WIDENS an int atom, so `#[derive(TataraDomain)]`
+///   accepts `:scale 7` into an `f32` field, and `(cast :f32 7)` must
+///   therefore answer `7.0` rather than reject.
+///
+/// That widening is an `as` cast, lossy above 2^53, and we reproduce it
+/// rather than improve on it. Tightening it here would be a DIVERGENCE
+/// from the derive — two surfaces disagreeing about the same literal —
+/// which is worse than a shared, documented, testable imprecision. If
+/// it should be fixed, it gets fixed once at `Sexp::as_float` and both
+/// surfaces move together.
+fn wide_literal_on(value: &Value, axis: NumericAxis) -> Option<NumericLiteral> {
+    match (axis, value) {
+        (NumericAxis::Int, Value::Int(n)) => Some(NumericLiteral::Int(*n)),
+        (NumericAxis::Float, Value::Float(x)) => Some(NumericLiteral::Float(*x)),
+        (NumericAxis::Float, Value::Int(n)) =>
+        {
+            #[allow(clippy::cast_precision_loss)]
+            Some(NumericLiteral::Float(*n as f64))
+        }
+        _ => None,
+    }
+}
+
+/// Rebuild a runtime `Value` from a narrowed literal. Total — the two
+/// `NumericLiteral` variants are exactly the two numeric `Value` arms.
+fn value_of_literal(lit: NumericLiteral) -> Value {
+    match lit {
+        NumericLiteral::Int(n) => Value::Int(n),
+        NumericLiteral::Float(x) => Value::Float(x),
+    }
+}
+
+/// Checked coercion — the engine behind `(cast type value)`.
+///
+/// Two gates, in the derive's own order, so the two surfaces classify a
+/// failure identically:
+///
+/// 1. **Shape.** Is the value on the target width's axis at all?
+///    `(cast :u32 "8080")` is not, and fails through [`check_value`]
+///    with the ordinary `:type-mismatch` — the same rejection
+///    `#[derive(TataraDomain)]` takes inside `extract_int` before it
+///    ever narrows.
+/// 2. **Width.** Can the target hold the value? `(cast :u32 -1)` cannot,
+///    and fails with `:out-of-range`, quoting the width and the
+///    author's literal. This is [`NumericWidth::narrow_literal`], which
+///    is the derive's own [`tatara_lisp::NarrowNumeric`] impls under a
+///    runtime dispatch — not a second bounds table.
+///
+/// A non-numeric target has no width gate and degrades to exactly what
+/// `(the type value)` does, so `cast` is a superset of `the` rather
+/// than a parallel vocabulary.
+pub fn coerce_value(value: &Value, ty: &Value, span: Span) -> Result<Value> {
+    let width = match ty {
+        Value::Keyword(name) => numeric_width_of(name),
+        _ => None,
+    };
+    let Some(width) = width else {
+        check_value(value, ty, span)?;
+        return Ok(value.clone());
+    };
+
+    // Gate 1 — shape. Delegating the diagnostic to `check_value` keeps
+    // ONE rendering of "expected X, got Y"; it is guaranteed to fail
+    // here because `match_atomic_keyword`'s width arm and this routing
+    // read the same `wide_literal_on`.
+    let Some(wide) = wide_literal_on(value, width.axis()) else {
+        check_value(value, ty, span)?;
+        return Ok(value.clone());
+    };
+
+    // Gate 2 — width.
+    width
+        .narrow_literal(wide)
+        .map(value_of_literal)
+        .ok_or_else(|| out_of_range(width, wide, value, span))
+}
+
+/// Raise the width-gate rejection, sibling to [`check_value`]'s
+/// shape-gate one: an `EvalError::User` carrying a `Value::Error`, so a
+/// lisp-level `try` / `catch` binds it the way it binds every other
+/// runtime type failure, and the tag tells the two gates apart without
+/// parsing the message.
+///
+/// The message is the TAIL of [`tatara_lisp::LispError::KwargOutOfRange`]'s
+/// own rendering — `"{value} is out of range for {target}"` — built
+/// from the same `NumericLiteral` and `NumericWidth` `Display` impls.
+/// The derive's full string prefixes `"compile error in :<kwarg>: "`,
+/// which a cast has no kwarg to fill; the `cast_message_is_the_tail_of
+/// _the_derive_diagnostic` test pins the two against each other so the
+/// wording cannot drift apart.
+fn out_of_range(
+    target: NumericWidth,
+    literal: NumericLiteral,
+    original: &Value,
+    span: Span,
+) -> EvalError {
+    let msg = format!("{literal} is out of range for {target}");
+    EvalError::User {
+        value: Value::Error(Arc::new(ErrorObj {
+            tag: Arc::from("out-of-range"),
+            message: Arc::from(msg),
+            data: vec![
+                (
+                    Value::Keyword(Arc::from("target")),
+                    Value::Keyword(Arc::from(target.label())),
+                ),
+                (Value::Keyword(Arc::from("value")), original.clone()),
+            ],
+        })),
+        at: span,
+    }
 }
 
 /// Map a runtime `Value` to its canonical type keyword string.
@@ -201,8 +365,16 @@ fn match_atomic_keyword(value: &Value, name: &str) -> bool {
         "promise" => matches!(value, Value::Promise(_)),
         "procedure" => matches!(value, Value::Closure(_) | Value::NativeFn(_)),
         "foreign" => matches!(value, Value::Foreign(_)),
-        // Unknown atomic kw — treat as no match (unrecognized type).
-        _ => false,
+        // One of the seven Rust numeric widths. A width is a genuine
+        // runtime type here — `:u32` is the set of ints this fleet's
+        // `#[derive(TataraDomain)]` would accept into a `u32` field —
+        // so `(is? -1 :u32)` is `#f`, not a "type I don't recognise".
+        // Sharing ONE vocabulary with `cast` is deliberate: a caster
+        // with its own private width table would be free to disagree
+        // with the predicate that is supposed to describe it.
+        other => numeric_width_of(other).is_some_and(|w| {
+            wide_literal_on(value, w.axis()).is_some_and(|lit| w.narrow_literal(lit).is_some())
+        }),
     }
 }
 
@@ -283,7 +455,7 @@ pub fn render_type(ty: &Value) -> String {
 /// keyword? Used by the build-time checker to decide whether a
 /// declaration is recognizable.
 pub fn is_type_keyword(name: &str) -> bool {
-    ATOMIC_TYPES.contains(&name) || PARAMETRIC.contains(&name)
+    ATOMIC_TYPES.contains(&name) || PARAMETRIC.contains(&name) || numeric_width_of(name).is_some()
 }
 
 #[cfg(test)]
@@ -426,6 +598,259 @@ mod tests {
             run("(is? (list (list 1 2) (list 3)) (list :list-of (list :list-of :int)))"),
             Value::Bool(true)
         ));
+    }
+
+    // ── (cast T x) — checked coercion ──────────────────────────────
+    //
+    // Two gates in the derive's own order (shape, then width) and two
+    // distinguishable error identities. Every rejection below is a
+    // value `#[derive(TataraDomain)]` also rejects, at the same width,
+    // with the same wording — that agreement is what
+    // `cast_message_is_the_tail_of_the_derive_diagnostic` pins
+    // mechanically rather than by eye.
+
+    /// Bind the `Value::Error` a failing `cast` raises. Panics loudly on
+    /// any other error shape, so "it errored" can never be mistaken for
+    /// "it errored the way we claim".
+    fn cast_err(src: &str) -> Arc<ErrorObj> {
+        match run_err(src) {
+            EvalError::User {
+                value: Value::Error(e),
+                ..
+            } => e,
+            other => panic!("expected a typed Value::Error from cast, got {other:?}"),
+        }
+    }
+
+    /// A cast that succeeds is transparent — it returns the value, so it
+    /// composes inside an expression exactly like `the`.
+    #[test]
+    fn cast_returns_the_value_when_it_fits() {
+        assert!(matches!(run("(cast :int 42)"), Value::Int(42)));
+        assert!(matches!(run("(cast :u32 8080)"), Value::Int(8080)));
+        assert!(matches!(run("(cast :i32 -42)"), Value::Int(-42)));
+        assert!(matches!(
+            run("(cast :u32 4294967295)"),
+            Value::Int(4_294_967_295)
+        ));
+        assert!(matches!(run("(+ 1 (cast :u32 2) 3)"), Value::Int(6)));
+    }
+
+    /// Non-numeric targets have no width gate — `cast` degrades to
+    /// exactly what `the` does, so it is a superset of `the` rather
+    /// than a second, subtly different vocabulary.
+    #[test]
+    fn cast_on_a_non_numeric_type_behaves_as_the_assertion() {
+        assert!(matches!(run("(cast :string \"hi\")"), Value::Str(_)));
+        assert!(matches!(run("(cast :any 99)"), Value::Int(99)));
+        assert!(matches!(
+            run("(cast (list :list-of :int) (list 1 2 3))"),
+            Value::List(_)
+        ));
+        let e = cast_err("(cast :string 42)");
+        assert_eq!(&*e.tag, "type-mismatch");
+    }
+
+    /// GATE 1 — shape. The value is not on the target width's axis at
+    /// all. The derive fails this inside `extract_int` before narrowing,
+    /// and so does the caster: `:type-mismatch`, NOT `:out-of-range`.
+    /// Reporting "3.5 is out of range for u32" would name the wrong gate.
+    #[test]
+    fn cast_off_the_targets_axis_is_a_shape_mismatch_not_a_range_one() {
+        for src in [
+            "(cast :u32 \"8080\")",
+            "(cast :u32 3.5)",
+            "(cast :i32 #t)",
+            "(cast :f32 \"7\")",
+            "(cast :f32 #t)",
+        ] {
+            let e = cast_err(src);
+            assert_eq!(&*e.tag, "type-mismatch", "{src} named the wrong gate");
+        }
+    }
+
+    /// The two axes are ASYMMETRIC and the caster copies the asymmetry
+    /// rather than tidying it. `Sexp::as_float` widens an int atom, so
+    /// `#[derive(TataraDomain)]` accepts `:scale 7` into an `f32` field;
+    /// `Sexp::as_int` does NOT accept a float atom, so `:port 3.5` is a
+    /// shape rejection there. `(cast :f32 7)` and `(cast :u32 3.5)` must
+    /// answer the same way, and the FIRST of those is the one an
+    /// intuitively-tidier "an int is not a float" caster gets wrong.
+    #[test]
+    fn cast_copies_the_readers_int_into_float_widening() {
+        assert!(matches!(run("(cast :f32 7)"), Value::Float(x) if (x - 7.0).abs() < f64::EPSILON));
+        assert!(matches!(run("(cast :f64 7)"), Value::Float(x) if (x - 7.0).abs() < f64::EPSILON));
+        assert!(
+            matches!(run("(cast :float 7)"), Value::Float(x) if (x - 7.0).abs() < f64::EPSILON)
+        );
+        // The other direction stays STRICT, because `Sexp::as_int` is.
+        assert_eq!(&*cast_err("(cast :u32 3.5)").tag, "type-mismatch");
+        assert_eq!(&*cast_err("(cast :int 3.5)").tag, "type-mismatch");
+    }
+
+    /// GATE 2 — width. The four values S2 measured the derive
+    /// truncating are rejected here too, at the same width. Pre-S2 the
+    /// derive's `as` cast turned each of these into the number in the
+    /// comment; a caster that returned those numbers would have
+    /// re-opened the class on a new surface.
+    #[test]
+    fn cast_rejects_every_value_the_derive_rejects() {
+        for (src, width) in [
+            ("(cast :u32 4294967296)", "u32"), // pre-S2: 0
+            ("(cast :u32 -1)", "u32"),         // pre-S2: 4294967295
+            ("(cast :i32 2147483648)", "i32"), // pre-S2: -2147483648
+            ("(cast :f32 1.0e300)", "f32"),    // pre-S2: inf
+        ] {
+            let e = cast_err(src);
+            assert_eq!(&*e.tag, "out-of-range", "{src} named the wrong gate");
+            assert!(
+                e.message.contains(width),
+                "{src} must name the width it failed to fit, got {}",
+                e.message
+            );
+        }
+    }
+
+    /// THE AGREEMENT PIN. The caster's message is byte-for-byte the tail
+    /// of the derive's own `LispError::KwargOutOfRange` rendering for the
+    /// same (value, width) pair — the derive prefixes the kwarg path a
+    /// cast has none of, and nothing else differs. Both sides are built
+    /// from the same `NumericLiteral` / `NumericWidth` `Display`, so this
+    /// fails the moment either wording moves.
+    #[test]
+    fn cast_message_is_the_tail_of_the_derive_diagnostic() {
+        for (src, target, literal) in [
+            (
+                "(cast :u32 4294967296)",
+                NumericWidth::U32,
+                NumericLiteral::Int(4_294_967_296),
+            ),
+            ("(cast :u32 -1)", NumericWidth::U32, NumericLiteral::Int(-1)),
+            (
+                "(cast :i32 2147483648)",
+                NumericWidth::I32,
+                NumericLiteral::Int(2_147_483_648),
+            ),
+            (
+                "(cast :f32 1.0e300)",
+                NumericWidth::F32,
+                NumericLiteral::Float(1.0e300),
+            ),
+        ] {
+            let derived = tatara_lisp::LispError::KwargOutOfRange {
+                form: tatara_lisp::KwargPath::named("port"),
+                target,
+                value: literal,
+            }
+            .to_string();
+            let cast = cast_err(src).message.to_string();
+            assert_eq!(
+                derived,
+                format!("compile error in :port: {cast}"),
+                "the caster and the derive disagree about how to say this"
+            );
+        }
+    }
+
+    /// The typed payload, not just the message: an authoring surface
+    /// pattern-matches `:target` / `:value` rather than parsing prose.
+    #[test]
+    fn the_range_rejection_carries_the_width_and_the_value_as_data() {
+        let e = cast_err("(cast :u32 -1)");
+        let target = e
+            .data
+            .iter()
+            .find(|(k, _)| matches!(k, Value::Keyword(k) if &**k == "target"))
+            .map(|(_, v)| format!("{v}"));
+        let value = e
+            .data
+            .iter()
+            .find(|(k, _)| matches!(k, Value::Keyword(k) if &**k == "value"))
+            .map(|(_, v)| format!("{v}"));
+        assert_eq!(target.as_deref(), Some(":u32"));
+        assert_eq!(value.as_deref(), Some("-1"));
+    }
+
+    /// `:int` / `:float` are the identity widths (`i64` / `f64`), and
+    /// `NarrowNumeric` makes those TOTAL — so `(cast :int x)` never
+    /// rejects an int, exactly as the derive's `i64` fields never
+    /// reject one. Same trait, same verdict.
+    #[test]
+    fn cast_to_the_identity_widths_never_rejects() {
+        assert!(matches!(
+            run("(cast :int -9223372036854775808)"),
+            Value::Int(i64::MIN)
+        ));
+        assert!(matches!(
+            run("(cast :i64 -9223372036854775808)"),
+            Value::Int(i64::MIN)
+        ));
+        assert!(matches!(run("(cast :f64 1.0e300)"), Value::Float(_)));
+        assert!(matches!(run("(cast :float 1.0e300)"), Value::Float(_)));
+    }
+
+    /// An `f32` cast returns the value at `f32` PRECISION, not the value
+    /// the author typed. Anything else would report a coercion it did
+    /// not perform. `0.1` is the same witness the derive's
+    /// `narrowing_accepts_every_in_range_value_including_lossy_f32` uses.
+    #[test]
+    fn cast_to_f32_returns_the_value_at_f32_precision() {
+        #[allow(clippy::cast_possible_truncation)]
+        let expected = f64::from(0.1_f64 as f32);
+        match run("(cast :f32 0.1)") {
+            Value::Float(x) => {
+                assert!((x - expected).abs() < f64::EPSILON, "got {x}");
+                assert_ne!(x, 0.1_f64, "the coercion must be real, not a pass-through");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// A failing cast is CATCHABLE, not a panic and not a process abort
+    /// — it rides the same `EvalError::User` / `Value::Error` channel
+    /// every other runtime type failure does.
+    #[test]
+    fn a_failing_cast_is_catchable_lisp_data() {
+        let v = run("(try
+               (cast :u32 -1)
+               (catch (e) (error-tag e)))");
+        assert!(matches!(v, Value::Keyword(s) if &*s == "out-of-range"));
+    }
+
+    /// The width keywords are ONE vocabulary shared with the predicate,
+    /// so `is?` describes exactly what `cast` will accept. A caster with
+    /// its own private width table would let these two disagree.
+    #[test]
+    fn the_width_predicate_agrees_with_the_caster() {
+        assert!(matches!(run("(is? 8080 :u32)"), Value::Bool(true)));
+        assert!(matches!(run("(is? -1 :u32)"), Value::Bool(false)));
+        assert!(matches!(run("(is? 4294967296 :u32)"), Value::Bool(false)));
+        assert!(matches!(run("(is? 2147483648 :i32)"), Value::Bool(false)));
+        assert!(matches!(run("(is? 1.0e300 :f32)"), Value::Bool(false)));
+        assert!(matches!(run("(is? 2.5 :f32)"), Value::Bool(true)));
+        // …including the reader's asymmetry: an int IS an `:f32` (the
+        // widening `Sexp::as_float` performs), a float is NOT a `:u32`.
+        assert!(matches!(run("(is? 7 :f32)"), Value::Bool(true)));
+        assert!(matches!(run("(is? 3.5 :u32)"), Value::Bool(false)));
+    }
+
+    /// The accepted keyword vocabulary IS `NumericWidth::ALL` — swept,
+    /// not re-listed. An eighth width added to the closed set becomes
+    /// castable the moment it exists, and no keyword the derive would
+    /// not recognise is castable at all.
+    #[test]
+    fn every_closed_set_width_is_reachable_as_a_type_keyword() {
+        for w in NumericWidth::ALL {
+            assert_eq!(
+                numeric_width_of(w.label()),
+                Some(w),
+                "{w} is in the closed set but not reachable from lisp"
+            );
+            assert!(is_type_keyword(w.label()));
+        }
+        assert_eq!(numeric_width_of("i8"), None, "i8 is not in the closed set");
+        assert_eq!(numeric_width_of("u16"), None);
+        assert_eq!(numeric_width_of("nonsense"), None);
     }
 
     // ── defn-typed (macro from lisp_stdlib.tlisp) ──────────────────

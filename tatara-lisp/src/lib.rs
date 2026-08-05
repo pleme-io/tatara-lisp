@@ -45,9 +45,9 @@ pub use domain::{
     assert_tatara_domain_well_formed, AttestHandler, AttestableDomain, ComplianceHandler,
     CompliantDomain, DependentDomain, DepsHandler, DocHandler, DocumentedDomain, DomainHandler,
     HelpDomain, HelpHandler, KeywordCollision, KeywordSexp, LifecycleHandler, LifecycleProtocol,
-    ObservabilityHandler, ObservableDomain, RenderHandler, RenderableDomain, RolloutStrategy,
-    SchemaHandler, SchematicDomain, StabilityHandler, StableDomain, TataraDomain, ValidateHandler,
-    ValidatedDomain,
+    NarrowNumeric, NumericAxis, ObservabilityHandler, ObservableDomain, RenderHandler,
+    RenderableDomain, RolloutStrategy, SchemaHandler, SchematicDomain, StabilityHandler,
+    StableDomain, TataraDomain, ValidateHandler, ValidatedDomain,
 };
 // Derive macros — same names as the traits, different namespace (procedural
 // macros vs. types), so they coexist cleanly under one import.
@@ -61,8 +61,8 @@ pub use diagnostic::{caret_run, format_diagnostic, line_at, line_col, span_width
 pub use env::Env;
 pub use error::{
     CompilerSpecIoStage, ExpectedKwargShape, KwargPath, KwargPathKind, LispError, MacroDefHead,
-    OptionalParamMalformedReason, Result, SexpShape, SexpWitness, StructuralKind,
-    TemplateInvariantKind, UnknownCompilerSpecIoStage, UnknownExpectedKwargShape,
+    NumericLiteral, NumericWidth, OptionalParamMalformedReason, Result, SexpShape, SexpWitness,
+    StructuralKind, TemplateInvariantKind, UnknownCompilerSpecIoStage, UnknownExpectedKwargShape,
     UnknownKwargPathKind, UnknownMacroDefHead, UnknownSexpShape, UnknownStructuralKind,
     UnknownUnquoteForm, UnquoteForm,
 };

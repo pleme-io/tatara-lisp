@@ -425,7 +425,15 @@ fn check_form(form: &Spanned, env: &mut TypeEnv, diags: &mut Vec<TypeDiagnostic>
 /// head resolves to a synthesized arrow. Anything else — a primitive, an
 /// import, a macro, a shadowed local — is `Any` and abstains.
 fn check_application_arity(items: &[Spanned], env: &TypeEnv, diags: &mut Vec<TypeDiagnostic>) {
-    let Some(head) = items[0].as_symbol() else {
+    // `items.first()`, not `items[0]`: the reader parses the empty list
+    // `()` as `SpannedForm::List(vec![])`, NOT as `SpannedForm::Nil`
+    // (reader.rs — an `LParen` immediately followed by `RParen` returns
+    // `List(xs)` with `xs` still empty). `check_form` guards its own head
+    // lookup with `.first()` and then falls through to here, so before
+    // this every `tatara typecheck` over a file containing a literal `()`
+    // panicked with "index out of bounds: the len is 0". Found by running
+    // the pass over the fleet corpus.
+    let Some(head) = items.first().and_then(Spanned::as_symbol) else {
         return;
     };
     let StaticType::Fn { params, .. } = env.lookup(head) else {
@@ -737,6 +745,21 @@ fn infer(form: &Spanned, env: &TypeEnv) -> StaticType {
                 if head == "list" {
                     return infer_list_ctor(&items[1..], env);
                 }
+                // `(begin a b c)` evaluates to its LAST form, so that is
+                // its type; `(begin)` is nil.
+                //
+                // Not an optional nicety once macros expand: `defn-typed`
+                // renders its return annotation as
+                // `(the R (begin body…))`, so without this the declared
+                // return type is compared against `Any` and conforms to
+                // everything. Expansion alone would reach the annotation
+                // and still check nothing.
+                if head == "begin" {
+                    return match items.last() {
+                        Some(last) if items.len() > 1 => infer(last, env),
+                        _ => StaticType::Nil,
+                    };
+                }
                 // A lambda expression IS its arrow, so
                 // `(define f (lambda (a b) …))` binds an arity through
                 // `check_define`'s value path with no extra case there.
@@ -878,6 +901,236 @@ fn render_form_brief(form: &Spanned) -> String {
         SpannedForm::List(_) => "(...)".into(),
         _ => "?".into(),
     }
+}
+
+// ── Build-phase macro expansion ──────────────────────────────────────
+//
+// Everything above is PURE: it reads spans and shapes and evaluates
+// nothing. Everything below runs the real interpreter at build time, and
+// that is not a free upgrade — it is the honest cost of reaching the
+// annotation surface at all.
+//
+// # Why the pure path cannot do this
+//
+// `defn-typed` — the whole authoring surface for annotations — is a
+// `(defmacro …)` in `lisp_stdlib.tlisp`, and its body *computes*: it
+// `map`s over the parameter list to build the `(the …)` checks and
+// `throw`s when the literal `->` is missing. `SpannedExpander` (the pure
+// template substituter in `tatara_lisp::spanned_expand`) cannot run that;
+// it substitutes a template and reports the computed helpers as unbound in
+// the macro template. Only `Interpreter::expand_macro_call` — which
+// evaluates the body in a live interpreter — produces the
+// `(define (f a b) (the :int a) … (the :string (begin …)))` that
+// `check_program` above knows how to check.
+//
+// So "expand before checking" is not a wire-up. It means **standing up an
+// interpreter, with its stdlib evaluated, during the build**, and that is
+// the cost to weigh:
+//
+// | measured 2026-08-05, M1 Max, release, 680 parsed `.tlisp` (3.25 MB) |          |
+// |---------------------------------------------------------------------|----------|
+// | `BuildExpander::new()` — first / steady-state of 20                  | 1.46 ms / 921 µs |
+// | pure `check_program`, whole corpus                                   | 5.2 ms (7.6 µs/file) |
+// | `BuildExpander::check`, whole corpus                                 | 35.3 ms (51.9 µs/file) |
+//
+// ≈ **6.8× the pure pass**, plus one ~1 ms startup. Startup is dominated
+// by *evaluating* the embedded Lisp stdlib, not by registering Rust
+// primitives (`Interpreter::fork`'s doc records 945 µs for the same
+// install), so [`BuildExpander`] pays it **once** and `fork`s per file —
+// the convention `fork` was written for.
+//
+// # What it bought, on that same corpus: nothing yet, and that is honest
+//
+// Expansion rewrote the form tree of **61 of 680** files (stdlib macros:
+// `->`, `when-let`, `dolist`, `case`, …) and 5 forms failed to expand. The
+// diagnostic count went **0 → 0**. The reason is measurable: the corpus
+// contains **zero** `(the :…)` forms, **zero** `(declare …)` forms and
+// **zero** `defn-typed` call sites — `defn-typed` appears exactly once in
+// the fleet, in `lisp_stdlib.tlisp`, where it is *defined*. There is no
+// annotation for expansion to reach. `--expand` makes the annotation
+// surface REACHABLE; it does not make anyone use it.
+//
+// # What bounds it
+//
+// Running user code at build time is a capability decision, so it is made
+// explicitly rather than inherited:
+//
+// * **Module resolution is denied.** The base interpreter installs a
+//   [`DenyingLoader`], so a `(require …)` reached from here fails naming
+//   the gate instead of reading a file. Tier-honest: during *expansion*
+//   the loader is not even reachable — `Loader::load` is called only from
+//   `Interpreter::eval_top_form`'s `require` arm, and this path calls
+//   `try_register_macro` + `fully_expand` directly. The gate is
+//   defence-in-depth against a future path, and the test below proves it
+//   is installed by exercising the loader through the arm that does reach
+//   it, against a `FilesystemLoader` control.
+// * **No host capabilities exist to deny.** The host type is `()` and only
+//   `install_full_stdlib_with` runs, so none of `tatara-lisp-script`'s 56
+//   `fs` / `process` / `http` / `env` natives are registered. That, not
+//   the loader, is what actually makes this path filesystem-free:
+//   `tatara-lisp-eval`'s only `std::fs`/`std::env`/`std::process` call
+//   outside `#[cfg(test)]` is `FilesystemLoader::load`.
+// * **Residue, stated rather than hidden.** `print` / `println` / `display`
+//   still write to stdout, so a macro body that logs will log during a
+//   typecheck. Bounding that means changing `primitive.rs`, which is not
+//   this change.
+// * **Expansion is already bounded** by `Interpreter::macro_expansion_limit`
+//   — a runaway macro fails the check rather than aborting the process.
+
+/// A macro expansion that did not complete. The form is kept in its
+/// ORIGINAL shape (see [`BuildExpander::expand`]), so this is a note about
+/// reduced coverage, never a dropped form.
+#[derive(Debug, Clone)]
+pub struct ExpansionFailure {
+    pub span: Span,
+    pub message: String,
+}
+
+impl ExpansionFailure {
+    pub fn render(&self, src: &str) -> String {
+        let (line, col) = Span::line_col(src, self.span.start);
+        format!(
+            "expand:{line}:{col}: macro expansion failed, checking the unexpanded form — {}",
+            self.message
+        )
+    }
+}
+
+/// Result of [`BuildExpander::check`]: the diagnostics, plus every form
+/// whose expansion failed.
+///
+/// The failures are carried rather than swallowed on purpose. Best-effort
+/// expansion is the right policy (below), but a checker that silently
+/// analysed less than it claimed would be lying by omission — the caller
+/// gets to decide whether reduced coverage is worth reporting.
+#[derive(Debug, Clone, Default)]
+pub struct ExpandedCheck {
+    pub diagnostics: Vec<TypeDiagnostic>,
+    pub expansion_failures: Vec<ExpansionFailure>,
+}
+
+/// A build-time expansion environment: one interpreter with the stdlib
+/// evaluated, a denying loader, and no host capabilities.
+///
+/// Construct once per process and reuse across files — `expand` forks, so
+/// macros a file defines cannot leak into the next file.
+pub struct BuildExpander {
+    base: crate::Interpreter<()>,
+}
+
+impl BuildExpander {
+    /// The refusal every denied `(require …)` cites.
+    pub const DENIAL_REASON: &'static str =
+        "build-time macro expansion (tatara typecheck --expand) must not read the filesystem \
+         or the network; re-run the program itself if it genuinely needs this module";
+
+    #[must_use]
+    pub fn new() -> Self {
+        let mut base: crate::Interpreter<()> = crate::Interpreter::new();
+        // BEFORE the stdlib install and before any fork: `fork` clones the
+        // parent's `Arc<dyn Loader>`, so setting it here is what makes every
+        // child denied. The embedded stdlib contains no `(require …)`, so
+        // denying first cannot break the install.
+        base.set_loader(Arc::new(crate::DenyingLoader::new(Self::DENIAL_REASON)));
+        let mut host = ();
+        crate::install_full_stdlib_with(&mut base, &mut host);
+        Self { base }
+    }
+
+    /// A child of the base environment — stdlib shared, loader denied, its
+    /// own frame for anything it defines. Exposed so a test (or an embedder)
+    /// can exercise the gate through the arm that actually reaches the
+    /// loader.
+    #[must_use]
+    pub fn fork_interpreter(&self) -> crate::Interpreter<()> {
+        self.base.fork()
+    }
+
+    /// Expand a whole file's forms for STATIC ANALYSIS.
+    ///
+    /// Two deliberate departures from [`crate::Interpreter::expand_program`],
+    /// both taken from `tatara-script lint`'s expand-before-linting pass —
+    /// the existing precedent in this workspace for running the real
+    /// expander over source nobody is running:
+    ///
+    /// 1. **Register every macro first, then expand.** Runtime requires a
+    ///    macro to be defined before its use; a file being *analysed* is a
+    ///    whole unit, and a use textually above its `defmacro` should still
+    ///    expand.
+    /// 2. **Best-effort.** A form that fails to expand is kept in its
+    ///    original shape rather than dropped or aborting the file, so
+    ///    expansion can only ever add coverage. The failure is returned
+    ///    alongside.
+    ///
+    /// Registered `defmacro` forms are KEPT (unexpanded), unlike the runtime
+    /// path which drops them — `check_program` walks whatever it is handed,
+    /// and dropping forms would change what an unmacro'd file reports.
+    #[must_use]
+    pub fn expand(&self, forms: &[Spanned]) -> (Vec<Spanned>, Vec<ExpansionFailure>) {
+        let mut interp = self.base.fork();
+        let mut host = ();
+        let mut registered: Vec<bool> = Vec::with_capacity(forms.len());
+        for form in forms {
+            // A malformed `(defmacro …)` is a registration error, not an
+            // expansion error; the lint pass ignores it the same way and lets
+            // the form fall through to the analysis, which reports it.
+            registered.push(
+                interp
+                    .expander_mut()
+                    .try_register_macro(form)
+                    .unwrap_or(false),
+            );
+        }
+        let mut out = Vec::with_capacity(forms.len());
+        let mut failures = Vec::new();
+        for (form, was_macro_def) in forms.iter().zip(registered) {
+            if was_macro_def {
+                out.push(form.clone());
+                continue;
+            }
+            match interp.fully_expand(form, &mut host) {
+                Ok(expanded) => out.push(expanded),
+                Err(e) => {
+                    failures.push(ExpansionFailure {
+                        span: form.span,
+                        message: format!("{e}"),
+                    });
+                    out.push(form.clone());
+                }
+            }
+        }
+        (out, failures)
+    }
+
+    /// Expand, then run the same pure [`check_program`] over the result.
+    #[must_use]
+    pub fn check(&self, forms: &[Spanned]) -> ExpandedCheck {
+        let (expanded, expansion_failures) = self.expand(forms);
+        ExpandedCheck {
+            diagnostics: check_program(&expanded),
+            expansion_failures,
+        }
+    }
+}
+
+impl Default for BuildExpander {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// One-shot expand-then-check for a single program.
+///
+/// Convenience only: it stands up a whole [`BuildExpander`] (≈1 ms) per
+/// call. Checking more than one file should build one expander and call
+/// [`BuildExpander::check`] per file.
+///
+/// [`check_program`] is unchanged and remains the default; this is the
+/// opt-in path. Callers pinning `check_program` across repositories keep
+/// the signature they pinned.
+#[must_use]
+pub fn check_program_expanded(forms: &[Spanned]) -> ExpandedCheck {
+    BuildExpander::new().check(forms)
 }
 
 #[cfg(test)]
@@ -1166,5 +1419,228 @@ mod tests {
             StaticType::Union(vec![StaticType::Int, StaticType::Str]).render(),
             "(:union :int :string)"
         );
+    }
+
+    /// The reader gives `()` an EMPTY `List`, not `Nil`, and the arity
+    /// walker indexed `[0]` on it. Every `tatara typecheck` over a file
+    /// containing a literal `()` aborted the process; the fleet corpus
+    /// has plenty.
+    #[test]
+    fn the_empty_list_does_not_panic_the_arity_walker() {
+        assert!(check("()").is_empty());
+        assert!(check("(define (f a) a) (f ())").is_empty());
+        assert!(check("(define xs (list () ()))").is_empty());
+        // …and the arity claim still lands with an empty list as the arg.
+        assert_eq!(check("(define (f a) a) (f () ())").len(), 1);
+    }
+
+    // ── `begin` inference (pure; the thing expansion lands on) ───────
+
+    #[test]
+    fn begin_infers_its_last_form() {
+        assert!(check("(the :int (begin 1 2 3))").is_empty());
+        assert!(check("(the :string (begin 1 2 \"s\"))").is_empty());
+        let diags = check("(the :string (begin 1 2 3))");
+        assert_eq!(diags.len(), 1, "{diags:?}");
+    }
+
+    #[test]
+    fn an_empty_begin_is_nil() {
+        assert!(check("(the :nil (begin))").is_empty());
+        assert_eq!(check("(the :int (begin))").len(), 1);
+    }
+
+    // ── Build-phase expansion ────────────────────────────────────────
+
+    fn check_expanded(exp: &BuildExpander, src: &str) -> ExpandedCheck {
+        exp.check(&read_spanned(src).unwrap())
+    }
+
+    /// The gap this whole path exists to close. `defn-typed` is a
+    /// procedural macro, so an unexpanded corpus hides every annotation it
+    /// carries — this asserts the miss, so the next test's catch is not
+    /// mistaken for the checker already working.
+    #[test]
+    fn defn_typed_return_mismatch_is_invisible_without_expansion() {
+        assert!(check("(defn-typed wrong ((n :int)) -> :string (* n 2))").is_empty());
+    }
+
+    #[test]
+    fn defn_typed_return_mismatch_is_caught_after_expansion() {
+        let exp = BuildExpander::new();
+        let out = check_expanded(&exp, "(defn-typed wrong ((n :int)) -> :string (* n 2))");
+        assert!(out.expansion_failures.is_empty());
+        assert_eq!(out.diagnostics.len(), 1, "{:?}", out.diagnostics);
+        match &out.diagnostics[0].kind {
+            TypeDiagnosticKind::Mismatch { expected, got, .. } => {
+                assert_eq!(expected.render(), ":string");
+                // `*` is in the primitive table as `:number` (it cannot
+                // peek at its arguments), and `(begin …)` now carries the
+                // last form's type out of the `defn-typed` wrapper.
+                assert_eq!(got.render(), ":number");
+            }
+            other => panic!("expected a mismatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_correct_defn_typed_stays_clean_after_expansion() {
+        let exp = BuildExpander::new();
+        let out = check_expanded(&exp, "(defn-typed double-it ((n :int)) -> :int (* n 2))");
+        assert!(out.expansion_failures.is_empty());
+        assert!(out.diagnostics.is_empty(), "{:?}", out.diagnostics);
+    }
+
+    /// Expansion feeds the ARITY pass too: `defn-typed`'s parameter list
+    /// only becomes a countable `(define (f n) …)` after the macro runs.
+    #[test]
+    fn expansion_makes_a_defn_typed_signature_arity_checkable() {
+        let src = "(defn-typed double-it ((n :int)) -> :int (* n 2))
+                   (double-it 1 2 3)";
+        assert!(check(src).is_empty());
+        let out = check_expanded(&BuildExpander::new(), src);
+        assert!(
+            out.diagnostics.iter().any(|d| matches!(
+                d.kind,
+                TypeDiagnosticKind::Arity {
+                    expected: 1,
+                    got: 3,
+                    ..
+                }
+            )),
+            "{:?}",
+            out.diagnostics
+        );
+    }
+
+    /// A USER macro, not a stdlib one — the operator-approved capability is
+    /// running user macro bodies at build time, so prove one runs.
+    #[test]
+    fn a_user_macro_body_runs_and_its_output_is_checked() {
+        let src = "(defmacro claim-int (x) `(the :int ,x))
+                   (claim-int \"not an int\")";
+        assert!(check(src).is_empty());
+        let out = check_expanded(&BuildExpander::new(), src);
+        assert_eq!(out.diagnostics.len(), 1, "{:?}", out.diagnostics);
+        assert!(matches!(
+            out.diagnostics[0].kind,
+            TypeDiagnosticKind::Mismatch { .. }
+        ));
+    }
+
+    /// Policy 1: registration is a whole-file pass, so a use above its
+    /// definition still expands. The runtime path deliberately does not do
+    /// this, which is why the two policies are separate methods.
+    #[test]
+    fn a_macro_used_above_its_definition_still_expands() {
+        let src = "(claim-int \"not an int\")
+                   (defmacro claim-int (x) `(the :int ,x))";
+        let out = check_expanded(&BuildExpander::new(), src);
+        assert_eq!(out.diagnostics.len(), 1, "{:?}", out.diagnostics);
+    }
+
+    /// Policy 2: a throwing macro body degrades to the unexpanded form. The
+    /// file is still checked and the loss is reported, never swallowed.
+    #[test]
+    fn an_unexpandable_form_is_kept_and_the_failure_reported() {
+        // `defn-typed` throws when the literal `->` is missing.
+        let src = "(defn-typed broken ((n :int)) :int (* n 2))
+                   (the :int \"caught anyway\")";
+        let out = check_expanded(&BuildExpander::new(), src);
+        assert_eq!(
+            out.expansion_failures.len(),
+            1,
+            "{:?}",
+            out.expansion_failures
+        );
+        assert!(out.expansion_failures[0]
+            .render(src)
+            .contains("checking the unexpanded form"));
+        // The SECOND form is untouched by the first form's failure.
+        assert_eq!(out.diagnostics.len(), 1, "{:?}", out.diagnostics);
+    }
+
+    /// Parity oracle: on source with no macro calls, expansion must be the
+    /// identity as far as the checker is concerned. If this ever diverges,
+    /// `--expand` changed the meaning of an ordinary file.
+    #[test]
+    fn macro_free_source_checks_identically_with_and_without_expansion() {
+        let exp = BuildExpander::new();
+        for src in [
+            "(define x 42) (+ 1 2)",
+            "(the :int \"oops\")",
+            "(define (f a b) a) (f 1 2 3)",
+            "(declare n :int) (define n \"nope\")",
+            "(define (twice g x) (g (g x))) (twice (lambda (y) y) 1)",
+        ] {
+            let pure = check(src);
+            let out = check_expanded(&exp, src);
+            assert!(out.expansion_failures.is_empty(), "{src}");
+            assert_eq!(
+                pure.len(),
+                out.diagnostics.len(),
+                "expansion changed the verdict for {src}: {:?} vs {:?}",
+                pure,
+                out.diagnostics
+            );
+        }
+    }
+
+    /// One expander, many files: a macro defined in file A must not be
+    /// visible while checking file B. `expand` forks for exactly this.
+    #[test]
+    fn a_macro_from_one_file_does_not_leak_into_the_next() {
+        let exp = BuildExpander::new();
+        let a = "(defmacro claim-int (x) `(the :int ,x))
+                 (claim-int \"not an int\")";
+        assert_eq!(check_expanded(&exp, a).diagnostics.len(), 1);
+        // Same call, no definition in scope: `claim-int` is an unknown head,
+        // stays a plain call, and nothing is claimed about it.
+        let b = "(claim-int \"not an int\")";
+        assert!(check_expanded(&exp, b).diagnostics.is_empty());
+    }
+
+    // ── The capability gate ──────────────────────────────────────────
+
+    /// The denial proof. Reached through `eval_top_form`'s `require` arm,
+    /// which is the ONLY caller of `Loader::load` — see the module note on
+    /// why the expansion path itself never gets there.
+    #[test]
+    fn the_build_expander_denies_every_module_load() {
+        let mut interp = BuildExpander::new().fork_interpreter();
+        let forms = read_spanned("(require \"anything\")").unwrap();
+        let err = interp
+            .eval_top_form(&forms[0], &mut ())
+            .expect_err("a build-time (require …) must not resolve");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("must not read the filesystem"),
+            "denial must name the gate, got: {msg}"
+        );
+    }
+
+    /// Positive control for the test above: the same `(require …)`, the same
+    /// interpreter shape, a real `FilesystemLoader` over a real file on
+    /// disk — and it resolves. Without this, "denied" could just mean
+    /// "`require` is broken" and the gate test would be vacuous.
+    #[test]
+    fn the_same_require_succeeds_against_a_real_filesystem_loader() {
+        let dir =
+            std::env::temp_dir().join(format!("tatara-build-check-control-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("anything.tlisp"),
+            "(provide answer)\n(define answer 42)\n",
+        )
+        .unwrap();
+
+        let mut interp = BuildExpander::new().fork_interpreter();
+        interp.set_loader(Arc::new(crate::FilesystemLoader::new(&dir)));
+        let forms = read_spanned("(require \"anything\")").unwrap();
+        interp
+            .eval_top_form(&forms[0], &mut ())
+            .expect("the control must resolve — otherwise the denial test proves nothing");
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

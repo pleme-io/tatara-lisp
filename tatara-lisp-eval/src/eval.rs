@@ -872,13 +872,25 @@ impl<H: 'static> Interpreter<H> {
         )
     }
 
-    /// Compile + execute a parsed program through the bytecode VM.
-    /// Top-level `defmacro` forms register into the persistent
-    /// expander (same as `eval_program`); every other form is
-    /// macro-expanded in place, then a fresh `Chunk` is compiled and
-    /// run. This is the opt-in fast path; `eval_program` remains the
-    /// authoritative tree-walker. Returns the value of the last form.
-    pub fn eval_program_vm(&mut self, forms: &[Spanned], host: &mut H) -> Result<Value> {
+    /// The register-then-expand handshake, once.
+    ///
+    /// A top-level `(defmacro …)` is a *registration*, not a form to run:
+    /// `try_register_macro` stores it and the caller must not also compile it.
+    /// Everything else is fully expanded. Getting that pair wrong is silent —
+    /// forget the registration and every use of the macro compiles as a
+    /// function call to an unbound name; forget to skip the registered form and
+    /// the compiler sees a `defmacro` it has no opcode for.
+    ///
+    /// Spelling it out per call site is how it drifts, so the one spelling
+    /// lives here. `eval_program_vm` is the first caller.
+    ///
+    /// **Strict and interleaved**, matching runtime semantics: a macro must be
+    /// defined *before* the form that uses it, and the first expansion failure
+    /// aborts. A *static* analyser wants neither — it registers every macro in
+    /// the file up front and degrades to the unexpanded form on failure rather
+    /// than refusing to analyse the file. That is
+    /// [`crate::build_check::BuildExpander`], deliberately a separate policy.
+    pub fn expand_program(&mut self, forms: &[Spanned], host: &mut H) -> Result<Vec<Spanned>> {
         let mut expanded: Vec<Spanned> = Vec::with_capacity(forms.len());
         for form in forms {
             if self.expander.try_register_macro(form)? {
@@ -886,6 +898,17 @@ impl<H: 'static> Interpreter<H> {
             }
             expanded.push(self.fully_expand(form, host)?);
         }
+        Ok(expanded)
+    }
+
+    /// Compile + execute a parsed program through the bytecode VM.
+    /// Top-level `defmacro` forms register into the persistent
+    /// expander (same as `eval_program`); every other form is
+    /// macro-expanded in place, then a fresh `Chunk` is compiled and
+    /// run. This is the opt-in fast path; `eval_program` remains the
+    /// authoritative tree-walker. Returns the value of the last form.
+    pub fn eval_program_vm(&mut self, forms: &[Spanned], host: &mut H) -> Result<Value> {
+        let expanded = self.expand_program(forms, host)?;
         let chunk = crate::vm::compile_program(&expanded).map_err(|e| match e {
             crate::vm::CompileError::Bad { at, message } => {
                 EvalError::bad_form(Arc::<str>::from("vm:compile"), message, at)

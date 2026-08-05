@@ -1099,15 +1099,9 @@ mod tests {
         install_full_stdlib_with(&mut i, &mut NoHost);
         let forms = read_spanned(src).unwrap();
         // Macroexpand first so the VM never sees defmacro-introduced
-        // syntax. The expander mutates `i.expander` from any
-        // top-level (defmacro …) forms in the source.
-        let mut expanded: Vec<tatara_lisp::Spanned> = Vec::new();
-        for form in &forms {
-            if i.expander_mut().try_register_macro(form).unwrap() {
-                continue;
-            }
-            expanded.push(i.fully_expand(form, &mut NoHost).unwrap());
-        }
+        // syntax — the same register-then-expand handshake `eval_program_vm`
+        // runs, via the one method that spells it out.
+        let expanded = i.expand_program(&forms, &mut NoHost).unwrap();
         let chunk = compile_program(&expanded).unwrap();
         let mut vm = Vm::new();
         vm.run(&chunk, &mut i, &mut NoHost).unwrap()

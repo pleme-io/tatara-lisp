@@ -14,7 +14,7 @@
 //!   tatara test <path-or-url>         ← delegates to `tatara-script --test`
 //!   tatara repl                       ← delegates to `tatara-script --repl`
 //!   tatara deploy <github-url>        ← fetch + check + package as ComputeUnit YAML
-//!   tatara typecheck <path>           ← future: build-time gradual typing pass
+//!   tatara typecheck <path> [--expand]  build-time gradual typing pass
 //! ```
 //!
 //! `feira` is searched on `$PATH` (typically installed via the caixa
@@ -69,6 +69,12 @@ enum Cmd {
         /// Also run the build-time gradual type checker.
         #[arg(long)]
         types: bool,
+        /// With --types: macro-expand each file before type-checking, by
+        /// running the real interpreter at build time. Reaches annotations
+        /// that only exist after expansion (`defn-typed`). Opt-in — see
+        /// `tatara typecheck --expand`.
+        #[arg(long)]
+        expand: bool,
     },
 
     /// Execute a tatara-lisp script.
@@ -92,6 +98,21 @@ enum Cmd {
     Typecheck {
         /// Path to a .tlisp file or a fetchable URL.
         path_or_url: String,
+        /// Macro-expand before checking, by RUNNING the real interpreter
+        /// at build time.
+        ///
+        /// Off by default because it is a capability change, not a
+        /// precision knob: expansion evaluates user macro BODIES. The
+        /// build-time environment installs a denying module loader and
+        /// registers no filesystem / process / network natives, so it
+        /// cannot read or write; `print` from a macro body still reaches
+        /// stdout.
+        ///
+        /// Turn it on to check `defn-typed` annotations — a procedural
+        /// macro, so without expansion its `(the …)` forms do not exist
+        /// yet and nothing about them is checked.
+        #[arg(long)]
+        expand: bool,
     },
 
     /// Fetch a tatara-lisp program from a URL, run the canonical
@@ -175,10 +196,11 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
             fix_unsafe,
             errors_only,
             types,
+            expand,
         } => {
             let lint = run_feira_lint(&paths, fix, fix_unsafe, errors_only)?;
             if types {
-                let tc = typecheck_paths(&paths)?;
+                let tc = typecheck_paths(&paths, expand)?;
                 Ok(merge_exit(lint, tc))
             } else {
                 Ok(lint)
@@ -187,7 +209,10 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
         Cmd::Run { path_or_url, args } => run_script(&path_or_url, &args, false, false),
         Cmd::Test { path_or_url } => run_script(&path_or_url, &[], true, false),
         Cmd::Repl => run_script("", &[], false, true),
-        Cmd::Typecheck { path_or_url } => typecheck(&path_or_url),
+        Cmd::Typecheck {
+            path_or_url,
+            expand,
+        } => typecheck(&path_or_url, expand),
         Cmd::Deploy {
             url,
             output,
@@ -391,13 +416,20 @@ fn run_script(path: &str, args: &[String], test: bool, repl: bool) -> Result<Exi
 /// Run typecheck across many paths (default: every .tlisp under cwd
 /// recursively). Returns ExitCode::SUCCESS only if every file is
 /// clean.
-fn typecheck_paths(paths: &[PathBuf]) -> Result<ExitCode> {
+///
+/// `expand` selects the build-phase expansion path. The expansion
+/// environment is built ONCE and forked per file: standing it up
+/// evaluates the embedded Lisp stdlib (≈1 ms), and per-file isolation is
+/// what keeps one file's macros out of the next file's check.
+fn typecheck_paths(paths: &[PathBuf], expand: bool) -> Result<ExitCode> {
     let targets: Vec<PathBuf> = if paths.is_empty() {
         find_tlisp_files(std::path::Path::new("."))
     } else {
         paths.to_vec()
     };
+    let expander = expand.then(tatara_lisp_eval::build_check::BuildExpander::new);
     let mut total_errors = 0usize;
+    let mut total_expansion_failures = 0usize;
     for path in &targets {
         let src =
             std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
@@ -409,16 +441,38 @@ fn typecheck_paths(paths: &[PathBuf]) -> Result<ExitCode> {
                 continue;
             }
         };
-        let diags = tatara_lisp_eval::build_check::check_program(&forms);
+        let (diags, failures) = match &expander {
+            Some(exp) => {
+                let out = exp.check(&forms);
+                (out.diagnostics, out.expansion_failures)
+            }
+            None => (
+                tatara_lisp_eval::build_check::check_program(&forms),
+                Vec::new(),
+            ),
+        };
+        // Reduced coverage, not a failure: the form was still checked in
+        // its unexpanded shape. Reported so it is never silent, but it
+        // does not move the exit code — see `BuildExpander::expand`.
+        for f in &failures {
+            eprintln!("{}: {}", path.display(), f.render(&src));
+        }
         for d in &diags {
             eprintln!("{}: {}", path.display(), d.render(&src));
         }
         total_errors += diags.len();
+        total_expansion_failures += failures.len();
     }
     eprintln!(
-        "tatara typecheck: {} file(s) checked, {} type error(s)",
+        "tatara typecheck: {} file(s) checked{}, {} type error(s){}",
         targets.len(),
-        total_errors
+        if expand { " (macro-expanded)" } else { "" },
+        total_errors,
+        if total_expansion_failures > 0 {
+            format!(", {total_expansion_failures} form(s) left unexpanded")
+        } else {
+            String::new()
+        }
     );
     if total_errors > 0 {
         Ok(ExitCode::from(1))
@@ -464,13 +518,21 @@ fn merge_exit(a: ExitCode, b: ExitCode) -> ExitCode {
     }
 }
 
-fn typecheck(path_or_url: &str) -> Result<ExitCode> {
+fn typecheck(path_or_url: &str, expand: bool) -> Result<ExitCode> {
     let resolved =
         tatara_lisp_source::resolve_once(path_or_url).context("resolving source for typecheck")?;
     let src = String::from_utf8(resolved.bytes).context("source is not UTF-8")?;
     let forms =
         tatara_lisp::read_spanned(&src).map_err(|e| anyhow::anyhow!("parse error: {e:?}"))?;
-    let diags = tatara_lisp_eval::build_check::check_program(&forms);
+    let diags = if expand {
+        let out = tatara_lisp_eval::build_check::check_program_expanded(&forms);
+        for f in &out.expansion_failures {
+            eprintln!("{path_or_url}: {}", f.render(&src));
+        }
+        out.diagnostics
+    } else {
+        tatara_lisp_eval::build_check::check_program(&forms)
+    };
     if diags.is_empty() {
         eprintln!("tatara typecheck: 0 errors");
         return Ok(ExitCode::SUCCESS);

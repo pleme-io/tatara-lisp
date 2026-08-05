@@ -22,8 +22,8 @@
 //!         Ok(Self {
 //!             name: extract_string(&kw, "name")?.to_string(),
 //!             query: extract_string(&kw, "query")?.to_string(),
-//!             threshold: extract_float(&kw, "threshold")?,
-//!             window_seconds: extract_optional_int(&kw, "window-seconds")?,
+//!             threshold: extract_float_narrowed::<f64>(&kw, "threshold")?,
+//!             window_seconds: extract_optional_int_narrowed::<i64>(&kw, "window-seconds")?,
 //!         })
 //!     }
 //! }
@@ -39,6 +39,15 @@
 //!   - `i64`, `i32`, `u32`, `usize`, `u64`, `Option<i64>`
 //!   - `f64`, `f32`, `Option<f64>`
 //!   - `bool`, `Option<bool>`
+//!
+//! Every numeric field goes through `tatara_lisp::domain`'s
+//! `NarrowNumeric` projection, NOT a Rust `as` cast: the reader hands
+//! back the widest value on each axis (`i64` / `f64`) and the field's
+//! own width is recovered by a partial conversion that returns
+//! `LispError::KwargOutOfRange` rather than truncating. The identity
+//! widths (`i64`, `f64`) route through the same call with a total impl,
+//! so the emission is uniform across all seven widths and this derive
+//! contains no numeric `as` cast at all.
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
@@ -397,28 +406,50 @@ fn extractor_for(ty: &Type, key: &str, has_default: bool) -> Result<TokenStream2
         Kind::VecString => quote! {
             ::tatara_lisp::domain::extract_string_list(&kw, #key)?
         },
+        // ── The four numeric arms: NARROWED, never `as`-cast ──
+        //
+        // These four used to emit the reader's wide value followed by a
+        // raw Rust `as` downcast — `extract_int(&kw, "port")? as u32`.
+        // `as` is total by truncating, so `:port 4294967296` landed as
+        // `0` and `:port -1` as `4294967295`, in the struct, silently,
+        // with nothing red anywhere. The author read back a number they
+        // never wrote.
+        //
+        // The width now rides the TURBOFISH into
+        // `tatara_lisp::domain`'s `NarrowNumeric` projection, which
+        // returns `LispError::KwargOutOfRange` for a value the field
+        // cannot hold. Two consequences worth naming: this derive no
+        // longer contains the word `as` on any numeric path (there is
+        // no truncation left to regress), and the emitted code names
+        // the width exactly ONCE — as a type — so the diagnostic's
+        // `target` cannot drift from the field's actual Rust type.
+        //
+        // `rust_ty` is still the `Kind::Int` / `Kind::Float` payload,
+        // now spliced as the generic argument rather than as a cast
+        // target; the `classify` unit pins on those payloads keep
+        // their meaning unchanged.
         Kind::Int(rust_ty) => {
-            let cast: TokenStream2 = rust_ty.parse().unwrap();
+            let narrowed: TokenStream2 = rust_ty.parse().unwrap();
             quote! {
-                ::tatara_lisp::domain::extract_int(&kw, #key)? as #cast
+                ::tatara_lisp::domain::extract_int_narrowed::<#narrowed>(&kw, #key)?
             }
         }
         Kind::OptionalInt(rust_ty) => {
-            let cast: TokenStream2 = rust_ty.parse().unwrap();
+            let narrowed: TokenStream2 = rust_ty.parse().unwrap();
             quote! {
-                ::tatara_lisp::domain::extract_optional_int(&kw, #key)?.map(|n| n as #cast)
+                ::tatara_lisp::domain::extract_optional_int_narrowed::<#narrowed>(&kw, #key)?
             }
         }
         Kind::Float(rust_ty) => {
-            let cast: TokenStream2 = rust_ty.parse().unwrap();
+            let narrowed: TokenStream2 = rust_ty.parse().unwrap();
             quote! {
-                ::tatara_lisp::domain::extract_float(&kw, #key)? as #cast
+                ::tatara_lisp::domain::extract_float_narrowed::<#narrowed>(&kw, #key)?
             }
         }
         Kind::OptionalFloat(rust_ty) => {
-            let cast: TokenStream2 = rust_ty.parse().unwrap();
+            let narrowed: TokenStream2 = rust_ty.parse().unwrap();
             quote! {
-                ::tatara_lisp::domain::extract_optional_float(&kw, #key)?.map(|n| n as #cast)
+                ::tatara_lisp::domain::extract_optional_float_narrowed::<#narrowed>(&kw, #key)?
             }
         }
         Kind::Bool => quote! {

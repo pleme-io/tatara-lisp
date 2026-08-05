@@ -10,7 +10,7 @@
 (defreservas
   :medido-em "2026-07-31"
   :arvore "~/code/github/pleme-io (the pleme-io org checkout)"
-  :denominador 221
+  :denominador 222
   :palavras ((
      :palavra "defabbr"
      :donos ("frost/crates/frost-lisp/src/abbr.rs"))
@@ -185,6 +185,7 @@
     (:palavra "defnamed-edge" :donos ("sui/sui-spec/src/lockfile_graph.rs"))
     (:palavra "defnar-format" :donos ("sui/sui-spec/src/nar.rs"))
     (:palavra "defnarinfo-format" :donos ("sui/sui-spec/src/narinfo.rs"))
+    (:palavra "defnarrow" :donos ("tatara-lisp/tatara-lisp/src/domain.rs"))
     (:palavra "defnavkey" :donos ("banken/banken-spec/src/nav.rs"))
     (:palavra "defnix" :donos ("sui/sui-eval/tests/common/mod.rs"))
     (

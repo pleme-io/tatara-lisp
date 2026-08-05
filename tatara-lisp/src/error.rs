@@ -90,6 +90,7 @@ const _: () = crate::ast::assert_str_array_pairwise_distinct(&KwargPathKind::LAB
 const _: () = crate::ast::assert_str_array_pairwise_distinct(&ExpectedKwargShape::LABELS);
 const _: () = crate::ast::assert_str_array_pairwise_distinct(&SexpShape::LABELS);
 const _: () = crate::ast::assert_str_array_pairwise_distinct(&StructuralKind::LABELS);
+const _: () = crate::ast::assert_str_array_pairwise_distinct(&NumericWidth::LABELS);
 
 // Compile-time NONEMPTY-CARDINALITY-LOWER-BOUND witnesses — one
 // `const _: () = crate::ast::assert_str_array_all_nonempty(&…)` per
@@ -131,6 +132,7 @@ const _: () = crate::ast::assert_str_array_all_nonempty(&KwargPathKind::LABELS);
 const _: () = crate::ast::assert_str_array_all_nonempty(&ExpectedKwargShape::LABELS);
 const _: () = crate::ast::assert_str_array_all_nonempty(&SexpShape::LABELS);
 const _: () = crate::ast::assert_str_array_all_nonempty(&StructuralKind::LABELS);
+const _: () = crate::ast::assert_str_array_all_nonempty(&NumericWidth::LABELS);
 
 // Compile-time ASCII-BYTE-RANGE witnesses — one `const _: () =
 // crate::ast::assert_str_array_all_ascii(&…)` per family-wide
@@ -169,6 +171,7 @@ const _: () = crate::ast::assert_str_array_all_ascii(&KwargPathKind::LABELS);
 const _: () = crate::ast::assert_str_array_all_ascii(&ExpectedKwargShape::LABELS);
 const _: () = crate::ast::assert_str_array_all_ascii(&SexpShape::LABELS);
 const _: () = crate::ast::assert_str_array_all_ascii(&StructuralKind::LABELS);
+const _: () = crate::ast::assert_str_array_all_ascii(&NumericWidth::LABELS);
 
 // Compile-time SUBSET-embedding witnesses — the THREE family-wide
 // `[&'static str; N]` sub-vocabularies of the substrate's twelve-arm

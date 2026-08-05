@@ -16,17 +16,13 @@
   :name "edge-platform"
   :description "Production edge — ingress + L4 mitigation + monitoring."
   :imports ("tatara-gateway-api"
-            "tatara-cilium"
-            "tatara-prometheus-operator"
-            "tatara-ebpf")
-  :labels (:tier "prod"
-           :region "us-east-1"
-           :owner "platform"))
+    "tatara-cilium"
+    "tatara-prometheus-operator"
+    "tatara-ebpf")
+  :labels (:tier "prod" :region "us-east-1" :owner "platform"))
 
 ;; ── Ingress (gateway-api) ────────────────────────────────────────
-(defgateway
-  :gateway-class-name "nginx"
-  :listeners ())
+(defgateway :gateway-class-name "nginx" :listeners ())
 
 ;; ── BPF: per-CPU SYN counter map ─────────────────────────────────
 (defbpf-map

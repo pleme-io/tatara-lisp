@@ -48,7 +48,9 @@
 
 ;; (tap f x) runs (f x) for its side effect and returns x unchanged.
 ;; Useful in pipelines for logging / debugging.
-(define (tap f x) (f x) x)
+(define (tap f x)
+  (f x)
+  x)
 
 ;; ── Threading macros (Clojure-style) ───────────────────────────────
 ;;
@@ -60,48 +62,59 @@
 ;; (-> x f1 f2 ...) — chain; each step is either a bare unary fn or a
 ;; call form (f a b), in which case x is spliced into the FIRST arg
 ;; position: (f x a b).
-(defmacro -> (x &rest steps) (if (null? steps) x `(-> (->1 ,x ,(car steps)) ,@(cdr steps))))
+(defmacro ->
+  (x &rest steps)
+  (if (null? steps)
+    x
+    `(-> (->1 ,x ,(car steps)) ,@(cdr steps))))
 
-(defmacro ->1 (x step) (if (list? step) `(,(car step) ,x ,@(cdr step)) `(,step ,x)))
+(defmacro ->1
+  (x step)
+  (if (list? step)
+    `(,(car step) ,x ,@(cdr step))
+    `(,step ,x)))
 
 ;; (->> x f1 f2 ...) — same threading but step's arg slot is the LAST
 ;; position: (f a b x).
-(defmacro ->> (x &rest steps) (if (null? steps) x `(->> (->>1 ,x ,(car steps)) ,@(cdr steps))))
+(defmacro ->>
+  (x &rest steps)
+  (if (null? steps)
+    x
+    `(->> (->>1 ,x ,(car steps)) ,@(cdr steps))))
 
-(defmacro ->>1 (x step) (if (list? step) `(,(car step) ,@(cdr step) ,x) `(,step ,x)))
+(defmacro ->>1
+  (x step)
+  (if (list? step)
+    `(,(car step) ,@(cdr step) ,x)
+    `(,step ,x)))
 
 ;; ── Control-flow macros ────────────────────────────────────────────
 
 ;; (when-let (name expr) body...) — bind name to expr; if truthy run body.
 ;; Like Clojure's when-let.
-(defmacro
-  when-let
+(defmacro when-let
   (binding &rest body)
   `(let ((,(car binding) ,(car (cdr binding)))) (if ,(car binding) (begin ,@body) ())))
 
 ;; (if-let (name expr) then else) — same with an else branch.
-(defmacro
-  if-let
+(defmacro if-let
   (binding then else)
   `(let ((,(car binding) ,(car (cdr binding)))) (if ,(car binding) ,then ,else)))
 
 ;; (unless-let (name expr) body...) — body runs when expr is FALSY.
-(defmacro
-  unless-let
+(defmacro unless-let
   (binding &rest body)
   `(let ((,(car binding) ,(car (cdr binding)))) (if ,(car binding) () (begin ,@body))))
 
 ;; ── Loops ──────────────────────────────────────────────────────────
 
 ;; (dotimes (i n) body...) — i counts 0 .. n-1.
-(defmacro
-  dotimes
+(defmacro dotimes
   (binding &rest body)
   `(for-each (lambda (,(car binding)) ,@body) (range ,(car (cdr binding)))))
 
 ;; (dolist (x xs) body...) — iterate xs.
-(defmacro
-  dolist
+(defmacro dolist
   (binding &rest body)
   `(for-each (lambda (,(car binding)) ,@body) ,(car (cdr binding))))
 
@@ -109,7 +122,9 @@
 
 ;; (defflow name f1 f2 f3 ...) — define a unary function that pipes its
 ;; argument through f1, then f2, then f3, etc. Reads top-to-bottom.
-(defmacro defflow (name &rest fs) `(define ,name (pipe ,@fs)))
+(defmacro defflow
+  (name &rest fs)
+  `(define ,name (pipe ,@fs)))
 
 ;; ── Sequence helpers ───────────────────────────────────────────────
 
@@ -129,9 +144,11 @@
 
 ;; Safe variants — return nil for out-of-bounds instead of erroring.
 ;; Useful for "optional" positional fields like state-machine row guards.
-(define
-  (safe-nth n xs)
-  (cond ((null? xs) ()) ((<= n 0) (car xs)) (else (safe-nth (- n 1) (cdr xs)))))
+(define (safe-nth n xs)
+  (cond
+    ((null? xs) ())
+    ((<= n 0) (car xs))
+    (else (safe-nth (- n 1) (cdr xs)))))
 
 (define (empty? xs) (null? xs))
 
@@ -140,22 +157,22 @@
 ;; (range n) → (0 1 ... n-1)
 ;; (range a b) → (a a+1 ... b-1)
 ;; (range a b s) → (a a+s ... < b) for positive s; descending for negative.
-(define
-  (range &rest args)
+(define (range &rest args)
   (cond
     ((= (length args) 1) (range-impl 0 (car args) 1))
     ((= (length args) 2) (range-impl (car args) (second args) 1))
     ((= (length args) 3) (range-impl (car args) (second args) (third args)))
     (else (error-msg "range: arity 1, 2, or 3"))))
 
-(define
-  (range-impl start end step)
+(define (range-impl start end step)
   (cond
     ((and (> step 0) (>= start end)) ())
     ((and (< step 0) (<= start end)) ())
     (else (cons start (range-impl (+ start step) end step)))))
 
-(define (error-msg msg) (display msg) (newline))
+(define (error-msg msg)
+  (display msg)
+  (newline))
 
 ;; (repeat-list x n) → (x x x ...) length n
 (define (repeat-list x n) (if (<= n 0) () (cons x (repeat-list x (- n 1)))))
@@ -176,25 +193,25 @@
 (define (interleave xs ys) (apply append (zip xs ys)))
 
 ;; (intersperse sep xs) — insert sep between each pair of items.
-(define
-  (intersperse sep xs)
+(define (intersperse sep xs)
   (cond
     ((null? xs) ())
     ((null? (cdr xs)) (list (car xs)))
     (else (cons (car xs) (cons sep (intersperse sep (cdr xs)))))))
 
 ;; (flatten xs) — recursively flatten nested lists into one list.
-(define
-  (flatten xs)
+(define (flatten xs)
   (cond
     ((null? xs) ())
     ((list? (car xs)) (append (flatten (car xs)) (flatten (cdr xs))))
     (else (cons (car xs) (flatten (cdr xs))))))
 
 ;; (distinct xs) — preserve first occurrence; drop duplicates by equal?.
-(define
-  (distinct xs)
-  (foldl (lambda (acc x) (if (member? x acc) acc (append acc (list x)))) (list) xs))
+(define (distinct xs)
+  (foldl
+    (lambda (acc x) (if (member? x acc) acc (append acc (list x))))
+    (list)
+    xs))
 
 ;; (max-by f xs) / (min-by f xs) — find element with max/min (f x).
 (define (max-by f xs) (foldl (lambda (best x) (if (> (f x) (f best)) x best)) (car xs) (cdr xs)))
@@ -253,8 +270,7 @@
 
 ;; Plist accessor — pull a value out of a (:k1 v1 :k2 v2 ...) list.
 ;; Returns nil when not found.
-(define
-  (plist-get plist key)
+(define (plist-get plist key)
   (cond
     ((null? plist) ())
     ((null? (cdr plist)) ())
@@ -263,8 +279,7 @@
 
 ;; Lookup a (state event next [guard] [action]) row in the transition
 ;; table. Returns the matching row or nil.
-(define
-  (sm-lookup-row trans state event)
+(define (sm-lookup-row trans state event)
   (find (lambda (row) (and (equal? (car row) state) (equal? (second row) event))) trans))
 
 ;; Build a state-machine spec from kv pairs. Just a tagged plist.
@@ -275,21 +290,20 @@
 (define (sm-spec-get s key) (plist-get (cdr s) key))
 
 ;; Run all matching action-fns from an alist of (state action-fn) pairs.
-(define
-  (sm-fire-state-actions actions state)
+(define (sm-fire-state-actions actions state)
   (dolist
     (entry actions)
     (when-let (action-fn (and (equal? (car entry) state) (second entry))) (action-fn state))))
 
-(define
-  (sm-fire-event-actions actions event payload)
+(define (sm-fire-event-actions actions event payload)
   (dolist
     (entry actions)
-    (when-let (action-fn (and (equal? (car entry) event) (second entry))) (action-fn event payload))))
+    (when-let
+      (action-fn (and (equal? (car entry) event) (second entry)))
+      (action-fn event payload))))
 
 ;; Build an FSM closure. Captures `current` and `history` in a closure.
-(define
-  (make-sm spec)
+(define (make-sm spec)
   (let
     ((current (sm-spec-get spec :initial))
       (history (list (sm-spec-get spec :initial)))
@@ -298,8 +312,7 @@
       (on-exit (or (sm-spec-get spec :on-exit) (list)))
       (on-event (or (sm-spec-get spec :on-event) (list))))
     (sm-fire-state-actions on-enter current)
-    (lambda
-      (msg &rest args)
+    (lambda (msg &rest args)
       (cond
         ((equal? msg :send)
           (let*
@@ -319,7 +332,10 @@
                     (else
                       (sm-fire-state-actions on-exit current)
                       (when (not (null? action)) (action current event payload))
-                      (sm-fire-event-actions on-event event payload)
+                      (sm-fire-event-actions
+                        on-event
+                        event
+                        payload)
                       (set! current next)
                       (set! history (cons next history))
                       (sm-fire-state-actions on-enter current)
@@ -327,8 +343,7 @@
         ((equal? msg :current) current)
         ((equal? msg :history) history)
         ((equal? msg :reset!)
-          (let
-            ((init (sm-spec-get spec :initial)))
+          (let ((init (sm-spec-get spec :initial)))
             (set! current init)
             (set! history (list init))
             (sm-fire-state-actions on-enter init)
@@ -338,7 +353,9 @@
         (else (error-msg "unknown SM message"))))))
 
 ;; (defsm name &rest kvs) — define a state-machine binding.
-(defmacro defsm (name &rest kvs) `(define ,name (make-sm (sm-spec ,@kvs))))
+(defmacro defsm
+  (name &rest kvs)
+  `(define ,name (make-sm (sm-spec ,@kvs))))
 
 ;; Public driver fns.
 (define (sm-send sm event &rest args) (apply sm :send (cons event args)))
@@ -367,20 +384,16 @@
 ;; is identical and the API is the same.
 ;; ====================================================================
 
-(define
-  (make-actor initial-state behavior)
-  (let
-    ((state initial-state) (mailbox (list)))
-    (lambda
-      (msg &rest args)
+(define (make-actor initial-state behavior)
+  (let ((state initial-state) (mailbox (list)))
+    (lambda (msg &rest args)
       (cond
         ((equal? msg :tell) (set! mailbox (append mailbox (list (car args)))) state)
         ((equal? msg :step!)
           (cond
             ((null? mailbox) state)
             (else
-              (let
-                ((m (car mailbox)))
+              (let ((m (car mailbox)))
                 (set! mailbox (cdr mailbox))
                 (set! state (behavior state m))
                 state))))
@@ -388,8 +401,7 @@
         ((equal? msg :mailbox) mailbox)
         ((equal? msg :empty?) (null? mailbox))))))
 
-(defmacro
-  defactor
+(defmacro defactor
   (name initial-state behavior-fn)
   `(define ,name (make-actor ,initial-state ,behavior-fn)))
 
@@ -401,13 +413,11 @@
 
 (define (actor-empty? a) (a :empty?))
 
-(define
-  (actor-drain! a)
+(define (actor-drain! a)
   (define (loop) (if (actor-empty? a) (actor-state a) (begin (actor-step! a) (loop))))
   (loop))
 
-(define
-  (actor-run! a n)
+(define (actor-run! a n)
   (cond
     ((<= n 0) (actor-state a))
     ((actor-empty? a) (actor-state a))
@@ -422,12 +432,9 @@
 ;; (subject-emit! subj msg) → calls every subscriber with msg.
 ;; ====================================================================
 
-(define
-  (make-subject)
-  (let
-    ((subs (list)))
-    (lambda
-      (msg &rest args)
+(define (make-subject)
+  (let ((subs (list)))
+    (lambda (msg &rest args)
       (cond
         ((equal? msg :subscribe!) (set! subs (cons (car args) subs)) (car args))
         ((equal? msg :unsubscribe!) (set! subs (filter (lambda (f) (not= f (car args))) subs)) ())
@@ -452,12 +459,9 @@
 ;; (defquery   BUS NAME (args...) body...) registers the query handler.
 ;; ====================================================================
 
-(define
-  (make-bus)
-  (let
-    ((commands (list)) (queries (list)))
-    (lambda
-      (msg &rest args)
+(define (make-bus)
+  (let ((commands (list)) (queries (list)))
+    (lambda (msg &rest args)
       (cond
         ((equal? msg :register-command!)
           (set! commands (cons (list (car args) (second args)) commands))
@@ -466,21 +470,15 @@
           (set! queries (cons (list (car args) (second args)) queries))
           (car args))
         ((equal? msg :dispatch-command)
-          (let
-            ((cmd-name (car args)) (cmd-args (cdr args)))
-            (let
-              ((entry (find (lambda (kv) (equal? (car kv) cmd-name)) commands)))
-              (if
-                (null? entry)
+          (let ((cmd-name (car args)) (cmd-args (cdr args)))
+            (let ((entry (find (lambda (kv) (equal? (car kv) cmd-name)) commands)))
+              (if (null? entry)
                 (error-msg (string-append "no command: " (keyword->string cmd-name)))
                 (apply (second entry) cmd-args)))))
         ((equal? msg :dispatch-query)
-          (let
-            ((q-name (car args)) (q-args (cdr args)))
-            (let
-              ((entry (find (lambda (kv) (equal? (car kv) q-name)) queries)))
-              (if
-                (null? entry)
+          (let ((q-name (car args)) (q-args (cdr args)))
+            (let ((entry (find (lambda (kv) (equal? (car kv) q-name)) queries)))
+              (if (null? entry)
                 (error-msg (string-append "no query: " (keyword->string q-name)))
                 (apply (second entry) q-args)))))))))
 
@@ -492,15 +490,27 @@
 
 (define (dispatch-query bus name &rest args) (apply bus :dispatch-query (cons name args)))
 
-(defmacro
-  defcommand
-  (bus name params &rest body)
-  `(register-command! ,bus ,name (lambda ,params ,@body)))
+(defmacro defcommand
+  (bus
+    name
+    params
+    &rest
+    body)
+  `(register-command!
+    ,bus
+    ,name
+    (lambda ,params ,@body)))
 
-(defmacro
-  defquery
-  (bus name params &rest body)
-  `(register-query! ,bus ,name (lambda ,params ,@body)))
+(defmacro defquery
+  (bus
+    name
+    params
+    &rest
+    body)
+  `(register-query!
+    ,bus
+    ,name
+    (lambda ,params ,@body)))
 
 ;; ====================================================================
 ;; EVENT SOURCING (lightweight)
@@ -515,12 +525,9 @@
 ;; (event-project store fold init)  ; runs fold over history
 ;; ====================================================================
 
-(define
-  (make-event-store)
-  (let
-    ((events (list)))
-    (lambda
-      (msg &rest args)
+(define (make-event-store)
+  (let ((events (list)))
+    (lambda (msg &rest args)
       (cond
         ((equal? msg :append!) (set! events (append events (list (car args)))) (car args))
         ((equal? msg :history) events)
@@ -549,53 +556,49 @@
 ;;                              and calls the matching fn with (rest).
 ;; ====================================================================
 
-(define
-  (make-strategy &rest kvs)
-  (let
-    ((handlers kvs))
-    (lambda
-      (variant &rest args)
-      (let
-        ((fn (or (plist-get handlers variant) (plist-get handlers :default))))
-        (if (null? fn) (error-msg "no strategy variant matched + no :default") (apply fn args))))))
+(define (make-strategy &rest kvs)
+  (let ((handlers kvs))
+    (lambda (variant &rest args)
+      (let ((fn (or (plist-get handlers variant) (plist-get handlers :default))))
+        (if (null? fn)
+          (error-msg "no strategy variant matched + no :default")
+          (apply fn args))))))
 
-(defmacro defstrategy (name &rest kvs) `(define ,name (make-strategy ,@kvs)))
+(defmacro defstrategy
+  (name &rest kvs)
+  `(define ,name (make-strategy ,@kvs)))
 
 (define (strategy-call s variant &rest args) (apply s (cons variant args)))
 
-(define
-  (decorate f &rest kvs)
+(define (decorate f &rest kvs)
   (let
     ((before (plist-get kvs :before))
       (after (plist-get kvs :after))
       (around (plist-get kvs :around)))
-    (lambda
-      (&rest args)
+    (lambda (&rest args)
       (cond
         ((some? around) (apply around (cons f args)))
         (else
           (when (some? before) (apply before args))
-          (let
-            ((result (apply f args)))
+          (let ((result (apply f args)))
             (when (some? after) (apply after (cons result args)))
             result))))))
 
-(define
-  (make-visitor &rest kvs)
-  (let
-    ((handlers kvs))
-    (lambda
-      (tagged-value)
+(define (make-visitor &rest kvs)
+  (let ((handlers kvs))
+    (lambda (tagged-value)
       (cond
         ((null? tagged-value) ())
         (else
-          (let
-            ((tag (car tagged-value)) (rest (cdr tagged-value)))
-            (let
-              ((fn (or (plist-get handlers tag) (plist-get handlers :default))))
-              (if (null? fn) (error-msg "no visitor matched tag") (apply fn rest)))))))))
+          (let ((tag (car tagged-value)) (rest (cdr tagged-value)))
+            (let ((fn (or (plist-get handlers tag) (plist-get handlers :default))))
+              (if (null? fn)
+                (error-msg "no visitor matched tag")
+                (apply fn rest)))))))))
 
-(defmacro defvisitor (name &rest kvs) `(define ,name (make-visitor ,@kvs)))
+(defmacro defvisitor
+  (name &rest kvs)
+  `(define ,name (make-visitor ,@kvs)))
 
 (define (visit v tagged-value) (v tagged-value))
 
@@ -610,24 +613,21 @@
 ;; (pipeline-on-stage! p stage hook-fn)   — runs (hook stage in out)
 ;; ====================================================================
 
-(define
-  (make-pipeline stages)
-  (let
-    ((hooks (list)))
-    (lambda
-      (msg &rest args)
+(define (make-pipeline stages)
+  (let ((hooks (list)))
+    (lambda (msg &rest args)
       (cond
         ((equal? msg :run!)
           (foldl
-            (lambda
-              (acc stage)
-              (let*
-                ((name (car stage)) (fn (second stage)) (out (fn acc)))
+            (lambda (acc stage)
+              (let* ((name (car stage)) (fn (second stage)) (out (fn acc)))
                 (dolist
                   (h hooks)
-                  (when
-                    (or (equal? (car h) :any-stage) (equal? (car h) name))
-                    ((second h) name acc out)))
+                  (when (or (equal? (car h) :any-stage) (equal? (car h) name))
+                    ((second h)
+                      name
+                      acc
+                      out)))
                 out))
             (car args)
             stages))
@@ -650,14 +650,12 @@
 ;; (transducer-run! t input-list) → list of outputs
 ;; ====================================================================
 
-(define
-  (make-transducer &rest kvs)
+(define (make-transducer &rest kvs)
   (let
     ((current (plist-get kvs :initial))
       (kind (or (plist-get kvs :type) :mealy))
       (trans (or (plist-get kvs :transitions) (list))))
-    (lambda
-      (msg &rest args)
+    (lambda (msg &rest args)
       (cond
         ((equal? msg :feed!)
           (let
@@ -668,8 +666,8 @@
             (cond
               ((null? row) ())
               (else
-                (let
-                  ((next (third row)) (out (if (equal? kind :moore) (fourth row) (fourth row))))
+                (let ((next (third row))
+                   (out (if (equal? kind :moore) (fourth row) (fourth row))))
                   (set! current next)
                   out)))))
         ((equal? msg :state) current)))))
@@ -697,20 +695,17 @@
 
 ;; Helpers for the macro body.
 ;; (record-field-accessor record-name field) → symbol like point-x
-(define
-  (record-field-accessor record-name field)
+(define (record-field-accessor record-name field)
   (string->symbol (string-append (symbol->string record-name) "-" (symbol->string field))))
 
-(define
-  (record-field-setter record-name field)
+(define (record-field-setter record-name field)
   (string->symbol (string-append (symbol->string record-name) "-set-" (symbol->string field))))
 
 (define (record-keyword field) (string->keyword (symbol->string field)))
 
 ;; The macro itself. Uses the full-eval expander to compute names and
 ;; emit a `(begin ...)` form that defines all the helpers.
-(defmacro
-  define-record
+(defmacro define-record
   (name fields)
   (let*
     ((type-key (record-keyword name))
@@ -725,20 +720,17 @@
             (map (lambda (f) (list (record-keyword f) f)) fields))))
       (accessor-defs
         (map
-          (lambda
-            (f)
+          (lambda (f)
             `(define (,(record-field-accessor name f) r) (hash-map-get r ,(record-keyword f))))
           fields))
       (setter-defs
         (map
-          (lambda
-            (f)
+          (lambda (f)
             `(define (,(record-field-setter name f) r v) (hash-map-set r ,(record-keyword f) v)))
           fields)))
     `(begin
       (define (,make-sym ,@fields) (hash-map ,@ctor-kvs))
-      (define
-        (,pred-sym v)
+      (define (,pred-sym v)
         (and (hash-map? v) (equal? (hash-map-get v :tatara-record-type) ,type-key)))
       (define (,to-map-sym r) r)
       ,@accessor-defs
@@ -771,7 +763,9 @@
 ;; This is a pure-Lisp layer; the runtime work is in delay/force.
 ;; ====================================================================
 
-(defmacro lazy-cons (head tail-expr) `(list ,head (delay ,tail-expr)))
+(defmacro lazy-cons
+  (head tail-expr)
+  `(list ,head (delay ,tail-expr)))
 
 (define (lazy-empty) ())
 
@@ -781,25 +775,26 @@
 
 (define (lazy-rest s) (force (second s)))
 
-(define
-  (lazy-take n s)
+(define (lazy-take n s)
   (cond
     ((<= n 0) ())
     ((lazy-empty? s) ())
     (else (cons (lazy-head s) (lazy-take (- n 1) (lazy-rest s))))))
 
-(define
-  (lazy-drop n s)
-  (cond ((<= n 0) s) ((lazy-empty? s) s) (else (lazy-drop (- n 1) (lazy-rest s)))))
+(define (lazy-drop n s)
+  (cond
+    ((<= n 0) s)
+    ((lazy-empty? s) s)
+    (else (lazy-drop (- n 1) (lazy-rest s)))))
 
 (define (realize s) (if (lazy-empty? s) () (cons (lazy-head s) (realize (lazy-rest s)))))
 
-(define
-  (lazy-map f s)
-  (if (lazy-empty? s) (lazy-empty) (lazy-cons (f (lazy-head s)) (lazy-map f (lazy-rest s)))))
+(define (lazy-map f s)
+  (if (lazy-empty? s)
+    (lazy-empty)
+    (lazy-cons (f (lazy-head s)) (lazy-map f (lazy-rest s)))))
 
-(define
-  (lazy-filter p s)
+(define (lazy-filter p s)
   (cond
     ((lazy-empty? s) (lazy-empty))
     ((p (lazy-head s)) (lazy-cons (lazy-head s) (lazy-filter p (lazy-rest s))))
@@ -811,10 +806,8 @@
 ;; (cycle xs) → (xs xs xs ...) flattened — infinite.
 (define (cycle xs) (if (null? xs) () (cycle-impl xs xs)))
 
-(define
-  (cycle-impl original remaining)
-  (if
-    (null? remaining)
+(define (cycle-impl original remaining)
+  (if (null? remaining)
     (cycle-impl original original)
     (lazy-cons (car remaining) (cycle-impl original (cdr remaining)))))
 
@@ -837,8 +830,7 @@
 ;;          (set! ,b ,tmp))))
 ;; ====================================================================
 
-(defmacro
-  with-gensyms
+(defmacro with-gensyms
   (names &rest body)
   `(let (,@(map (lambda (n) (list n `(gensym ,(symbol->string n)))) names)) ,@body))
 
@@ -859,21 +851,27 @@
 
 ;; (get-in m path) — walk a chain of nested hash-maps via the path.
 ;; (get-in {:a {:b {:c 42}}} '(:a :b :c)) → 42.
-(define
-  (get-in m path)
-  (cond ((null? path) m) ((null? m) ()) (else (get-in (hash-map-get m (car path)) (cdr path)))))
+(define (get-in m path)
+  (cond
+    ((null? path) m)
+    ((null? m) ())
+    (else (get-in (hash-map-get m (car path)) (cdr path)))))
 
 ;; (assoc-in m path v) — set a deeply-nested value, building intermediate
 ;; hash-maps as needed. Returns a new outer map.
-(define
-  (assoc-in m path v)
+(define (assoc-in m path v)
   (cond
     ((null? path) v)
     ((null? (cdr path)) (hash-map-set (or m (hash-map)) (car path) v))
     (else
-      (let
-        ((sub (or (hash-map-get m (car path)) (hash-map))))
-        (hash-map-set (or m (hash-map)) (car path) (assoc-in sub (cdr path) v))))))
+      (let ((sub (or (hash-map-get m (car path)) (hash-map))))
+        (hash-map-set
+          (or m (hash-map))
+          (car path)
+          (assoc-in
+            sub
+            (cdr path)
+            v))))))
 
 ;; (update-in m path fn) — apply fn to the value at path; like assoc-in
 ;; but value computed from current.
@@ -881,8 +879,7 @@
 
 ;; (frequencies xs) → hash-map of value→count. Counts equal? items.
 ;; Limitation: keys must be hashable (no list/map keys; throws if so).
-(define
-  (frequencies xs)
+(define (frequencies xs)
   (foldl
     (lambda (acc x) (hash-map-update acc x (lambda (n) (if (null? n) 1 (+ n 1)))))
     (hash-map)
@@ -891,43 +888,45 @@
 ;; (group-by-into-map f xs) → hash-map of key→list, where each item x
 ;; in xs is grouped by (f x). Preserves first-seen order WITHIN each
 ;; group (Clojure semantics).
-(define
-  (group-by-into-map f xs)
+(define (group-by-into-map f xs)
   (foldl
-    (lambda
-      (acc x)
-      (let*
-        ((k (f x)) (current (or (hash-map-get acc k) (list))))
-        (hash-map-set acc k (append current (list x)))))
+    (lambda (acc x)
+      (let* ((k (f x)) (current (or (hash-map-get acc k) (list))))
+        (hash-map-set
+          acc
+          k
+          (append current (list x)))))
     (hash-map)
     xs))
 
 ;; (into-hash-map plist-or-pairs) — convert an alternating-key-value
 ;; list (or list of (k v) pairs) into a hash-map.
-(define
-  (into-hash-map xs)
+(define (into-hash-map xs)
   (cond
     ((null? xs) (hash-map))
     ((and (list? (car xs)) (= (length (car xs)) 2))
-      (foldl (lambda (acc pair) (hash-map-set acc (car pair) (second pair))) (hash-map) xs))
+      (foldl
+        (lambda (acc pair) (hash-map-set acc (car pair) (second pair)))
+        (hash-map)
+        xs))
     (else (apply hash-map xs))))
 
 ;; (select-keys m keys) → sub-map containing only the requested keys.
-(define
-  (select-keys m keys)
+(define (select-keys m keys)
   (foldl
     (lambda (acc k) (if (hash-map-has? m k) (hash-map-set acc k (hash-map-get m k)) acc))
     (hash-map)
     keys))
 
 ;; (zipmap keys values) → hash-map pairing keys with values.
-(define
-  (zipmap keys vals)
-  (foldl (lambda (acc pair) (hash-map-set acc (car pair) (second pair))) (hash-map) (zip keys vals)))
+(define (zipmap keys vals)
+  (foldl
+    (lambda (acc pair) (hash-map-set acc (car pair) (second pair)))
+    (hash-map)
+    (zip keys vals)))
 
 ;; (count xs) — universal length: handles list, map, string.
-(define
-  (count xs)
+(define (count xs)
   (cond
     ((null? xs) 0)
     ((list? xs) (length xs))
@@ -940,10 +939,14 @@
 ;; ====================================================================
 
 ;; (assert pred? message) — throws if pred? is false.
-(defmacro assert (pred message) `(when (not ,pred) (throw (ex-info ,message ()))))
+(defmacro assert
+  (pred message)
+  `(when (not ,pred) (throw (ex-info ,message ()))))
 
 ;; (comment ...) — silently elided. Useful for top-level disabled code.
-(defmacro comment (&rest _) ())
+(defmacro comment
+  (&rest _)
+  ())
 
 ;; (unwrap-or value default) — return value if non-nil, else default.
 (define (unwrap-or v default) (if (null? v) default v))
@@ -983,36 +986,46 @@
 ;; where test-expr is a Spanned form that evaluates to truthy iff the
 ;; value matches the pattern, and binding-list is a list of (name expr)
 ;; forms suitable for splicing into a `let`.
-(define
-  (compile-match-pattern val-sym pattern)
+(define (compile-match-pattern val-sym pattern)
   (cond
     ((equal? pattern (quote _)) (list #t (list)))
     ((symbol? pattern) (list #t (list (list pattern val-sym))))
-    ((or (number? pattern) (string? pattern) (boolean? pattern))
+    ((or
+       (number? pattern)
+       (string? pattern)
+       (boolean? pattern))
       (list `(equal? ,val-sym ,pattern) (list)))
     ((keyword? pattern) (list `(equal? ,val-sym ,pattern) (list)))
-    ((and (list? pattern) (= (length pattern) 2) (equal? (car pattern) (quote quote)))
+    ((and
+       (list? pattern)
+       (= (length pattern) 2)
+       (equal? (car pattern) (quote quote)))
       (list `(equal? ,val-sym (quote ,(second pattern))) (list)))
-    ((and (list? pattern) (>= (length pattern) 2) (equal? (car pattern) (quote ?)))
-      (let
-        ((pred-expr (second pattern)) (bind-name (if (= (length pattern) 3) (third pattern) ())))
+    ((and
+       (list? pattern)
+       (>= (length pattern) 2)
+       (equal? (car pattern) (quote ?)))
+      (let ((pred-expr (second pattern))
+         (bind-name (if (= (length pattern) 3) (third pattern) ())))
         (list
-          (if (null? bind-name) `(,pred-expr ,val-sym) `(,pred-expr ,val-sym))
-          (if (null? bind-name) (list) (list (list bind-name val-sym))))))
+          (if (null? bind-name)
+            `(,pred-expr ,val-sym)
+            `(,pred-expr ,val-sym))
+          (if (null? bind-name)
+            (list)
+            (list (list bind-name val-sym))))))
     ((list? pattern) (compile-list-pattern val-sym pattern))
     (else (error :match "unsupported pattern shape"))))
 
 ;; List pattern: emit a test that checks list-ness, length, and each
 ;; element. Bindings concatenate.
-(define
-  (compile-list-pattern val-sym pattern)
+(define (compile-list-pattern val-sym pattern)
   (let*
     ((n (length pattern))
       (idx-patterns (zip (range n) pattern))
       (sub-results
         (map
-          (lambda
-            (i+p)
+          (lambda (i+p)
             (let ((i (car i+p)) (p (second i+p))) (compile-match-pattern `(nth ,i ,val-sym) p)))
           idx-patterns))
       (sub-tests (map car sub-results))
@@ -1023,25 +1036,22 @@
     (list combined-test combined-binds)))
 
 ;; Emit the cond chain for a list of clauses.
-(define
-  (compile-match-clauses val-sym clauses)
-  (if
-    (null? clauses)
+(define (compile-match-clauses val-sym clauses)
+  (if (null? clauses)
     ()
-    (let*
-      ((clause (car clauses)) (pattern (car clause)) (body (cdr clause)))
-      (if
-        (equal? pattern (quote else))
+    (let* ((clause (car clauses)) (pattern (car clause)) (body (cdr clause)))
+      (if (equal? pattern (quote else))
         `(begin ,@body)
         (let*
           ((compiled (compile-match-pattern val-sym pattern))
             (test (car compiled))
             (binds (second compiled)))
-          `(if ,test (let ,binds ,@body) ,(compile-match-clauses val-sym (cdr clauses))))))))
+          `(if ,test
+            (let ,binds ,@body)
+            ,(compile-match-clauses val-sym (cdr clauses))))))))
 
 ;; The macro itself.
-(defmacro
-  match
+(defmacro match
   (expr &rest clauses)
   (with-gensyms (m-val) `(let ((,m-val ,expr)) ,(compile-match-clauses m-val clauses))))
 
@@ -1052,10 +1062,11 @@
 ;; Returns nil. Tail-call optimized via the recursive impl.
 ;; ====================================================================
 
-(defmacro
-  while
+(defmacro while
   (cond &rest body)
-  (with-gensyms (loop) `(letrec ((,loop (lambda () (if ,cond (begin ,@body (,loop)) ())))) (,loop))))
+  (with-gensyms
+    (loop)
+    `(letrec ((,loop (lambda () (if ,cond (begin ,@body (,loop)) ())))) (,loop))))
 
 ;; ====================================================================
 ;; CASE — Scheme-style equality dispatch
@@ -1073,10 +1084,8 @@
 ;; Build one case clause as a runtime list. Avoids nested quasi-quote
 ;; (which would need the lambda's `lit` binding to reach inside an
 ;; inner backtick — currently fragile when nested in a closure).
-(define
-  (case-build-clause k-sym clause)
-  (let
-    ((head (car clause)) (body (cdr clause)))
+(define (case-build-clause k-sym clause)
+  (let ((head (car clause)) (body (cdr clause)))
     (cond
       ((equal? head (quote else)) (cons (quote else) body))
       ((list? head)
@@ -1087,8 +1096,7 @@
           body))
       (else (cons (list (quote equal?) k-sym (list (quote quote) head)) body)))))
 
-(defmacro
-  case
+(defmacro case
   (key &rest clauses)
   (with-gensyms
     (k)
@@ -1106,18 +1114,15 @@
 ;; including nested lists.
 ;; ====================================================================
 
-(define
-  (memoize f)
-  (let
-    ((cache (hash-map)))
-    (lambda
-      (&rest args)
-      (let
-        ((k (pr-str args)))
-        (if
-          (hash-map-has? cache k)
+(define (memoize f)
+  (let ((cache (hash-map)))
+    (lambda (&rest args)
+      (let ((k (pr-str args)))
+        (if (hash-map-has? cache k)
           (hash-map-get cache k)
-          (let ((v (apply f args))) (set! cache (hash-map-set cache k v)) v))))))
+          (let ((v (apply f args)))
+            (set! cache (hash-map-set cache k v))
+            v))))))
 
 ;; ====================================================================
 ;; DOSEQ — Clojure-style multi-binding iteration
@@ -1126,7 +1131,9 @@
 ;; Provided as the more familiar Clojure name.
 ;; ====================================================================
 
-(defmacro doseq (binding &rest body) `(dolist ,binding ,@body))
+(defmacro doseq
+  (binding &rest body)
+  `(dolist ,binding ,@body))
 
 ;; ====================================================================
 ;; TYPED FUNCTIONS — gradual runtime type assertions
@@ -1145,29 +1152,28 @@
 
 ;; Helper: `pairs` is a list of (param-symbol type-spec) cells. Builds
 ;; a list of param symbols and a list of `(the type param)` checks.
-(define
-  (defn-typed-args pairs)
-  (map (lambda (pair) (car pair)) pairs))
+(define (defn-typed-args pairs) (map (lambda (pair) (car pair)) pairs))
 
-(define
-  (defn-typed-checks pairs)
-  (map (lambda (pair) `(the ,(second pair) ,(car pair))) pairs))
+(define (defn-typed-checks pairs) (map (lambda (pair) `(the ,(second pair) ,(car pair))) pairs))
 
 ;; (defn-typed name [(arg type) ...] -> ret-type body...)
 ;; The `->` is matched literally. The arg list uses `()` shape
 ;; ((param type) (param type) ...).
-(defmacro
-  defn-typed
-  (name params arrow ret-ty &rest body)
+(defmacro defn-typed
+  (name
+    params
+    arrow
+    ret-ty
+    &rest
+    body)
   (begin
     ;; Validate that arrow is the literal `->` symbol.
     (when (not (equal? arrow (quote ->)))
       (throw (ex-info "defn-typed: missing -> before return type" (list))))
     (let ((arg-syms (defn-typed-args params)) (checks (defn-typed-checks params)))
-      `(define
-         (,name ,@arg-syms)
-         ,@checks
-         (the ,ret-ty (begin ,@body))))))
+      `(define (,name ,@arg-syms)
+        ,@checks
+        (the ,ret-ty (begin ,@body))))))
 
 ;; ====================================================================
 ;; Clojure-flavored aliases
@@ -1182,16 +1188,20 @@
 
 ;; (fn (args) body) — alias for `lambda`. Macro expansion since
 ;; `lambda` is a special form, not a function value.
-(defmacro fn (args &rest body) `(lambda ,args ,@body))
+(defmacro fn
+  (args &rest body)
+  `(lambda ,args ,@body))
 
 ;; Boolean literals — Clojure / Java / Python users expect bare
 ;; `true` and `false` symbols. Bound at the value layer to the
 ;; Scheme primitives.
 (define true #t)
+
 (define false #f)
 
 ;; Common arithmetic spellings.
 (define mod modulo)
+
 (define rem modulo)
 
 ;; Predicate aliases.

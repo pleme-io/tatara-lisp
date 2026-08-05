@@ -11,8 +11,7 @@
   :medido-em "2026-07-31"
   :arvore "~/code/github/pleme-io (the pleme-io org checkout)"
   :denominador 221
-  :palavras (
-    (:palavra "defabbr" :donos ("frost/crates/frost-lisp/src/abbr.rs"))
+  :palavras ((:palavra "defabbr" :donos ("frost/crates/frost-lisp/src/abbr.rs"))
     (:palavra "defabbrev" :donos ("escriba/escriba-lisp/src/abbrev.rs"))
     (:palavra "defactivation-script-algorithm" :donos ("sui/sui-spec/src/activation_script.rs"))
     (:palavra "defafter" :donos ("tatara/tatara-lisp-derive/src/lib.rs"))
@@ -44,8 +43,13 @@
     (:palavra "defciliumnetworkpolicy" :donos ("tatara-lisp/tatara-cilium/src/lib.rs"))
     (:palavra "defcmd" :donos ("escriba/escriba-lisp/src/cmd.rs"))
     (:palavra "defcoercion-rule" :donos ("sui/sui-spec/src/coercion.rs"))
-    (:palavra "defcommand" :donos ("escriba/escriba-config/src/lib.rs" "go-tool-synthesizer/src/spec.rs"))
-    (:palavra "defcompiler" :donos ("tatara-lisp/tatara-lisp/src/compiler_spec.rs" "tatara/tatara-lisp/src/compiler_spec.rs"))
+    (
+      :palavra "defcommand"
+      :donos ("escriba/escriba-config/src/lib.rs" "go-tool-synthesizer/src/spec.rs"))
+    (
+      :palavra "defcompiler"
+      :donos ("tatara-lisp/tatara-lisp/src/compiler_spec.rs"
+        "tatara/tatara-lisp/src/compiler_spec.rs"))
     (:palavra "defcompletion" :donos ("frost/crates/frost-lisp/src/completion.rs"))
     (:palavra "defconfigfield" :donos ("go-tool-synthesizer/src/spec.rs"))
     (:palavra "defdap" :donos ("escriba/escriba-lisp/src/dap.rs"))
@@ -61,14 +65,18 @@
     (:palavra "defeffect" :donos ("engawa/src/lisp.rs" "escriba/escriba-lisp/src/effect.rs"))
     (:palavra "defencapsulates" :donos ("tatara/tatara-process/src/encapsulates.rs"))
     (:palavra "defensaio" :donos ("ensaio/ensaio-lib/src/types.rs"))
-    (:palavra "defenv" :donos ("frost/crates/frost-lisp/src/env.rs" "tatara-lisp/tatara-env/src/spec.rs"))
+    (
+      :palavra "defenv"
+      :donos ("frost/crates/frost-lisp/src/env.rs" "tatara-lisp/tatara-env/src/spec.rs"))
     (:palavra "defenvmatrix" :donos ("tatara/tatara-process/src/matrix.rs"))
     (:palavra "defephemeral" :donos ("tatara/tatara-process/src/ephemeral.rs"))
     (:palavra "defescriba" :donos ("escriba/escriba-config/src/lib.rs"))
     (:palavra "defescribaplugin" :donos ("escriba/escriba-lisp/src/catalog.rs"))
     (:palavra "defeval-cache-format" :donos ("sui/sui-spec/src/eval_cache.rs"))
     (:palavra "deffetcher" :donos ("sui/sui-spec/src/fetcher.rs"))
-    (:palavra "defflag" :donos ("frost/crates/frost-lisp/src/compcomp.rs" "go-tool-synthesizer/src/spec.rs"))
+    (
+      :palavra "defflag"
+      :donos ("frost/crates/frost-lisp/src/compcomp.rs" "go-tool-synthesizer/src/spec.rs"))
     (:palavra "defflake" :donos ("caixa/caixa-flake/src/flake.rs" "tatara/tatara-nix/src/flake.rs"))
     (:palavra "defflake-shape" :donos ("sui/sui-spec/src/flake.rs"))
     (:palavra "deffloatingbrowser" :donos ("mado/src/float/spec.rs"))
@@ -88,7 +96,9 @@
     (:palavra "defhero" :donos ("zukai/crates/zukai-model/src/lib.rs"))
     (:palavra "defhighlight" :donos ("escriba/escriba-lisp/src/highlight.rs"))
     (:palavra "defhistory" :donos ("frost/crates/frost-lisp/src/history.rs"))
-    (:palavra "defhook" :donos ("escriba/escriba-lisp/src/hook.rs" "frost/crates/frost-lisp/src/hook.rs"))
+    (
+      :palavra "defhook"
+      :donos ("escriba/escriba-lisp/src/hook.rs" "frost/crates/frost-lisp/src/hook.rs"))
     (:palavra "deficon" :donos ("escriba/escriba-lisp/src/icon.rs"))
     (:palavra "definit" :donos ("tatara/tatara-init/src/config.rs"))
     (:palavra "definput-node" :donos ("sui/sui-spec/src/lockfile_graph.rs"))
@@ -98,7 +108,9 @@
     (:palavra "defk8saction" :donos ("banken/banken-spec/src/types.rs"))
     (:palavra "defk8sview" :donos ("banken/banken-spec/src/types.rs"))
     (:palavra "defkeybind" :donos ("escriba/escriba-lisp/src/keybind.rs"))
-    (:palavra "defkeymap" :donos ("escriba/escriba-config/src/lib.rs" "kura/kura-core/src/keymap.rs"))
+    (
+      :palavra "defkeymap"
+      :donos ("escriba/escriba-config/src/lib.rs" "kura/kura-core/src/keymap.rs"))
     (:palavra "defkmacro" :donos ("escriba/escriba-lisp/src/kmacro.rs"))
     (:palavra "deflacre" :donos ("caixa/caixa-lacre/src/lock.rs"))
     (:palavra "deflaziness-model" :donos ("sui/sui-spec/src/laziness.rs"))
@@ -112,7 +124,9 @@
     (:palavra "deflsp" :donos ("escriba/escriba-lisp/src/lsp.rs"))
     (:palavra "defmajor-mode" :donos ("escriba/escriba-config/src/lib.rs"))
     (:palavra "defmanopla" :donos ("vendaval/src/forge.rs"))
-    (:palavra "defmark" :donos ("escriba/escriba-lisp/src/mark.rs" "frost/crates/frost-lisp/src/mark.rs"))
+    (
+      :palavra "defmark"
+      :donos ("escriba/escriba-lisp/src/mark.rs" "frost/crates/frost-lisp/src/mark.rs"))
     (:palavra "defmaterial" :donos ("asobi/crates/asobi-spec/src/lib.rs" "engawa/src/lisp.rs"))
     (:palavra "defmcp" :donos ("escriba/escriba-lisp/src/mcp.rs"))
     (:palavra "defmcp-server" :donos ("arnes/arnes-config/src/lib.rs"))
@@ -124,7 +138,11 @@
     (:palavra "defmodule-graph-fixture" :donos ("sui/sui-spec/src/module_graph.rs"))
     (:palavra "defmodule-graph-hash" :donos ("sui/sui-spec/src/module_graph.rs"))
     (:palavra "defmodule-node" :donos ("sui/sui-spec/src/module_graph.rs"))
-    (:palavra "defmonitor" :donos ("tatara-lisp/tatara-lisp/src/domain.rs" "tatara/tatara-domains/src/lib.rs" "tatara/tatara-lisp/src/domain.rs"))
+    (
+      :palavra "defmonitor"
+      :donos ("tatara-lisp/tatara-lisp/src/domain.rs"
+        "tatara/tatara-domains/src/lib.rs"
+        "tatara/tatara-lisp/src/domain.rs"))
     (:palavra "defmostrador" :donos ("vendaval/src/forge.rs"))
     (:palavra "defmount" :donos ("tatara/tatara-init/src/config.rs"))
     (:palavra "defnamed-edge" :donos ("sui/sui-spec/src/lockfile_graph.rs"))
@@ -135,9 +153,13 @@
     (:palavra "defnix-replacement-surface" :donos ("sui/sui-spec/src/nix_replacement_coverage.rs"))
     (:palavra "defnix-surface" :donos ("sui/sui-spec/src/nix_surface.rs"))
     (:palavra "defnode" :donos ("zukai/crates/zukai-model/src/lib.rs"))
-    (:palavra "defnotify" :donos ("frost/crates/frost-lisp/src/notify.rs" "tatara/tatara-domains/src/lib.rs"))
+    (
+      :palavra "defnotify"
+      :donos ("frost/crates/frost-lisp/src/notify.rs" "tatara/tatara-domains/src/lib.rs"))
     (:palavra "defopenai" :donos ("kura/kura-core/src/provider.rs"))
-    (:palavra "defoption" :donos ("escriba/escriba-lisp/src/option.rs" "frost/crates/frost-spec/src/option.rs"))
+    (
+      :palavra "defoption"
+      :donos ("escriba/escriba-lisp/src/option.rs" "frost/crates/frost-spec/src/option.rs"))
     (:palavra "defoption-type" :donos ("sui/sui-spec/src/module_system.rs"))
     (:palavra "defopts" :donos ("frost/crates/frost-lisp/src/option.rs"))
     (:palavra "defoverlay" :donos ("tatara/tatara-nix/src/overlay.rs"))
@@ -147,9 +169,15 @@
     (:palavra "defperf-lever" :donos ("sui/sui-spec/src/perf.rs"))
     (:palavra "defperfexp" :donos ("sui/sui-eval/tests/perf_experiments.rs"))
     (:palavra "defpicker" :donos ("frost/crates/frost-lisp/src/picker.rs"))
-    (:palavra "defplugin" :donos ("escriba/escriba-config/src/lib.rs" "escriba/escriba-lisp/src/plugin.rs" "kura/kura-core/src/plugin.rs"))
+    (
+      :palavra "defplugin"
+      :donos ("escriba/escriba-config/src/lib.rs"
+        "escriba/escriba-lisp/src/plugin.rs"
+        "kura/kura-core/src/plugin.rs"))
     (:palavra "defpodmonitor" :donos ("tatara-lisp/tatara-prometheus-operator/src/lib.rs"))
-    (:palavra "defpoint" :donos ("tatara/tatara-process/src/crd.rs" "zukai/crates/zukai-model/src/lib.rs"))
+    (
+      :palavra "defpoint"
+      :donos ("tatara/tatara-process/src/crd.rs" "zukai/crates/zukai-model/src/lib.rs"))
     (:palavra "defposit" :donos ("frost/crates/frost-lisp/src/compcomp.rs"))
     (:palavra "defpriority" :donos ("sui/sui-spec/src/module_system.rs"))
     (:palavra "defprobe" :donos ("sui/sui-spec/src/probe.rs"))
@@ -172,7 +200,9 @@
     (:palavra "defsandbox-spec" :donos ("sui/sui-spec/src/sandbox.rs"))
     (:palavra "defscene" :donos ("asobi/crates/asobi-spec/src/lib.rs"))
     (:palavra "defschedule" :donos ("escriba/escriba-lisp/src/schedule.rs"))
-    (:palavra "defsession" :donos ("escriba/escriba-lisp/src/session.rs" "kura/kura-core/src/session.rs"))
+    (
+      :palavra "defsession"
+      :donos ("escriba/escriba-lisp/src/session.rs" "kura/kura-core/src/session.rs"))
     (:palavra "defshellpkg" :donos ("frost/crates/frost-lisp/src/pkg.rs"))
     (:palavra "defsnapzone" :donos ("mado/src/float/spec.rs"))
     (:palavra "defsnippet" :donos ("escriba/escriba-lisp/src/snippet.rs"))
@@ -189,14 +219,20 @@
     (:palavra "defsubstrate-domain" :donos ("sui/sui-spec/src/catalog.rs"))
     (:palavra "defsui-command" :donos ("sui/sui-spec/src/cli_coverage.rs"))
     (:palavra "defsupercacheci" :donos ("sui/sui-supercacheci/src/lib.rs"))
-    (:palavra "defsystem" :donos ("asobi/crates/asobi-spec/src/lib.rs" "tatara/tatara-os/src/config.rs"))
+    (
+      :palavra "defsystem"
+      :donos ("asobi/crates/asobi-spec/src/lib.rs" "tatara/tatara-os/src/config.rs"))
     (:palavra "deftask" :donos ("escriba/escriba-lisp/src/task.rs"))
     (:palavra "defterm" :donos ("escriba/escriba-lisp/src/term.rs"))
     (:palavra "deftest1" :donos ("zukai/crates/zukai-model/src/lisp.rs"))
     (:palavra "deftest2" :donos ("zukai/crates/zukai-model/src/lisp.rs"))
     (:palavra "deftest3" :donos ("zukai/crates/zukai-model/src/lisp.rs"))
     (:palavra "deftextobject" :donos ("escriba/escriba-lisp/src/textobject.rs"))
-    (:palavra "deftheme" :donos ("escriba/escriba-lisp/src/theme.rs" "frost/crates/frost-lisp/src/theme.rs" "tatara/tatara-ui/src/theme.rs"))
+    (
+      :palavra "deftheme"
+      :donos ("escriba/escriba-lisp/src/theme.rs"
+        "frost/crates/frost-lisp/src/theme.rs"
+        "tatara/tatara-ui/src/theme.rs"))
     (:palavra "defthunk-discipline" :donos ("sui/sui-spec/src/laziness.rs"))
     (:palavra "deftool" :donos ("kura/kura-core/src/tool.rs"))
     (:palavra "deftrap" :donos ("frost/crates/frost-lisp/src/trap.rs"))
@@ -211,5 +247,4 @@
     (:palavra "defzen" :donos ("kura/kura-core/src/provider.rs"))
     (:palavra "first" :donos ("tatara/tatara-lisp-derive/src/lib.rs"))
     (:palavra "fleet-migration-plan" :donos ("gen/crates/gen-cli/src/fleet_migrate_plan.rs"))
-    (:palavra "second" :donos ("tatara/tatara-lisp-derive/src/lib.rs"))
-  ))
+    (:palavra "second" :donos ("tatara/tatara-lisp-derive/src/lib.rs"))))

@@ -1,0 +1,18 @@
+[package]
+name = "tatara-kanmon"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "関門 — the barrier gate every build passes through: this workspace's lisp corpus does not COMPILE unless it is canonically formatted."
+
+# NEVER published. This crate exists only to fail `cargo build`, and shipping a
+# build-time formatter check to consumers is precisely the cost the design
+# avoids (see build.rs).
+publish = false
+
+[build-dependencies]
+# The canonical form, as a LIBRARY rather than the `feira` CLI — the two
+# disagree despite sharing a version number. See build.rs.
+caixa-fmt = "=0.1.5"

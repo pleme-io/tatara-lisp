@@ -1178,6 +1178,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "tatara-kanmon"
+version = "0.3.28"
+dependencies = [
+ "caixa-fmt",
+]
+
+[[package]]
 name = "tatara-keywords"
 version = "0.3.28"
 dependencies = [

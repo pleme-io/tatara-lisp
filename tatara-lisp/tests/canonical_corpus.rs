@@ -48,16 +48,20 @@
 //!
 //! ## Tier — read before citing this as a guarantee
 //!
-//! **Test-caught, not parse-rejected.** A non-canonical file in this repo fails
-//! `cargo test`; it does not fail `cargo build`, and nothing stops another
-//! crate from calling `tatara_lisp::read` on badly-formatted text. The honest
-//! statement of the ceiling is in caixa-fmt's own module docs: the
-//! truly-parse-rejected tier arrives when the EVALUATOR calls `parse_canonical`,
-//! which is a separate flag day with its own ordering constraint.
+//! **Build-rejected, not parse-rejected.** The enforcing surface is NOT this
+//! test — it is `tatara-kanmon`, whose `build.rs` fails the build outright.
+//! Measured: with one form collapsed, `cargo build`, `cargo check` and
+//! `cargo test --workspace` all exit 101; restored, all exit 0.
 //!
-//! What this does buy is that the corpus cannot silently drift back out of
-//! canonical form, which is what "step 2 then step 3" of that ordering needs in
-//! order to hold.
+//! This test is the ERGONOMICS on top of that gate: a clearer message and the
+//! `--ignored reformat` fixer. Deleting it would not un-gate the workspace.
+//!
+//! It is still NOT truly-parse-rejected: `tatara_lisp::read` accepts
+//! badly-formatted text at runtime, so the guarantee covers THIS workspace's
+//! sources, not the language. That tier arrives when the reader itself refuses,
+//! which needs the canonical renderer to live at or below `tatara-lisp` —
+//! blocked today because `caixa-fmt` AND `caixa-ast` both take a normal
+//! dependency on `tatara-lisp`, and because the reader discards trivia.
 
 use std::path::{Path, PathBuf};
 
@@ -129,6 +133,8 @@ fn every_lisp_source_is_canonically_formatted() {
         "{} of {} lisp source(s) are not canonically formatted:\n  {}\n\n\
          Fix with: cargo test -p tatara-lisp --test canonical_corpus -- \
          --ignored reformat\n\n\
+         (The same corpus also blocks `cargo build` via tatara-kanmon — this \
+         test is the friendlier report, not the gate.)\n\n\
          Do NOT reach for `feira fmt` — the CLI on PATH disagrees with the \
          pinned library and would reformat these files straight back into a \
          red gate. See the CLI-divergence note in this file's module docs.",

@@ -9,6 +9,10 @@ members = [
     "tatara-ebpf",
     "tatara-env",
     "tatara-gateway-api",
+    # Not a library — the build gate that makes canonical formatting a
+    # compile-time property of this workspace. Nothing depends on it; it works
+    # by being built. See tatara-kanmon/build.rs.
+    "tatara-kanmon",
     "tatara-keywords",
     "tatara-lisp",
     "tatara-lisp-derive",
@@ -121,3 +125,8 @@ codegen-units = 1
 lto = true
 opt-level = "z"
 strip = true
+
+[patch.crates-io]
+# Collapse the duplicate `tatara-lisp` that caixa-fmt drags in from crates.io
+# at the SAME version as this workspace, which made `-p tatara-lisp` ambiguous.
+tatara-lisp = { path = "tatara-lisp" }

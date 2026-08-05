@@ -1702,6 +1702,10 @@ fn module_error_to_eval(e: ModuleError, span: Span) -> EvalError {
         ModuleError::NotFound(_) => ("module-not-found", e.to_string()),
         ModuleError::Circular { .. } => ("circular-require", e.to_string()),
         ModuleError::NotExported(_, _) => ("not-exported", e.to_string()),
+        // Its own tag, not `module-not-found`: a `(catch ...)` handler must be
+        // able to tell "this program asked for something that isn't there"
+        // from "this program asked for something the gate refuses to give it".
+        ModuleError::Denied { .. } => ("module-denied", e.to_string()),
     };
     EvalError::User {
         value: error_value(tag, &message),

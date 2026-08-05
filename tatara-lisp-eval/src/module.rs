@@ -111,6 +111,105 @@ impl Loader for NoLoader {
     }
 }
 
+/// Capability-**denying** loader: refuses every resolution and says so.
+///
+/// # Why this is not `NoLoader`
+///
+/// `NoLoader` also resolves nothing, but it is a *default*, not a *gate*, and
+/// the difference shows up in three places:
+///
+/// 1. **The error lies.** `NoLoader` reports `NotFound`, so a denied
+///    `(require "lib/auth")` is indistinguishable from a typo'd path. An
+///    operator reading `module not found: lib/auth` goes looking for the file.
+///    A denial has to name itself, or the gate is invisible in its own
+///    diagnostics.
+/// 2. **It carries no reason.** A `DenyingLoader` is constructed with the
+///    context that installed it, so the message says *which* gate refused and
+///    *why* — the thing a caller needs to decide whether to re-run outside the
+///    gate or fix the program.
+/// 3. **It is what you get by accident.** `NoLoader` is what an embedder that
+///    never thought about I/O ends up with. Selecting `DenyingLoader` is a
+///    statement that I/O was considered and refused.
+///
+/// # What it does and does not bound
+///
+/// It bounds exactly one capability: **module source resolution**. That is the
+/// whole of `tatara-lisp-eval`'s own reach outside its process — audited
+/// 2026-08-05, the crate's only `std::fs` / `std::env` / `std::process` call
+/// outside `#[cfg(test)]` is `FilesystemLoader::load`, and it is behind this
+/// trait. Two residues stay open inside the crate and are not I/O:
+/// `primitive.rs`'s `print` / `println` / `display` write to stdout, and
+/// `install_lisp_stdlib_with` **panics** (rather than returning) if the
+/// embedded stdlib fails to parse or evaluate.
+///
+/// It does **not** bound native functions an embedder registered on the
+/// interpreter. `tatara-lisp-script` installs 56 of them across `fs` (19),
+/// `kube` (7), `process` (6), `io` (6), `env` (5), `os` (5), `http` (3),
+/// `dns` (3), `http_server` (1) and `sops` (1) — files, environment, sockets
+/// and subprocesses, none of which consults a `Loader`. **A build-time entry
+/// point that wants a total denial must select this loader *and* decline to
+/// install those primitives**; selecting the loader alone is a partial gate,
+/// and calling it total would be a false claim.
+///
+/// # Ordering, because `fork` inherits the loader
+///
+/// `Interpreter::fork` clones the parent's `Arc<dyn Loader>`. Forking a
+/// filesystem-enabled interpreter therefore yields a filesystem-enabled child.
+/// Call `set_loader` on the child **after** forking, never before.
+///
+/// ```
+/// use std::sync::Arc;
+/// use tatara_lisp_eval::{DenyingLoader, Interpreter};
+///
+/// let mut interp: Interpreter<()> = Interpreter::new();
+/// interp.set_loader(Arc::new(DenyingLoader::new(
+///     "build-time macro expansion must not read the filesystem",
+/// )));
+/// ```
+#[derive(Debug, Clone)]
+pub struct DenyingLoader {
+    reason: Arc<str>,
+}
+
+impl DenyingLoader {
+    /// Reason used by [`DenyingLoader::default`]. Deliberately generic: a
+    /// caller that knows its own context should pass it to
+    /// [`DenyingLoader::new`] instead, so the denial names the gate.
+    pub const DEFAULT_REASON: &'static str =
+        "the embedder installed a capability-denying loader; no module source is reachable \
+         from this evaluation";
+
+    /// Build a denier whose refusals cite `reason`. Write the reason from the
+    /// operator's point of view — it is the whole diagnostic they get.
+    #[must_use]
+    pub fn new(reason: impl Into<Arc<str>>) -> Self {
+        Self {
+            reason: reason.into(),
+        }
+    }
+
+    /// The reason every refusal cites.
+    #[must_use]
+    pub fn reason(&self) -> &str {
+        &self.reason
+    }
+}
+
+impl Default for DenyingLoader {
+    fn default() -> Self {
+        Self::new(Self::DEFAULT_REASON)
+    }
+}
+
+impl Loader for DenyingLoader {
+    fn load(&self, path: &str) -> Result<String, ModuleError> {
+        Err(ModuleError::Denied {
+            path: path.to_string(),
+            reason: self.reason.to_string(),
+        })
+    }
+}
+
 /// Filesystem-backed loader. Reads a module path string by walking a
 /// base directory (or filesystem-absolute paths). Path-resolution rules
 /// match the documented design:
@@ -197,6 +296,12 @@ pub enum ModuleError {
     Circular { path: String, stack: String },
     #[error("name not exported: {1} from module {0}")]
     NotExported(String, String),
+    /// A loader **refused** to resolve `path` as a matter of policy — the
+    /// source may well exist. Distinct from [`ModuleError::NotFound`] on
+    /// purpose: rounding a denial down to "not found" sends the reader
+    /// hunting for a missing file instead of showing them the gate.
+    #[error("module load denied: {path} — {reason}")]
+    Denied { path: String, reason: String },
 }
 
 /// Process-global module registry. Holds every module that's been
@@ -322,6 +427,37 @@ mod tests {
         l.insert("lib/auth", "(define x 42)");
         assert_eq!(l.load("lib/auth").unwrap(), "(define x 42)");
         assert!(matches!(l.load("missing"), Err(ModuleError::NotFound(_))));
+    }
+
+    #[test]
+    fn denying_loader_refuses_every_path_with_its_reason() {
+        let l = DenyingLoader::new("typecheck runs with no filesystem");
+        // Absolute, relative, extensioned, empty — the denier has no
+        // resolution rules to route around, which is the point.
+        for path in ["lib/auth", "/etc/passwd", "./x.tlisp", ""] {
+            match l.load(path) {
+                Err(ModuleError::Denied { path: p, reason }) => {
+                    assert_eq!(p, path, "the refusal names what was denied");
+                    assert_eq!(reason, "typecheck runs with no filesystem");
+                }
+                other => panic!("expected a denial for {path:?}, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn the_default_denier_still_carries_a_reason() {
+        // A `Default` that denied with an empty reason would produce
+        // "module load denied: x — " and teach the reader nothing.
+        let l = DenyingLoader::default();
+        assert_eq!(l.reason(), DenyingLoader::DEFAULT_REASON);
+        assert!(!DenyingLoader::DEFAULT_REASON.is_empty());
+        let rendered = l.load("anything").unwrap_err().to_string();
+        assert!(rendered.contains("denied"), "got {rendered:?}");
+        assert!(
+            rendered.contains(DenyingLoader::DEFAULT_REASON),
+            "got {rendered:?}"
+        );
     }
 
     #[test]

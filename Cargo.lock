@@ -1203,6 +1203,7 @@ name = "tatara-lisp-eval"
 version = "0.3.33"
 dependencies = [
  "monosashi",
+ "tatara-closed-set",
  "tatara-lisp",
  "thiserror 2.0.18",
 ]

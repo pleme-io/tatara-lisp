@@ -19,4 +19,11 @@ workspace = true
 # one reading rather than two that are free to disagree.
 monosashi.workspace = true
 tatara-lisp.workspace = true
+# The closed-set TRAIT, for its generic `find_by_label` /
+# `contains_label` projections. `src/type_check.rs` decodes the seven
+# `NumericWidth` type keywords through them instead of re-deriving the
+# `ALL.iter().find(|w| w.label() == name)` sweep at the call site. A
+# LEAF crate that `tatara-lisp` already depends on, so this edge adds
+# nothing to any consumer's graph.
+tatara-closed-set.workspace = true
 thiserror = "2"

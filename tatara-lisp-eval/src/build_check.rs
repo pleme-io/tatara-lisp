@@ -74,7 +74,7 @@ use std::sync::Arc;
 use tatara_lisp::binding_shapes::{
     is_lambda_list_keyword, DEF_PREFIX, LAMBDA_HEADS, LET_HEADS, QUOTE_HEADS,
 };
-use tatara_lisp::{Atom, Span, Spanned, SpannedForm};
+use tatara_lisp::{Atom, NumericAxis, NumericWidth, Span, Spanned, SpannedForm};
 
 /// Static type known at build time. Mirrors the runtime type
 /// vocabulary in `type_check.rs` but as a Rust enum (instead of a
@@ -95,6 +95,28 @@ pub enum StaticType {
     Procedure,
     Promise,
     Error,
+    /// An opaque host value — the `:foreign` annotation. `infer` never
+    /// synthesizes one (nothing in source produces a `Value::Foreign`),
+    /// but the runtime ACCEPTS the keyword, so this pass must recognize
+    /// it or it flags a program that runs.
+    Foreign,
+    /// One of the seven Rust numeric widths — the `:u32` / `:f32` /
+    /// `:i64` … annotations.
+    ///
+    /// A REFINEMENT of its axis, not a peer of [`Self::Int`] /
+    /// [`Self::Float`]: this pass carries no literal values, so it
+    /// cannot decide "does 4294967296 fit in a u32" and does not
+    /// pretend to — [`Self::conforms_to`] erases the refinement and
+    /// compares axes, leaving the range gate to the runtime's
+    /// `type_check::coerce_value`. The variant exists so a diagnostic
+    /// quotes the keyword the AUTHOR wrote (`expected :u32`) instead of
+    /// the axis it erases to.
+    ///
+    /// The two ALIAS spellings do NOT land here — `:int` and `:float`
+    /// keep [`Self::Int`] / [`Self::Float`] so they render back as
+    /// themselves; `from_spanned` reads which is which off
+    /// `type_check`'s one alias table.
+    Width(NumericWidth),
     /// Disjunction of branches — value matches if it matches any.
     Union(Vec<StaticType>),
     /// Function arrow: parameter types plus return type.
@@ -135,6 +157,10 @@ impl StaticType {
             Self::Procedure => ":procedure".into(),
             Self::Promise => ":promise".into(),
             Self::Error => ":error".into(),
+            Self::Foreign => ":foreign".into(),
+            // The width's own canonical label, so the diagnostic quotes
+            // the keyword the author wrote.
+            Self::Width(w) => format!(":{}", w.label()),
             Self::Union(branches) => {
                 let parts: Vec<String> = branches.iter().map(Self::render).collect();
                 format!("(:union {})", parts.join(" "))
@@ -155,6 +181,26 @@ impl StaticType {
     /// strict structural equality.
     pub fn conforms_to(&self, expected: &StaticType) -> bool {
         if matches!(self, Self::Any) || matches!(expected, Self::Any) {
+            return true;
+        }
+        // WIDTH ERASURE. A `:u32` annotation refines the int axis, and
+        // this pass carries no literal values, so the range question is
+        // undecidable here and conceding it is the only sound answer —
+        // the runtime's `coerce_value` owns that gate. Shallow on
+        // purpose: a nested width (`(:list-of :u32)`) is reached by the
+        // structural arms below, which recurse back into this method.
+        if self.width_axis().is_some() || expected.width_axis().is_some() {
+            return self.erase_width().conforms_to(&expected.erase_width());
+        }
+        // The reader's int-into-float WIDENING, mirrored from its one
+        // source. `type_check::wide_literal_on` puts a `Value::Int` on
+        // the float axis because `Sexp::as_float` does, so
+        // `(the :f32 7)` and `(the :float 7)` SUCCEED at runtime and a
+        // pass that flagged them would be a false positive on a program
+        // that runs. The other direction stays strict, because
+        // `Sexp::as_int` is: `(the :int 3.5)` raises, so `Float` must
+        // NOT conform to `Int`.
+        if matches!(self, Self::Int) && matches!(expected, Self::Float) {
             return true;
         }
         if matches!(expected, Self::Number) && matches!(self, Self::Int | Self::Float) {
@@ -203,28 +249,78 @@ impl StaticType {
         }
     }
 
+    /// The numeric axis a width refinement sits on; `None` for every
+    /// other type. The one predicate [`Self::conforms_to`]'s erasure
+    /// step and [`Self::erase_width`] both key on.
+    fn width_axis(&self) -> Option<NumericAxis> {
+        match self {
+            Self::Width(w) => Some(w.axis()),
+            _ => None,
+        }
+    }
+
+    /// Drop a width refinement down to the base type of its axis.
+    /// Identity on everything else.
+    fn erase_width(&self) -> Self {
+        match self.width_axis() {
+            Some(axis) => Self::of_axis(axis),
+            None => self.clone(),
+        }
+    }
+
+    /// The base type of a numeric axis. Total over [`NumericAxis`], so
+    /// an eighth width on a new axis would be a compile error here
+    /// rather than a silently-mistyped annotation.
+    fn of_axis(axis: NumericAxis) -> Self {
+        match axis {
+            NumericAxis::Int => Self::Int,
+            NumericAxis::Float => Self::Float,
+        }
+    }
+
     /// Parse a type spec from a Lisp source form (the same surface
     /// `type_check::matches_type` accepts at runtime). Returns `None`
     /// if the form is malformed — the caller emits a diagnostic.
     pub fn from_spanned(form: &Spanned) -> Option<Self> {
         match &form.form {
-            SpannedForm::Atom(Atom::Keyword(k)) => Some(match k.as_str() {
-                "any" => Self::Any,
-                "nil" => Self::Nil,
-                "bool" => Self::Bool,
-                "int" => Self::Int,
-                "float" => Self::Float,
-                "number" => Self::Number,
-                "string" => Self::Str,
-                "symbol" => Self::Symbol,
-                "keyword" => Self::Keyword,
-                "procedure" | "fn" => Self::Procedure,
-                "promise" => Self::Promise,
-                "error" => Self::Error,
-                "list" => Self::List(Box::new(Self::Any)),
-                "map" => Self::Map(Box::new(Self::Any), Box::new(Self::Any)),
-                _ => return None,
-            }),
+            SpannedForm::Atom(Atom::Keyword(k)) => {
+                // The NUMERIC vocabulary is not re-listed here. `:int`,
+                // `:float` and the seven width labels all decode
+                // through `type_check::numeric_width_of` — the SAME
+                // table `(cast T x)` and `(is? x T)` read — so a
+                // keyword the runtime accepts can never come back
+                // `None` and become a `BadTypeSpec`.
+                //
+                // That divergence is exactly what shipped: this arm
+                // had no width cases and fell to `_ => None`, so
+                // `(the :u32 8080)` RAN at runtime and was FLAGGED
+                // here. Reaching for the shared decoder rather than
+                // adding seven more arms is what keeps them joined.
+                if let Some(width) = crate::type_check::numeric_width_of(k.as_str()) {
+                    return Some(if crate::type_check::is_width_alias(k.as_str()) {
+                        // `:int` / `:float` render back as themselves.
+                        Self::of_axis(width.axis())
+                    } else {
+                        Self::Width(width)
+                    });
+                }
+                Some(match k.as_str() {
+                    "any" => Self::Any,
+                    "nil" => Self::Nil,
+                    "bool" => Self::Bool,
+                    "number" => Self::Number,
+                    "string" => Self::Str,
+                    "symbol" => Self::Symbol,
+                    "keyword" => Self::Keyword,
+                    "procedure" | "fn" => Self::Procedure,
+                    "promise" => Self::Promise,
+                    "error" => Self::Error,
+                    "foreign" => Self::Foreign,
+                    "list" => Self::List(Box::new(Self::Any)),
+                    "map" => Self::Map(Box::new(Self::Any), Box::new(Self::Any)),
+                    _ => return None,
+                })
+            }
             SpannedForm::List(items) if !items.is_empty() => {
                 let head = items[0].as_keyword()?;
                 match head {

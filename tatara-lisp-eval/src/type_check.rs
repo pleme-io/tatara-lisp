@@ -22,6 +22,8 @@
 //!   :int :float :bool :string :symbol :keyword :nil
 //!   :list :map :error :promise :procedure :foreign
 //!   :i32 :i64 :u32 :u64 :usize :f32 :f64   ;; the seven Rust widths
+//!                                          ;; :int  IS :i64
+//!                                          ;; :float IS :f64
 //!   (:list-of T)
 //!   (:map-of K V)
 //!   (:fn (T1 T2 ...) -> R)
@@ -34,6 +36,7 @@
 
 use std::sync::Arc;
 
+use tatara_closed_set::ClosedSet;
 use tatara_lisp::{NumericAxis, NumericLiteral, NumericWidth, Span};
 
 use crate::error::{EvalError, Result};
@@ -42,12 +45,17 @@ use crate::value::{ErrorObj, Value};
 /// Names registered by `install_type_check`.
 pub const TYPE_NAMES: &[&str] = &["the", "type-of", "is?", "cast"];
 
-/// Top-level keyword shapes. Atomic types are bare keywords;
-/// parameterized types are list-shaped Values starting with one of
-/// the listed keywords.
-const ATOMIC_TYPES: &[&str] = &[
-    "int",
-    "float",
+/// Atomic keyword shapes that are NOT numeric. The numeric half of the
+/// vocabulary is deliberately absent here: it is projected from
+/// [`NumericWidth`]'s closed set plus [`WIDTH_ALIASES`] by
+/// [`atomic_type_keywords`], so there is exactly ONE place a numeric
+/// type keyword can be spelled.
+///
+/// `:int` and `:float` used to be listed here AND handled by
+/// [`numeric_width_of`] AND given their own arms in
+/// [`match_atomic_keyword`] — three spellings of one fact, and they
+/// disagreed. See [`WIDTH_ALIASES`].
+const NON_NUMERIC_ATOMIC_TYPES: &[&str] = &[
     "bool",
     "string",
     "symbol",
@@ -65,6 +73,46 @@ const ATOMIC_TYPES: &[&str] = &[
 
 /// Keyword indicating a parameterized type form.
 const PARAMETRIC: &[&str] = &["list-of", "map-of", "fn", "union"];
+
+/// The two ALIAS spellings for the identity widths — THE one table.
+///
+/// `:int` is the tatara-lisp spelling of `i64` and `:float` of `f64`,
+/// which is exactly what the reader's `extract_int` / `extract_float`
+/// return. Every consumer that needs "is this keyword numeric, and at
+/// which width" reads this table through [`numeric_width_of`] /
+/// [`is_width_alias`] rather than re-spelling the two names.
+///
+/// **This table exists because the duplicate spelling was a shipped
+/// bug.** [`match_atomic_keyword`] carried its own early `"int"` /
+/// `"float"` arms that shadowed the width path, so `(is? 7 :float)`
+/// answered `#f` while `(cast :float 7)` answered `7.0` and
+/// `(is? 7 :f64)` answered `#t` — an alias disagreeing with the width
+/// it aliases, and the predicate disagreeing with the caster it is
+/// supposed to describe. Those arms are gone; the aliases now reach the
+/// same [`wide_literal_on`] + [`NumericWidth::narrow_literal`] chain
+/// `coerce_value` reaches, so the three cannot differ.
+const WIDTH_ALIASES: [(&str, NumericWidth); 2] =
+    [("int", NumericWidth::I64), ("float", NumericWidth::F64)];
+
+/// EVERY atomic type keyword the runtime accepts, in one projection.
+///
+/// The numeric half is swept out of [`NumericWidth`]'s closed set plus
+/// [`WIDTH_ALIASES`] rather than re-listed, which is what makes this
+/// usable as a TEST domain: a sweep written against this function
+/// cannot silently omit the label where a defect lives, the way a
+/// hand-written `[:u32, :i32, :f32]` subset omitted `:int` / `:float`
+/// — the only two labels the shipped predicate/caster disagreement
+/// actually reached.
+///
+/// Parameterized heads ([`PARAMETRIC`]) are not here: they are list
+/// heads, not bare keywords.
+#[must_use]
+pub fn atomic_type_keywords() -> Vec<&'static str> {
+    let mut out = NON_NUMERIC_ATOMIC_TYPES.to_vec();
+    out.extend(WIDTH_ALIASES.iter().map(|&(alias, _)| alias));
+    out.extend(NumericWidth::ALL.iter().map(|w| ClosedSet::label(*w)));
+    out
+}
 
 /// Install the type-checking surface on an `Interpreter<H>`.
 pub fn install_type_check<H: 'static>(interp: &mut crate::eval::Interpreter<H>) {
@@ -127,13 +175,43 @@ pub fn install_type_check<H: 'static>(interp: &mut crate::eval::Interpreter<H>) 
 /// what makes `(cast :int x)` literally the derive's `i64` narrowing:
 /// total, so it never rejects — the same answer `NarrowNumeric<i64>
 /// for i64` gives.
-fn numeric_width_of(name: &str) -> Option<NumericWidth> {
-    match name {
-        "int" => return Some(NumericWidth::I64),
-        "float" => return Some(NumericWidth::F64),
-        _ => {}
-    }
-    NumericWidth::ALL.into_iter().find(|w| w.label() == name)
+///
+/// The canonical half is [`ClosedSet::find_by_label`] — the trait's own
+/// `ALL` + `label` sweep — not a hand-rolled
+/// `ALL.into_iter().find(|w| w.label() == name)` re-derivation of it.
+/// `NumericWidth` derives `DeriveClosedSet`, so a future canonicalizing
+/// label projection lands once on the trait and reaches this decoder
+/// for free.
+pub(crate) fn numeric_width_of(name: &str) -> Option<NumericWidth> {
+    NumericWidth::find_by_label(name).or_else(|| width_alias_of(name))
+}
+
+/// Resolve one of the two [`WIDTH_ALIASES`] spellings, or `None`.
+fn width_alias_of(name: &str) -> Option<NumericWidth> {
+    WIDTH_ALIASES
+        .iter()
+        .find(|(alias, _)| *alias == name)
+        .map(|&(_, width)| width)
+}
+
+/// Is `name` an ALIAS spelling rather than a canonical width label?
+///
+/// Reads the same [`WIDTH_ALIASES`] table [`numeric_width_of`] does, so
+/// a consumer that must treat the two spellings differently — the
+/// build-time checker renders `:int` as `:int`, never as `:i64` —
+/// cannot drift out of step with the decoder.
+pub(crate) fn is_width_alias(name: &str) -> bool {
+    width_alias_of(name).is_some()
+}
+
+/// Zero-allocation membership peer of [`numeric_width_of`], for the
+/// `if`-gates that only need the yes/no.
+///
+/// The canonical half is [`ClosedSet::contains_label`], the trait's own
+/// pure-membership predicate — precisely the primitive
+/// [`is_type_keyword`] used to re-derive.
+fn is_numeric_width_keyword(name: &str) -> bool {
+    NumericWidth::contains_label(name) || is_width_alias(name)
 }
 
 /// Project a runtime `Value` onto the wide axis a [`NumericWidth`]
@@ -352,8 +430,15 @@ fn match_atomic_keyword(value: &Value, name: &str) -> bool {
         "any" => true,
         "nil" => matches!(value, Value::Nil),
         "bool" => matches!(value, Value::Bool(_)),
-        "int" => matches!(value, Value::Int(_)),
-        "float" => matches!(value, Value::Float(_)),
+        // NOTE — there are deliberately no `"int"` / `"float"` arms
+        // here. They are ALIASES for `i64` / `f64` (see
+        // [`WIDTH_ALIASES`]) and fall through to the width arm below,
+        // which is the SAME chain `coerce_value` walks. Two early arms
+        // used to shadow that fall-through, and that is exactly how the
+        // predicate and the caster came to disagree about
+        // `(is? 7 :float)`. A third hand-written numeric arm here
+        // re-opens the class.
+        //
         // `:number` admits both int and float — common helper.
         "number" => matches!(value, Value::Int(_) | Value::Float(_)),
         "string" => matches!(value, Value::Str(_)),
@@ -455,7 +540,9 @@ pub fn render_type(ty: &Value) -> String {
 /// keyword? Used by the build-time checker to decide whether a
 /// declaration is recognizable.
 pub fn is_type_keyword(name: &str) -> bool {
-    ATOMIC_TYPES.contains(&name) || PARAMETRIC.contains(&name) || numeric_width_of(name).is_some()
+    NON_NUMERIC_ATOMIC_TYPES.contains(&name)
+        || PARAMETRIC.contains(&name)
+        || is_numeric_width_keyword(name)
 }
 
 #[cfg(test)]
@@ -482,6 +569,41 @@ mod tests {
         let forms = read_spanned(src).unwrap();
         i.eval_program(&forms, &mut NoHost).unwrap_err()
     }
+
+    /// `run` without the `unwrap` — the sweeps below ask "did this
+    /// ACCEPT or REJECT" thousands of times and must not panic on the
+    /// reject half.
+    fn try_run(src: &str) -> Result<Value> {
+        let mut i: Interpreter<NoHost> = Interpreter::new();
+        install_full_stdlib_with(&mut i, &mut NoHost);
+        install_type_check(&mut i);
+        let forms = read_spanned(src).unwrap();
+        i.eval_program(&forms, &mut NoHost)
+    }
+
+    /// The value corpus every cross-surface sweep runs each keyword
+    /// against. Deliberately dense around the numeric gates — both
+    /// sides of every width boundary, both axes, plus one witness of
+    /// each non-numeric shape so the sweep is a whole-vocabulary
+    /// statement and not a numeric one.
+    const WITNESSES: &[&str] = &[
+        "7",
+        "-1",
+        "0",
+        "3.5",
+        "0.1",
+        "4294967296",
+        "2147483648",
+        "-9223372036854775808",
+        "1.0e300",
+        "\"x\"",
+        "#t",
+        "(list 1 2)",
+        "(hash-map :a 1)",
+        "(quote sym)",
+        ":kw",
+        "(lambda (x) x)",
+    ];
 
     #[test]
     fn type_of_returns_kind_keyword() {
@@ -891,5 +1013,194 @@ mod tests {
             },
             other => panic!("{other:?}"),
         }
+    }
+
+    // ── WHOLE-VOCABULARY AGREEMENT SWEEPS ──────────────────────────
+    //
+    // Three defects shipped in the `(cast T x)` commit, and all three
+    // survived a green suite for the SAME reason: every existing test
+    // named the labels it checked by hand. The width sweep above
+    // (`the_width_predicate_agrees_with_the_caster`) listed `:u32`,
+    // `:i32`, `:f32` — and the disagreement lived at `:int` / `:float`,
+    // the only two labels it did not name.
+    //
+    // So these sweep the DOMAIN, never a subset of it:
+    // `atomic_type_keywords()` is the closed set + the alias table +
+    // the non-numeric names, projected — so a keyword that exists is
+    // a keyword that gets swept, including one added tomorrow.
+
+    /// DEFECT 1 — the predicate and the caster must accept exactly the
+    /// same set, for every keyword and every witness.
+    ///
+    /// `is?` is documented as the boolean face of what `cast` will do;
+    /// two hand-written arms in `match_atomic_keyword` made that false
+    /// at `:float`, where `(is? 7 :float)` said `#f` and
+    /// `(cast :float 7)` returned `7.0`.
+    #[test]
+    fn every_type_keyword_agrees_between_the_predicate_and_the_caster() {
+        let mut disagreements = Vec::new();
+        for kw in atomic_type_keywords() {
+            for witness in WITNESSES {
+                let predicate = matches!(
+                    try_run(&format!("(is? {witness} :{kw})")),
+                    Ok(Value::Bool(true))
+                );
+                let caster = try_run(&format!("(cast :{kw} {witness})")).is_ok();
+                if predicate != caster {
+                    disagreements.push(format!(
+                        "  (is? {witness} :{kw}) = {predicate}  but  (cast :{kw} {witness}) \
+                         accepted = {caster}"
+                    ));
+                }
+            }
+        }
+        assert!(
+            disagreements.is_empty(),
+            "the predicate must describe the caster exactly — {} disagreement(s):\n{}",
+            disagreements.len(),
+            disagreements.join("\n")
+        );
+    }
+
+    /// DEFECT 1, the other half — an ALIAS must be indistinguishable
+    /// from the width it aliases. `:float` IS `:f64`; if the two answer
+    /// differently on any witness, one of them has grown a private
+    /// implementation.
+    #[test]
+    fn every_width_alias_behaves_exactly_like_the_width_it_aliases() {
+        let mut drift = Vec::new();
+        for (alias, width) in WIDTH_ALIASES {
+            assert_eq!(
+                numeric_width_of(alias),
+                Some(width),
+                ":{alias} must decode to the width it documents"
+            );
+            let canonical = ClosedSet::label(width);
+            for witness in WITNESSES {
+                let alias_is = matches!(
+                    try_run(&format!("(is? {witness} :{alias})")),
+                    Ok(Value::Bool(true))
+                );
+                let canonical_is = matches!(
+                    try_run(&format!("(is? {witness} :{canonical})")),
+                    Ok(Value::Bool(true))
+                );
+                let alias_cast = try_run(&format!("(cast :{alias} {witness})")).is_ok();
+                let canonical_cast = try_run(&format!("(cast :{canonical} {witness})")).is_ok();
+                if alias_is != canonical_is {
+                    drift.push(format!(
+                        "  (is? {witness} :{alias}) = {alias_is}  but  \
+                         (is? {witness} :{canonical}) = {canonical_is}"
+                    ));
+                }
+                if alias_cast != canonical_cast {
+                    drift.push(format!(
+                        "  (cast :{alias} {witness}) accepted = {alias_cast}  but  \
+                         (cast :{canonical} {witness}) accepted = {canonical_cast}"
+                    ));
+                }
+            }
+        }
+        assert!(
+            drift.is_empty(),
+            "an alias diverged from the width it aliases — {} case(s):\n{}",
+            drift.len(),
+            drift.join("\n")
+        );
+    }
+
+    /// DEFECT 3 — vocabulary parity. Every keyword the runtime accepts
+    /// must PARSE as a build-check type spec. A keyword that does not
+    /// becomes `BadTypeSpec`, so the two surfaces disagree about
+    /// whether the program is even well-typed: `(the :u32 8080)` ran
+    /// fine and was flagged at build-check.
+    #[test]
+    fn every_runtime_type_keyword_is_a_build_check_type_spec() {
+        let mut unparsed = Vec::new();
+        for kw in atomic_type_keywords() {
+            let src = format!(":{kw}");
+            let forms = read_spanned(&src).unwrap();
+            if crate::build_check::StaticType::from_spanned(&forms[0]).is_none() {
+                unparsed.push(src);
+            }
+        }
+        assert!(
+            unparsed.is_empty(),
+            "the runtime accepts {} keyword(s) the build checker calls a bad type spec: {}",
+            unparsed.len(),
+            unparsed.join(" ")
+        );
+    }
+
+    /// DEFECT 3, the behavioural half — the build checker must never
+    /// FLAG an annotation the runtime accepts.
+    ///
+    /// One direction only, on purpose: the pass is deliberately
+    /// incomplete (it carries no literal values, so it cannot know
+    /// `4294967296` overflows a `:u32`), and conceding is sound. Being
+    /// stricter than the runtime is not — it fails a program that runs.
+    #[test]
+    fn the_build_checker_never_flags_an_annotation_the_runtime_accepts() {
+        let mut false_positives = Vec::new();
+        for kw in atomic_type_keywords() {
+            for witness in WITNESSES {
+                let src = format!("(the :{kw} {witness})");
+                if try_run(&src).is_err() {
+                    // The runtime rejects it; the build checker is free
+                    // to say anything at all about it.
+                    continue;
+                }
+                let forms = read_spanned(&src).unwrap();
+                for d in crate::build_check::check_program(&forms) {
+                    false_positives.push(format!("  {src} → {}", d.render(&src)));
+                }
+            }
+        }
+        assert!(
+            false_positives.is_empty(),
+            "the build checker flagged {} annotation(s) the runtime accepts:\n{}",
+            false_positives.len(),
+            false_positives.join("\n")
+        );
+    }
+
+    /// DEFECT 2 — the vocabulary is a PROJECTION, not a hand-list.
+    ///
+    /// Pins that every closed-set width and every alias is reachable,
+    /// that nothing outside them is, and that no keyword is spelled
+    /// twice — a name appearing in two tables is precisely the shape
+    /// that let `:int` / `:float` be handled in two places and diverge.
+    #[test]
+    fn the_type_keyword_vocabulary_is_swept_not_hand_listed() {
+        let vocabulary = atomic_type_keywords();
+        for width in NumericWidth::ALL {
+            let label = ClosedSet::label(width);
+            assert!(
+                vocabulary.contains(&label),
+                "{label} is in the closed set but not in the type vocabulary"
+            );
+            assert!(is_type_keyword(label), "{label} must be a type keyword");
+        }
+        for (alias, _) in WIDTH_ALIASES {
+            assert!(
+                vocabulary.contains(&alias),
+                ":{alias} is not in the vocabulary"
+            );
+            assert!(is_type_keyword(alias), ":{alias} must be a type keyword");
+        }
+        for outsider in ["i8", "u16", "i128", "nonsense", ""] {
+            assert!(
+                !is_type_keyword(outsider),
+                ":{outsider} is not in the closed set and must not be a type keyword"
+            );
+        }
+        let mut sorted = vocabulary.clone();
+        sorted.sort_unstable();
+        let mut deduped = sorted.clone();
+        deduped.dedup();
+        assert_eq!(
+            sorted, deduped,
+            "a keyword is spelled in two tables — that duplication IS the defect class"
+        );
     }
 }

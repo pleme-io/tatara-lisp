@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "cargo_lock_sha256": "c7c33720ba37c032e341fda263ea87d952ecb2a4534895d1e8f549024a644cba",
+  "cargo_lock_sha256": "cedc1a454309e714d24781299fa1604fe84dd6c45014e83306e7d7a6600615cf",
   "manifest_sha256": {
-    "Cargo.toml": "a6b7928234c756a0931de7547f8df2aff6f21fbdf8a18e59c6ab4d94a44defe6",
+    "Cargo.toml": "3927c75c1a53cd5e95193536b72033e3614407527ab02e9c363cf5126fbe67df",
     "tatara-cilium/Cargo.toml": "1a556d537ee60e616b61251aad766b0198291fe84a534c2718fb77d75968c34a",
     "tatara-closed-set-derive/Cargo.toml": "2fc3319ac7d59d99a114b54474b1bc489e2e2c91f8f8dcde90a81bb5f16e231b",
     "tatara-closed-set/Cargo.toml": "e752b1ba06b88cc3a9c725426f42156d158c361320872903d183f42b6bfa321d",
@@ -11,6 +11,7 @@
     "tatara-ebpf/Cargo.toml": "40f2a66bd52789cedbaa546247b8783a9dd6714e5236528e1bb35d7c62770a73",
     "tatara-env/Cargo.toml": "17550cd4cbd7071071094055778aec3170353fe4c38be987dcc6c35dcef81202",
     "tatara-gateway-api/Cargo.toml": "62232cd985b0a686337e5ff37441d1a0c6506882a01fb004c7d35d93dac28782",
+    "tatara-kanmon/Cargo.toml": "37190672169f12bb629a2253919e0a63011a82cfb922c3d13564f47394e89e2c",
     "tatara-keywords/Cargo.toml": "483f089c71edd4e41b18cfedc7d084b1191b6662545c0881def1415134f00e2b",
     "tatara-lisp-derive/Cargo.toml": "55d90013e98f76326bf31222368fc6ad38a7afabf36c74eaa7a102a414434720",
     "tatara-lisp-eval/Cargo.toml": "6e994fc75ea208a30fac087738136c33ef19e2a19d30599f545ad3bc28cd1501",
@@ -252,7 +253,7 @@
           },
           {
             "name": "tatara_lisp",
-            "package_key": "tatara-lisp-0.3.27",
+            "package_key": "tatara-lisp-0.3.28",
             "kind": "normal",
             "features": [],
             "uses_default_features": true,
@@ -300,7 +301,7 @@
           },
           {
             "name": "tatara_lisp",
-            "package_key": "tatara-lisp-0.3.27",
+            "package_key": "tatara-lisp-0.3.28",
             "kind": "normal",
             "features": [],
             "uses_default_features": true,
@@ -2917,22 +2918,6 @@
         "build_dependencies": [],
         "features": []
       },
-      "tatara-closed-set-0.3.27": {
-        "runtime_dependencies": [
-          {
-            "name": "tatara_closed_set_derive",
-            "package_key": "tatara-closed-set-derive-0.3.27",
-            "kind": "normal",
-            "features": [],
-            "uses_default_features": true,
-            "optional": false,
-            "target": null,
-            "tree": "host"
-          }
-        ],
-        "build_dependencies": [],
-        "features": []
-      },
       "tatara-closed-set-0.3.28": {
         "runtime_dependencies": [
           {
@@ -2944,44 +2929,6 @@
             "optional": false,
             "target": null,
             "tree": "host"
-          }
-        ],
-        "build_dependencies": [],
-        "features": []
-      },
-      "tatara-closed-set-derive-0.3.27": {
-        "runtime_dependencies": [
-          {
-            "name": "proc_macro2",
-            "package_key": "proc-macro2-1.0.106",
-            "kind": "normal",
-            "features": [],
-            "uses_default_features": true,
-            "optional": false,
-            "target": null,
-            "tree": "target"
-          },
-          {
-            "name": "quote",
-            "package_key": "quote-1.0.45",
-            "kind": "normal",
-            "features": [],
-            "uses_default_features": true,
-            "optional": false,
-            "target": null,
-            "tree": "target"
-          },
-          {
-            "name": "syn",
-            "package_key": "syn-2.0.117",
-            "kind": "normal",
-            "features": [
-              "full"
-            ],
-            "uses_default_features": true,
-            "optional": false,
-            "target": null,
-            "tree": "target"
           }
         ],
         "build_dependencies": [],
@@ -3303,6 +3250,22 @@
         "build_dependencies": [],
         "features": []
       },
+      "tatara-kanmon-0.3.28": {
+        "runtime_dependencies": [],
+        "build_dependencies": [
+          {
+            "name": "caixa_fmt",
+            "package_key": "caixa-fmt-0.1.5",
+            "kind": "build",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "host"
+          }
+        ],
+        "features": []
+      },
       "tatara-keywords-0.3.28": {
         "runtime_dependencies": [
           {
@@ -3330,76 +3293,6 @@
         ],
         "build_dependencies": [],
         "features": []
-      },
-      "tatara-lisp-0.3.27": {
-        "runtime_dependencies": [
-          {
-            "name": "blake3",
-            "package_key": "blake3-1.8.5",
-            "kind": "normal",
-            "features": [],
-            "uses_default_features": true,
-            "optional": false,
-            "target": null,
-            "tree": "target"
-          },
-          {
-            "name": "serde",
-            "package_key": "serde-1.0.228",
-            "kind": "normal",
-            "features": [
-              "derive"
-            ],
-            "uses_default_features": true,
-            "optional": false,
-            "target": null,
-            "tree": "target"
-          },
-          {
-            "name": "serde_json",
-            "package_key": "serde_json-1.0.150",
-            "kind": "normal",
-            "features": [],
-            "uses_default_features": true,
-            "optional": false,
-            "target": null,
-            "tree": "target"
-          },
-          {
-            "name": "tatara_closed_set",
-            "package_key": "tatara-closed-set-0.3.27",
-            "kind": "normal",
-            "features": [],
-            "uses_default_features": true,
-            "optional": false,
-            "target": null,
-            "tree": "target"
-          },
-          {
-            "name": "tatara_lisp_derive",
-            "package_key": "tatara-lisp-derive-0.3.27",
-            "kind": "normal",
-            "features": [],
-            "uses_default_features": true,
-            "optional": false,
-            "target": null,
-            "tree": "host"
-          },
-          {
-            "name": "thiserror",
-            "package_key": "thiserror-2.0.18",
-            "kind": "normal",
-            "features": [],
-            "uses_default_features": true,
-            "optional": false,
-            "target": null,
-            "tree": "target"
-          }
-        ],
-        "build_dependencies": [],
-        "features": [
-          "default"
-        ]
       },
       "tatara-lisp-0.3.28": {
         "runtime_dependencies": [
@@ -3470,44 +3363,6 @@
         "features": [
           "default"
         ]
-      },
-      "tatara-lisp-derive-0.3.27": {
-        "runtime_dependencies": [
-          {
-            "name": "proc_macro2",
-            "package_key": "proc-macro2-1.0.106",
-            "kind": "normal",
-            "features": [],
-            "uses_default_features": true,
-            "optional": false,
-            "target": null,
-            "tree": "target"
-          },
-          {
-            "name": "quote",
-            "package_key": "quote-1.0.45",
-            "kind": "normal",
-            "features": [],
-            "uses_default_features": true,
-            "optional": false,
-            "target": null,
-            "tree": "target"
-          },
-          {
-            "name": "syn",
-            "package_key": "syn-2.0.117",
-            "kind": "normal",
-            "features": [
-              "full"
-            ],
-            "uses_default_features": true,
-            "optional": false,
-            "target": null,
-            "tree": "target"
-          }
-        ],
-        "build_dependencies": [],
-        "features": []
       },
       "tatara-lisp-derive-0.3.28": {
         "runtime_dependencies": [
@@ -7208,19 +7063,12 @@
         "path": "src/lib.rs"
       }
     },
-    "tatara-closed-set-0.3.27": {
-      "edition": "2021"
-    },
     "tatara-closed-set-0.3.28": {
       "edition": "2021",
       "lib_target": {
         "name": "tatara_closed_set",
         "path": "src/lib.rs"
       }
-    },
-    "tatara-closed-set-derive-0.3.27": {
-      "edition": "2021",
-      "proc_macro": true
     },
     "tatara-closed-set-derive-0.3.28": {
       "edition": "2021",
@@ -7271,6 +7119,14 @@
         "path": "src/lib.rs"
       }
     },
+    "tatara-kanmon-0.3.28": {
+      "edition": "2021",
+      "build_script": "build.rs",
+      "lib_target": {
+        "name": "tatara_kanmon",
+        "path": "src/lib.rs"
+      }
+    },
     "tatara-keywords-0.3.28": {
       "edition": "2021",
       "lib_target": {
@@ -7284,19 +7140,12 @@
         }
       ]
     },
-    "tatara-lisp-0.3.27": {
-      "edition": "2021"
-    },
     "tatara-lisp-0.3.28": {
       "edition": "2021",
       "lib_target": {
         "name": "tatara_lisp",
         "path": "src/lib.rs"
       }
-    },
-    "tatara-lisp-derive-0.3.27": {
-      "edition": "2021",
-      "proc_macro": true
     },
     "tatara-lisp-derive-0.3.28": {
       "edition": "2021",

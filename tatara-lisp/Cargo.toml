@@ -28,3 +28,13 @@ blake3 = "1"
 
 [features]
 default = []
+
+[dev-dependencies]
+# PINNED EXACTLY, and the pin is what makes "canonical" well-defined.
+#
+# Measured 2026-08-04: the installed `feira` CLI ships caixa-fmt 0.1.5, while
+# `0.1` resolved to 0.1.7 — and the two DISAGREE on canonical form for 2 of
+# this repo's 4 lisp files. An unpinned gate therefore rejects files the
+# developer's own `feira fmt` just produced, which trains people to disable
+# the gate rather than use it. Bump this in lockstep with the CLI, never alone.
+caixa-fmt = "=0.1.5"

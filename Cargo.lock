@@ -98,6 +98,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
+name = "beef"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a8241f3ebb85c056b509d4327ad0358fbbba6ffb340bf388f26350aeda225b1"
+
+[[package]]
 name = "bitflags"
 version = "2.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -131,6 +137,30 @@ name = "bytes"
 version = "1.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
+
+[[package]]
+name = "caixa-ast"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de8a628b06669a102b2d4c31b6831c3e19cfaf33830a53b6a20d94407ad1011a"
+dependencies = [
+ "logos",
+ "serde",
+ "tatara-lisp 0.3.27 (registry+https://github.com/rust-lang/crates.io-index)",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "caixa-fmt"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a3e65605c2740b8ed0bed798772013fc36b3ff3814ba19d2e58e366f90e27c1"
+dependencies = [
+ "caixa-ast",
+ "serde",
+ "tatara-lisp 0.3.27 (registry+https://github.com/rust-lang/crates.io-index)",
+ "thiserror 2.0.18",
+]
 
 [[package]]
 name = "cc"
@@ -349,6 +379,12 @@ dependencies = [
  "crc32fast",
  "miniz_oxide",
 ]
+
+[[package]]
+name = "fnv"
+version = "1.0.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
 
 [[package]]
 name = "foldhash"
@@ -591,6 +627,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
+name = "lazy_static"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
+
+[[package]]
 name = "leb128fmt"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -625,6 +667,39 @@ name = "log"
 version = "0.4.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "616ec5685824bcc94416c6d4a7a446eea774a31efd7062c8480ba6fd06d7a6e5"
+
+[[package]]
+name = "logos"
+version = "0.14.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7251356ef8cb7aec833ddf598c6cb24d17b689d20b993f9d11a3d764e34e6458"
+dependencies = [
+ "logos-derive",
+]
+
+[[package]]
+name = "logos-codegen"
+version = "0.14.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "59f80069600c0d66734f5ff52cc42f2dabd6b29d205f333d61fd7832e9e9963f"
+dependencies = [
+ "beef",
+ "fnv",
+ "lazy_static",
+ "proc-macro2",
+ "quote",
+ "regex-syntax",
+ "syn",
+]
+
+[[package]]
+name = "logos-derive"
+version = "0.14.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "24fb722b06a9dc12adb0963ed585f19fc61dc5413e6a9be9422ef92c091e731d"
+dependencies = [
+ "logos-codegen",
+]
 
 [[package]]
 name = "memchr"
@@ -989,7 +1064,7 @@ dependencies = [
  "tatara-domain-forge",
  "tatara-ebpf",
  "tatara-gateway-api",
- "tatara-lisp",
+ "tatara-lisp 0.3.27",
  "tatara-lisp-eval",
  "tatara-lisp-source",
  "tatara-platform-checks",
@@ -1002,21 +1077,41 @@ version = "0.3.27"
 dependencies = [
  "serde",
  "serde_json",
- "tatara-lisp",
- "tatara-lisp-derive",
+ "tatara-lisp 0.3.27",
+ "tatara-lisp-derive 0.3.27",
 ]
 
 [[package]]
 name = "tatara-closed-set"
 version = "0.3.27"
 dependencies = [
- "tatara-closed-set-derive",
+ "tatara-closed-set-derive 0.3.27",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "tatara-closed-set"
+version = "0.3.27"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c270ba04ecfd2268f817e0d41fd19e829315f890bc97d372f1fbe291083d603c"
+dependencies = [
+ "tatara-closed-set-derive 0.3.27 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "tatara-closed-set-derive"
 version = "0.3.27"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "tatara-closed-set-derive"
+version = "0.3.27"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "efc4de162992884b188fac459128bb0546a776f4f33a48604302fcae47f008cf"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1030,7 +1125,7 @@ dependencies = [
  "serde_json",
  "tatara-ebpf",
  "tatara-gateway-api",
- "tatara-lisp",
+ "tatara-lisp 0.3.27",
 ]
 
 [[package]]
@@ -1053,8 +1148,8 @@ dependencies = [
  "indexmap",
  "serde",
  "serde_json",
- "tatara-lisp",
- "tatara-lisp-derive",
+ "tatara-lisp 0.3.27",
+ "tatara-lisp-derive 0.3.27",
  "thiserror 2.0.18",
 ]
 
@@ -1067,8 +1162,8 @@ dependencies = [
  "serde_json",
  "tatara-ebpf",
  "tatara-gateway-api",
- "tatara-lisp",
- "tatara-lisp-derive",
+ "tatara-lisp 0.3.27",
+ "tatara-lisp-derive 0.3.27",
  "thiserror 2.0.18",
 ]
 
@@ -1078,8 +1173,8 @@ version = "0.3.27"
 dependencies = [
  "serde",
  "serde_json",
- "tatara-lisp",
- "tatara-lisp-derive",
+ "tatara-lisp 0.3.27",
+ "tatara-lisp-derive 0.3.27",
 ]
 
 [[package]]
@@ -1087,7 +1182,7 @@ name = "tatara-keywords"
 version = "0.3.27"
 dependencies = [
  "serde",
- "tatara-lisp",
+ "tatara-lisp 0.3.27",
 ]
 
 [[package]]
@@ -1095,10 +1190,25 @@ name = "tatara-lisp"
 version = "0.3.27"
 dependencies = [
  "blake3",
+ "caixa-fmt",
  "serde",
  "serde_json",
- "tatara-closed-set",
- "tatara-lisp-derive",
+ "tatara-closed-set 0.3.27",
+ "tatara-lisp-derive 0.3.27",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "tatara-lisp"
+version = "0.3.27"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6d4818fc60a03547e3722cc197aaec740130f433e4d022613ba36e36a406ee9"
+dependencies = [
+ "blake3",
+ "serde",
+ "serde_json",
+ "tatara-closed-set 0.3.27 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tatara-lisp-derive 0.3.27 (registry+https://github.com/rust-lang/crates.io-index)",
  "thiserror 2.0.18",
 ]
 
@@ -1112,10 +1222,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "tatara-lisp-derive"
+version = "0.3.27"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "02e392fa6003be174dfa7a96d9d577c50ddc51a12fccf2caee401f7cc5376fb9"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "tatara-lisp-eval"
 version = "0.3.27"
 dependencies = [
- "tatara-lisp",
+ "tatara-lisp 0.3.27",
  "thiserror 2.0.18",
 ]
 
@@ -1123,7 +1244,7 @@ dependencies = [
 name = "tatara-lisp-lint"
 version = "0.3.27"
 dependencies = [
- "tatara-lisp",
+ "tatara-lisp 0.3.27",
 ]
 
 [[package]]
@@ -1140,7 +1261,7 @@ dependencies = [
  "serde_yaml",
  "sha1",
  "sha2",
- "tatara-lisp",
+ "tatara-lisp 0.3.27",
  "tatara-lisp-eval",
  "tatara-lisp-lint",
  "tatara-lisp-source",
@@ -1171,7 +1292,7 @@ dependencies = [
  "tatara-cilium",
  "tatara-ebpf",
  "tatara-gateway-api",
- "tatara-lisp",
+ "tatara-lisp 0.3.27",
  "tatara-prometheus-operator",
 ]
 
@@ -1181,8 +1302,8 @@ version = "0.3.27"
 dependencies = [
  "serde",
  "serde_json",
- "tatara-lisp",
- "tatara-lisp-derive",
+ "tatara-lisp 0.3.27",
+ "tatara-lisp-derive 0.3.27",
 ]
 
 [[package]]
@@ -1196,7 +1317,7 @@ dependencies = [
  "tatara-ebpf",
  "tatara-env",
  "tatara-gateway-api",
- "tatara-lisp",
+ "tatara-lisp 0.3.27",
  "thiserror 2.0.18",
 ]
 
@@ -1211,7 +1332,7 @@ dependencies = [
  "tatara-ebpf",
  "tatara-env",
  "tatara-gateway-api",
- "tatara-lisp",
+ "tatara-lisp 0.3.27",
  "thiserror 2.0.18",
 ]
 

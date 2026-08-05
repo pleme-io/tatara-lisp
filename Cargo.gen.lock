@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "cargo_lock_sha256": "b3dc51e898dca213e1b94a35c312d8b2dd77c48c55a2525016c42de38ac64d32",
+  "cargo_lock_sha256": "0eebdde0190a7a76687c457adec5b2662b55c4f235da17fee128bad82488cc3e",
   "manifest_sha256": {
     "Cargo.toml": "9bfc6af8ac65648823f1b1416b51a777375e74a6b82ef2a2820e7b4072443591",
     "monosashi/Cargo.toml": "17210c59c9167d1955a0ed7c24d2cd1db251216812e56809de4dd3eea25f8602",
@@ -15,7 +15,7 @@
     "tatara-kanmon/Cargo.toml": "37190672169f12bb629a2253919e0a63011a82cfb922c3d13564f47394e89e2c",
     "tatara-keywords/Cargo.toml": "483f089c71edd4e41b18cfedc7d084b1191b6662545c0881def1415134f00e2b",
     "tatara-lisp-derive/Cargo.toml": "55d90013e98f76326bf31222368fc6ad38a7afabf36c74eaa7a102a414434720",
-    "tatara-lisp-eval/Cargo.toml": "6d556e2085e7ae62d3e4f44f432f6214b5967aaa66e944004cbb3d3aa5e42ee3",
+    "tatara-lisp-eval/Cargo.toml": "7772659d161388f95d358bcb29d06b38f2a3fb74d50035530002866ae3c5e5ce",
     "tatara-lisp-lint/Cargo.toml": "670ccf870dceb37518532c98bf074d0f80146c2211a7b6f06221038b0e1db3f4",
     "tatara-lisp-script/Cargo.toml": "0169595343be424866097fc571d84c3b95b18901bcc71cabd8aa5a76bfc8e189",
     "tatara-lisp-source/Cargo.toml": "1b17ac6ae0b6f0be9ba40e1b3a3f4f10a387ac5c6240eff42d40913b8e90e3c0",
@@ -3413,6 +3413,16 @@
           {
             "name": "monosashi",
             "package_key": "monosashi-0.3.33",
+            "kind": "normal",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "target"
+          },
+          {
+            "name": "tatara_closed_set",
+            "package_key": "tatara-closed-set-0.3.33",
             "kind": "normal",
             "features": [],
             "uses_default_features": true,

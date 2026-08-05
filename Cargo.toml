@@ -35,7 +35,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.3.31"
+version = "0.3.32"
 edition = "2021"
 rust-version = "1.89.0"
 authors = ["Pleme.io <engineering@pleme.io>"]
@@ -79,14 +79,14 @@ keywords = ["tatara", "lisp", "pleme-io", "scripting", "tlisp"]
 # The bumper preserves the `=` prefix as of actions@2a7e8f1 (proved by a
 # fail-once test); before that fix this pin would have silently decayed
 # back to a caret on the next release.
-tatara-lisp-derive = { path = "tatara-lisp-derive", version = "=0.3.31" }
+tatara-lisp-derive = { path = "tatara-lisp-derive", version = "=0.3.32" }
 
 # The SAME seal, for the SAME reason, on the closed-set pair: this derive
 # emits `::tatara_closed_set::ClosedSet` paths, so lib and derive are one
 # artifact wearing two crate names and a caret would let them drift into
 # exactly the "the published crate cannot compile itself" failure recorded
 # above. `=`, not caret. The bumper preserves it (actions@2a7e8f1).
-tatara-closed-set-derive = { path = "tatara-closed-set-derive", version = "=0.3.31" }
+tatara-closed-set-derive = { path = "tatara-closed-set-derive", version = "=0.3.32" }
 
 # ── Every other intra-workspace dep, for the SAME reason. ──────────────
 #
@@ -113,19 +113,19 @@ tatara-closed-set-derive = { path = "tatara-closed-set-derive", version = "=0.3.
 # `tatara-*` crate: an inline pin in `tatara-lisp-eval/Cargo.toml` is
 # exactly the shape that went stale for three releases above, because
 # rust-workspace-bump only rewrites pins inside THIS section.
-monosashi = { path = "monosashi", version = "0.3.31" }
-tatara-lisp = { path = "tatara-lisp", version = "0.3.31" }
-tatara-closed-set = { path = "tatara-closed-set", version = "0.3.31" }
-tatara-lisp-eval = { path = "tatara-lisp-eval", version = "0.3.31" }
-tatara-lisp-lint = { path = "tatara-lisp-lint", version = "0.3.31" }
-tatara-lisp-source = { path = "tatara-lisp-source", version = "0.3.31" }
-tatara-domain-forge = { path = "tatara-domain-forge", version = "0.3.31" }
-tatara-platform-checks = { path = "tatara-platform-checks", version = "0.3.31" }
-tatara-env = { path = "tatara-env", version = "0.3.31" }
-tatara-ebpf = { path = "tatara-ebpf", version = "0.3.31" }
-tatara-gateway-api = { path = "tatara-gateway-api", version = "0.3.31" }
-tatara-cilium = { path = "tatara-cilium", version = "0.3.31" }
-tatara-prometheus-operator = { path = "tatara-prometheus-operator", version = "0.3.31" }
+monosashi = { path = "monosashi", version = "0.3.32" }
+tatara-lisp = { path = "tatara-lisp", version = "0.3.32" }
+tatara-closed-set = { path = "tatara-closed-set", version = "0.3.32" }
+tatara-lisp-eval = { path = "tatara-lisp-eval", version = "0.3.32" }
+tatara-lisp-lint = { path = "tatara-lisp-lint", version = "0.3.32" }
+tatara-lisp-source = { path = "tatara-lisp-source", version = "0.3.32" }
+tatara-domain-forge = { path = "tatara-domain-forge", version = "0.3.32" }
+tatara-platform-checks = { path = "tatara-platform-checks", version = "0.3.32" }
+tatara-env = { path = "tatara-env", version = "0.3.32" }
+tatara-ebpf = { path = "tatara-ebpf", version = "0.3.32" }
+tatara-gateway-api = { path = "tatara-gateway-api", version = "0.3.32" }
+tatara-cilium = { path = "tatara-cilium", version = "0.3.32" }
+tatara-prometheus-operator = { path = "tatara-prometheus-operator", version = "0.3.32" }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }

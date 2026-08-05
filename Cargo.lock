@@ -719,7 +719,7 @@ dependencies = [
 
 [[package]]
 name = "monosashi"
-version = "0.3.31"
+version = "0.3.32"
 
 [[package]]
 name = "num-conv"
@@ -1057,7 +1057,7 @@ dependencies = [
 
 [[package]]
 name = "tatara"
-version = "0.3.31"
+version = "0.3.32"
 dependencies = [
  "anyhow",
  "blake3",
@@ -1077,7 +1077,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-cilium"
-version = "0.3.31"
+version = "0.3.32"
 dependencies = [
  "serde",
  "serde_json",
@@ -1087,7 +1087,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-closed-set"
-version = "0.3.31"
+version = "0.3.32"
 dependencies = [
  "tatara-closed-set-derive",
  "thiserror 2.0.18",
@@ -1095,7 +1095,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-closed-set-derive"
-version = "0.3.31"
+version = "0.3.32"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1104,7 +1104,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-doc"
-version = "0.3.31"
+version = "0.3.32"
 dependencies = [
  "serde_json",
  "tatara-ebpf",
@@ -1114,7 +1114,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-domain-forge"
-version = "0.3.31"
+version = "0.3.32"
 dependencies = [
  "clap",
  "indexmap",
@@ -1127,7 +1127,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-ebpf"
-version = "0.3.31"
+version = "0.3.32"
 dependencies = [
  "indexmap",
  "serde",
@@ -1139,7 +1139,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-env"
-version = "0.3.31"
+version = "0.3.32"
 dependencies = [
  "indexmap",
  "serde",
@@ -1153,7 +1153,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-gateway-api"
-version = "0.3.31"
+version = "0.3.32"
 dependencies = [
  "serde",
  "serde_json",
@@ -1163,14 +1163,14 @@ dependencies = [
 
 [[package]]
 name = "tatara-kanmon"
-version = "0.3.31"
+version = "0.3.32"
 dependencies = [
  "caixa-fmt",
 ]
 
 [[package]]
 name = "tatara-keywords"
-version = "0.3.31"
+version = "0.3.32"
 dependencies = [
  "serde",
  "tatara-lisp",
@@ -1178,7 +1178,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-lisp"
-version = "0.3.31"
+version = "0.3.32"
 dependencies = [
  "blake3",
  "caixa-fmt",
@@ -1191,7 +1191,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-lisp-derive"
-version = "0.3.31"
+version = "0.3.32"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1200,7 +1200,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-lisp-eval"
-version = "0.3.31"
+version = "0.3.32"
 dependencies = [
  "monosashi",
  "tatara-lisp",
@@ -1209,14 +1209,14 @@ dependencies = [
 
 [[package]]
 name = "tatara-lisp-lint"
-version = "0.3.31"
+version = "0.3.32"
 dependencies = [
  "tatara-lisp",
 ]
 
 [[package]]
 name = "tatara-lisp-script"
-version = "0.3.31"
+version = "0.3.32"
 dependencies = [
  "anyhow",
  "base64",
@@ -1241,7 +1241,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-lisp-source"
-version = "0.3.31"
+version = "0.3.32"
 dependencies = [
  "blake3",
  "log",
@@ -1253,7 +1253,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-platform-checks"
-version = "0.3.31"
+version = "0.3.32"
 dependencies = [
  "serde_json",
  "tatara-cilium",
@@ -1265,7 +1265,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-prometheus-operator"
-version = "0.3.31"
+version = "0.3.32"
 dependencies = [
  "serde",
  "serde_json",
@@ -1275,7 +1275,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-render"
-version = "0.3.31"
+version = "0.3.32"
 dependencies = [
  "indexmap",
  "serde",
@@ -1290,7 +1290,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-rollout"
-version = "0.3.31"
+version = "0.3.32"
 dependencies = [
  "blake3",
  "indexmap",

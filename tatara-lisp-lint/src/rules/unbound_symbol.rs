@@ -91,26 +91,34 @@ use crate::{head_symbol, line_col, suppressed, Rule, Violation};
 // this catalog, so an arm cannot drift from its row — the same discipline `known`
 // applies to primitives, one level up.
 
+// The head lists themselves now live in `tatara_lisp::binding_shapes`, the
+// crate BOTH syntactic walkers in this workspace already depend on — this rule
+// and `tatara_lisp_eval::build_check`'s arity checker, which needs the same
+// answer to "does this head shadow a name?" and would otherwise carry a second
+// copy free to disagree. Re-exported here (rather than referenced inline at the
+// match arms) so the catalog rows below and the walker keep reading ONE
+// identifier apiece, exactly as before.
+
 /// `(define NAME v)` / `(define (NAME params…) body…)`. Third item is a VALUE,
 /// which is why `define` cannot share the generic `def…` arm.
-const DEFINE_HEADS: &[&str] = &["define"];
+const DEFINE_HEADS: &[&str] = tatara_lisp::binding_shapes::DEFINE_HEADS;
 
 /// Lambda-shaped: a parameter list (or a bare rest symbol) followed by a body.
 /// `fn` / `λ` are aliases; `catch` binds `(e)` exactly the same way.
-const LAMBDA_HEADS: &[&str] = &["lambda", "fn", "λ", "catch"];
+const LAMBDA_HEADS: &[&str] = tatara_lisp::binding_shapes::LAMBDA_HEADS;
 
 /// `((name init) …)` bindings then a body. `let` evaluates initialisers in the
 /// OUTER scope; `let*` / `letrec` see the names bound so far.
-const LET_HEADS: &[&str] = &["let", "let*", "letrec"];
+const LET_HEADS: &[&str] = tatara_lisp::binding_shapes::LET_HEADS;
 
 /// Contents are data, never references.
-const QUOTE_HEADS: &[&str] = &["quote"];
+const QUOTE_HEADS: &[&str] = tatara_lisp::binding_shapes::QUOTE_HEADS;
 
 /// Prefix for every other definition form — `defmacro`, plus driver and
 /// user-macro heads (`deftest`, `defphase`, `defreversal`, …). A prefix rather
 /// than a list because the set is OPEN: those heads may be defined in a file we
 /// are not looking at, or by the test driver rather than the interpreter.
-const DEF_PREFIX: &str = "def";
+const DEF_PREFIX: &str = tatara_lisp::binding_shapes::DEF_PREFIX;
 
 /// What the rule does with a shape.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -214,7 +222,7 @@ pub const SHAPES: &[Shape] = &[
     },
     Shape {
         name: "lambda-list-keyword",
-        heads: &["&rest", "&optional", "&body", "&key", "&aux", "&whole"],
+        heads: tatara_lisp::binding_shapes::LAMBDA_LIST_KEYWORDS,
         prescription: Prescription::Data,
         example: "(defmacro m (x &rest ys) ...)",
         note: "A marker inside a parameter list, never a value reference.",

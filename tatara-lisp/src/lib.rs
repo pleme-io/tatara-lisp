@@ -25,6 +25,7 @@
 extern crate self as tatara_lisp;
 
 pub mod ast;
+pub mod binding_shapes;
 pub mod compile;
 pub mod compiler_spec;
 pub mod diagnostic;

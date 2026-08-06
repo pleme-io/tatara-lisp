@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "cargo_lock_sha256": "5eae54c222c69f05469e38cc0a9d2a2d742e741a77674b4e289b3135453f72ef",
+  "cargo_lock_sha256": "640e804d5581f61ac04c0e064d583fc97329ede012c03deb6e834efc52eaedfa",
   "manifest_sha256": {
-    "Cargo.toml": "862a365ae2996415798ba3c988d8456d51e264b8a86083d94acf8985041a8cd4",
+    "Cargo.toml": "262cfdc7c075bd1ceab3b87964c1e1757fb4815cb6a522d7d0f3e66b56936929",
     "monosashi/Cargo.toml": "17210c59c9167d1955a0ed7c24d2cd1db251216812e56809de4dd3eea25f8602",
     "tatara-cilium/Cargo.toml": "1a556d537ee60e616b61251aad766b0198291fe84a534c2718fb77d75968c34a",
     "tatara-closed-set-derive/Cargo.toml": "2fc3319ac7d59d99a114b54474b1bc489e2e2c91f8f8dcde90a81bb5f16e231b",
@@ -228,7 +228,7 @@
           "std"
         ]
       },
-      "caixa-ast-0.1.32": {
+      "caixa-ast-0.1.33": {
         "runtime_dependencies": [
           {
             "name": "logos",
@@ -280,7 +280,7 @@
         "runtime_dependencies": [
           {
             "name": "caixa_ast",
-            "package_key": "caixa-ast-0.1.32",
+            "package_key": "caixa-ast-0.1.33",
             "kind": "normal",
             "features": [],
             "uses_default_features": true,
@@ -6770,7 +6770,7 @@
     "bytes-1.12.1": {
       "edition": "2021"
     },
-    "caixa-ast-0.1.32": {
+    "caixa-ast-0.1.33": {
       "edition": "2024"
     },
     "caixa-fmt-0.1.5": {

@@ -140,9 +140,9 @@ checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
 name = "caixa-ast"
-version = "0.1.32"
+version = "0.1.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba096c06dfa127a5608bc55e630c4f83fa08a938d5aa8c08b5cf79cbc6c58a9f"
+checksum = "8bb964b346e13682620ffc34dc3ee251ad9d9cbdfc22a5d237039af0db965260"
 dependencies = [
  "logos",
  "serde",

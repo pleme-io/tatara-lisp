@@ -9,6 +9,9 @@
       url = "github:pleme-io/substrate";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # Follows substrate's pin rather than carrying its own, per the
+    # no-rev-pin doctrine — one fenix in the closure, no skew.
+    fenix.follows = "substrate/fenix";
   };
 
   outputs = {
@@ -17,11 +20,19 @@
     crate2nix,
     flake-utils,
     substrate,
+    fenix,
   }: let
     # Substrate's baseline workspace-release outputs (packages.tatara-lisp,
     # apps.{bump,release,check-all,regenerate-cargo-nix}, devShells, etc).
+    # fenix is passed explicitly: the flake takes it as `fenix ? null`, and
+    # omitting it silently falls back to nixpkgs' rustc. That fallback is what
+    # broke the v0.3.36 release — Cargo.toml declares rust-version 1.97.0
+    # (measured against the fenix toolchain, which is 1.97.1) while the devShell
+    # the release gate runs in was serving nixpkgs' 1.95.0, so the gate died on
+    # `rustc 1.95.0 is not supported by the following packages`. The MSRV was
+    # right; the shell was the one that never got told.
     baseline = (import "${substrate}/lib/rust-workspace-release-flake.nix" {
-      inherit nixpkgs crate2nix flake-utils;
+      inherit nixpkgs crate2nix flake-utils fenix;
     }) {
       toolName = "tatara-lisp";
       packageName = "tatara-lisp";

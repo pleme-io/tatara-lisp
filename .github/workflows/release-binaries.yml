@@ -17,6 +17,26 @@ jobs:
     uses: pleme-io/substrate/.github/workflows/rust-binary-release.yml@main
     with:
       binary-name: tatara-script
+      # musl: a fully static binary with NO libc floor.
+      #
+      # The gnu-linked releases carry, as a hard floor, the glibc of whatever
+      # runner built them. Measured on the published v0.3.37 asset: it
+      # requires GLIBC_2.39, so it cannot run on ubuntu-22.04 (2.35) — and
+      # repos pin 22.04 for real reasons (kind, gateway compatibility).
+      #
+      # That floor is not a detail, it is what pins the whole fleet to an old
+      # tatara-script. pleme-io/actions is on v0.2.5 and cannot move: v0.2.5
+      # predates the lint unbound-symbol rule (v0.3.23), so tlisp-lint's
+      # layer 3 is structurally unable to check — it certified "clean" for a
+      # month — and bumping to a gnu v0.3.x would instead break every
+      # 22.04 consumer. Both directions blocked, by the linker.
+      #
+      # Static musl removes the floor entirely and runs anywhere, which is
+      # what makes that pin bump safe and lets the gate be armed to fail
+      # closed. Lower the floor at the LINKER, never by downgrading the
+      # runner that builds it — the build toolchain is itself tatara-script,
+      # so a downgraded build runner just breaks the release outright.
+      linux-libc: musl
 
   image:
     name: Docker image → ghcr.io

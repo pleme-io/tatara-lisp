@@ -19,10 +19,14 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
         Arity::Exact(1),
         |args: &[Value], _ctx: &mut ScriptCtx, sp| {
             let s = str_arg(&args[0], "toml-parse", sp)?;
-            let parsed: TomlValue = s.parse().map_err(|e: toml::de::Error| {
+            // `Table`, not `Value`. Under toml 0.9 (spec 1.1) `FromStr for
+            // Value` parses a single TOML *value*, so a DOCUMENT — the only
+            // thing anyone passes here — failed on its first `key = …`, and
+            // even `""` failed. Documents parse as `Table`.
+            let parsed: toml::Table = s.parse().map_err(|e: toml::de::Error| {
                 EvalError::native_fn("toml-parse", e.to_string(), sp)
             })?;
-            Ok(toml_to_value(&parsed))
+            Ok(toml_to_value(&TomlValue::Table(parsed)))
         },
     );
 
@@ -33,10 +37,11 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
             let path = str_arg(&args[0], "toml-read", sp)?;
             let body = std::fs::read_to_string(&*path)
                 .map_err(|e| EvalError::native_fn("toml-read", format!("{path}: {e}"), sp))?;
-            let parsed: TomlValue = body.parse().map_err(|e: toml::de::Error| {
+            // See the note in `toml-parse`: a file is a document, so `Table`.
+            let parsed: toml::Table = body.parse().map_err(|e: toml::de::Error| {
                 EvalError::native_fn("toml-read", e.to_string(), sp)
             })?;
-            Ok(toml_to_value(&parsed))
+            Ok(toml_to_value(&TomlValue::Table(parsed)))
         },
     );
 
@@ -44,7 +49,7 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
         "toml-stringify",
         Arity::Exact(1),
         |args: &[Value], _ctx: &mut ScriptCtx, sp| {
-            let tv = value_to_toml(&args[0]).ok_or_else(|| {
+            let tv = root_toml(&args[0]).ok_or_else(|| {
                 EvalError::native_fn(
                     "toml-stringify",
                     "TOML requires a table at the root".to_string(),
@@ -73,6 +78,19 @@ fn toml_to_value(t: &TomlValue) -> Value {
                 })
                 .collect::<Vec<_>>(),
         ),
+    }
+}
+
+/// `value_to_toml`, plus the one decision only the root can make.
+///
+/// An empty alist and an empty array are the SAME `Value`, so the shared
+/// mapper cannot tell them apart and guesses Array. At the root that guess is
+/// always wrong — TOML's grammar admits only a table there — so it is resolved
+/// here rather than by making the mapper guess differently everywhere else.
+fn root_toml(v: &Value) -> Option<TomlValue> {
+    match value_to_toml(v)? {
+        TomlValue::Array(a) if a.is_empty() => Some(TomlValue::Table(toml::map::Map::new())),
+        other => Some(other),
     }
 }
 
@@ -121,5 +139,65 @@ fn value_to_toml(v: &Value) -> Option<TomlValue> {
             }
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A DOCUMENT must parse. Under toml 0.9 (spec 1.1) `FromStr for Value`
+    /// parses a single TOML *value*, so parsing a document through `Value`
+    /// rejected every real input — including the empty document — with
+    /// "unexpected content, expected nothing". There were no TOML tests in
+    /// this crate at all, which is why it shipped that way.
+    fn parse_document(src: &str) -> Value {
+        let table: toml::Table = src
+            .parse()
+            .unwrap_or_else(|e| panic!("document must parse: {src:?}: {e}"));
+        toml_to_value(&TomlValue::Table(table))
+    }
+
+    /// `Value` has no `PartialEq`, so the assertion goes back through TOML:
+    /// an empty document must survive the trip as an empty document.
+    #[test]
+    fn an_empty_document_parses_to_an_empty_table() {
+        let v = parse_document("");
+        let back = root_toml(&v).expect("root is a table");
+        assert_eq!(toml::to_string(&back).expect("serialises"), "");
+    }
+
+    /// The shape that first exposed the bug: attic's `config.toml` opens with
+    /// `default-server = "…"`. Dashes are legal in TOML bare keys.
+    #[test]
+    fn a_hyphenated_bare_key_parses() {
+        let v = parse_document(r#"default-server = "nexus""#);
+        let rendered = root_toml(&v).expect("root is a table");
+        assert_eq!(
+            toml::to_string(&rendered).expect("serialises"),
+            "default-server = \"nexus\"\n"
+        );
+    }
+
+    #[test]
+    fn nested_tables_survive_a_round_trip() {
+        let src = "default-server = \"nexus\"\n\n[servers.nexus]\nendpoint = \"http://rio:8080/nexus\"\ntoken = \"t\"\n";
+        let v = parse_document(src);
+        let back = root_toml(&v).expect("root is a table");
+        let out = toml::to_string(&back).expect("serialises");
+        let reparsed: toml::Table = out.parse().expect("output re-parses");
+        let original: toml::Table = src.parse().expect("input parses");
+        assert_eq!(
+            reparsed, original,
+            "round-trip changed the document (tokens live in these tables)"
+        );
+    }
+
+    /// A genuinely malformed document must still be an error, so the fix did
+    /// not simply make every input succeed.
+    #[test]
+    fn malformed_toml_is_still_rejected() {
+        let bad: Result<toml::Table, _> = "a = = 1".parse();
+        assert!(bad.is_err(), "malformed TOML must not parse");
     }
 }

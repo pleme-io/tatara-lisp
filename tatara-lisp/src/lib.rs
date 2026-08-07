@@ -56,7 +56,10 @@ pub use tatara_lisp_derive::{
 };
 
 pub use ast::{Atom, AtomKind, QuoteForm, Sexp, UnknownAtomKind, UnknownQuoteForm};
-pub use compile::{compile_named, compile_named_from_forms, compile_typed, NamedDefinition};
+pub use compile::{
+    compile_named, compile_named_from_forms, compile_typed, compile_typed_from_expanded,
+    NamedDefinition,
+};
 pub use diagnostic::{caret_run, format_diagnostic, line_at, line_col, span_width_chars, LineCol};
 pub use env::Env;
 pub use error::{

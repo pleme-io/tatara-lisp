@@ -207,20 +207,69 @@ pub struct NamedDefinition<T> {
 /// Back-compat alias — the old `Definition` type was `NamedDefinition<ProcessSpec>`.
 pub type Definition<T> = NamedDefinition<T>;
 
+/// Compile every `(T::KEYWORD :k v …)` form in an **already-macroexpanded**
+/// slice into `T` — the third input posture of the typed bare-kwargs family,
+/// below from-source ([`compile_typed`]) and from-forms
+/// ([`Expander::expand_to_typed`]).
+///
+/// The posture the family was missing, and the absence had teeth. Every
+/// other cell either reads (`&str` → lex + parse) or expands (`Vec<Sexp>` →
+/// a fresh [`Expander`] + a full `expand_program` walk), so a consumer that
+/// wants **N typed domains out of ONE document** had no cell to bind to: its
+/// only option was to call a reading or expanding entry point once per
+/// domain, re-lexing and re-expanding the whole document N times and
+/// discarding all but one keyword's worth of the result each pass. frost's
+/// rc loader did exactly that — 24 `compile_typed` calls over the same
+/// 1358-form source, 32,592 form expansions to keep 1358, each pass paying a
+/// cold [`Expander`] macro cache. That is not a frost defect; it is this
+/// table's empty cell, and it is closed here.
+///
+/// Takes `&[Sexp]` rather than `Vec<Sexp>` precisely because the multi-domain
+/// caller is the point: the expanded document is read once and **borrowed**
+/// by every projection, so N domains cost N cheap keyword filters over one
+/// slice instead of N clones (or N re-expansions) of the document.
+///
+/// **Contract — `forms` must already be macroexpanded.** This function does
+/// no expansion, by design: a `(defmacro …)`-generated `(T::KEYWORD …)` form
+/// is invisible to it unless the caller ran [`Expander::expand_program`]
+/// first. Callers that hold raw reader output want
+/// [`Expander::expand_to_typed`]; callers that hold source text want
+/// [`compile_typed`], which is now a composition of read + expand + THIS
+/// primitive rather than an inline re-derivation of the filter.
+/// [`Expander::expand_to_typed`] reaches the same projection through the
+/// untyped constant-keyword layer (`expand_and_collect_calls_to` →
+/// `expand_and_collect_calls_to_any` → `expand_program` +
+/// [`crate::ast::iter_calls_to_any`]), so all three postures bottom out on
+/// the same slice-side filter even though the from-forms cell keeps its
+/// route through the untyped primitive.
+///
+/// Rejection is fail-fast and positional: the first form whose args
+/// `T::compile_from_args` rejects short-circuits the whole call with that
+/// form's typed error, identical to every other cell in the family.
+/// Non-matching forms — a different keyword, an atom, a list whose head is
+/// not a symbol — are skipped silently, matching the soft-projection posture
+/// of [`crate::ast::iter_calls_to`] this composes.
+///
+/// Theory anchor: THEORY.md §II.1 invariant 2 — free middle. The middle of
+/// the pipeline (read → expand → project) is now decomposed at every joint,
+/// so a consumer binds at the joint its input actually sits on rather than
+/// re-entering from the top and paying the prefix again.
+pub fn compile_typed_from_expanded<T: TataraDomain>(forms: &[Sexp]) -> Result<Vec<T>> {
+    crate::ast::iter_calls_to(forms, T::KEYWORD)
+        .map(T::compile_from_args)
+        .collect()
+}
+
 /// Read + macroexpand + compile every `(T::KEYWORD :k v …)` form into `T`.
+///
+/// The from-source cell of the typed bare-kwargs family: composes
+/// [`crate::reader::read`] and a fresh [`Expander`]'s `expand_program` with
+/// [`compile_typed_from_expanded`], which owns the typed projection.
 pub fn compile_typed<T: TataraDomain>(src: &str) -> Result<Vec<T>> {
     let forms = read(src)?;
     let mut exp = Expander::new();
     let expanded = exp.expand_program(forms)?;
-    let mut out = Vec::new();
-    for form in &expanded {
-        if let Some(list) = form.as_list() {
-            if list.first().and_then(|s| s.as_symbol()) == Some(T::KEYWORD) {
-                out.push(T::compile_from_args(&list[1..])?);
-            }
-        }
-    }
-    Ok(out)
+    compile_typed_from_expanded::<T>(&expanded)
 }
 
 /// Read + macroexpand + compile every `(T::KEYWORD NAME :k v …)` form into
@@ -388,4 +437,132 @@ pub fn split_name_slot<'a>(
                 got: name_form.shape(),
             })?;
     Ok((name, spec_args))
+}
+
+#[cfg(test)]
+mod compile_typed_from_expanded_tests {
+    use super::*;
+    use crate::reader::read;
+    use serde::Serialize;
+    use tatara_lisp_derive::TataraDomain as DeriveTataraDomain;
+
+    #[derive(DeriveTataraDomain, Serialize, Debug, PartialEq)]
+    #[tatara(keyword = "defalias")]
+    struct AliasSpec {
+        name: String,
+        value: String,
+    }
+
+    #[derive(DeriveTataraDomain, Serialize, Debug, PartialEq)]
+    #[tatara(keyword = "defenv")]
+    struct EnvSpec {
+        name: String,
+        value: String,
+    }
+
+    const MIXED: &str = r#"
+        (defalias :name "ll" :value "ls -la")
+        (defenv   :name "EDITOR" :value "nvim")
+        (defalias :name "gs" :value "git status")
+        42
+        (not-a-known-form :name "x")
+    "#;
+
+    fn expand(src: &str) -> Vec<Sexp> {
+        let mut exp = Expander::new();
+        exp.expand_program(read(src).unwrap()).unwrap()
+    }
+
+    /// The projection itself: only `T::KEYWORD` forms, in source order,
+    /// with every other shape (a different keyword, a bare atom, an
+    /// unknown head) skipped rather than erroring.
+    #[test]
+    fn projects_only_the_matching_keyword_in_source_order() {
+        let expanded = expand(MIXED);
+        let aliases: Vec<AliasSpec> = compile_typed_from_expanded(&expanded).unwrap();
+        assert_eq!(
+            aliases,
+            vec![
+                AliasSpec {
+                    name: "ll".into(),
+                    value: "ls -la".into()
+                },
+                AliasSpec {
+                    name: "gs".into(),
+                    value: "git status".into()
+                },
+            ]
+        );
+        let envs: Vec<EnvSpec> = compile_typed_from_expanded(&expanded).unwrap();
+        assert_eq!(
+            envs,
+            vec![EnvSpec {
+                name: "EDITOR".into(),
+                value: "nvim".into()
+            }]
+        );
+    }
+
+    /// The equivalence receipt that makes the new posture a safe
+    /// substitution for a caller migrating off `compile_typed`: for a
+    /// document already run through `read` + `expand_program`, both
+    /// entry points yield the identical `Vec<T>`. If this ever diverges,
+    /// every consumer that switched postures silently applies a
+    /// different set of forms.
+    #[test]
+    fn agrees_with_compile_typed_on_the_same_document() {
+        let expanded = expand(MIXED);
+
+        let from_expanded: Vec<AliasSpec> = compile_typed_from_expanded(&expanded).unwrap();
+        let from_source: Vec<AliasSpec> = compile_typed(MIXED).unwrap();
+        assert_eq!(from_expanded, from_source);
+
+        let from_expanded: Vec<EnvSpec> = compile_typed_from_expanded(&expanded).unwrap();
+        let from_source: Vec<EnvSpec> = compile_typed(MIXED).unwrap();
+        assert_eq!(from_expanded, from_source);
+    }
+
+    /// The documented contract, proved rather than asserted in prose:
+    /// this posture does NOT expand. A macro-generated form is invisible
+    /// to it when handed raw reader output, and visible once the caller
+    /// has run `expand_program` — which is exactly the discipline a
+    /// migrating consumer has to keep.
+    #[test]
+    fn does_not_expand_macros_itself_but_sees_them_once_expanded() {
+        let src = r#"
+            (defmacro alias-pair (a b)
+              `(defalias :name ,a :value ,b))
+            (alias-pair "ll" "ls -la")
+        "#;
+
+        let raw = read(src).unwrap();
+        let unexpanded: Vec<AliasSpec> = compile_typed_from_expanded(&raw).unwrap();
+        assert!(
+            unexpanded.is_empty(),
+            "the from-expanded posture must not macroexpand; got {unexpanded:?}"
+        );
+
+        let expanded = expand(src);
+        let after: Vec<AliasSpec> = compile_typed_from_expanded(&expanded).unwrap();
+        assert_eq!(
+            after,
+            vec![AliasSpec {
+                name: "ll".into(),
+                value: "ls -la".into()
+            }],
+            "an expanded macro call must project like a hand-written form"
+        );
+    }
+
+    /// Rejection is fail-fast: a malformed matching form short-circuits
+    /// with its own typed error rather than being skipped.
+    #[test]
+    fn a_malformed_matching_form_is_rejected_not_skipped() {
+        let expanded = expand(r#"(defalias :name "ll" :nonsense "boom")"#);
+        let err = compile_typed_from_expanded::<AliasSpec>(&expanded).unwrap_err();
+        assert!(
+            format!("{err}").contains("nonsense"),
+            "the diagnostic must name the offending kwarg, got: {err}"
+        );
+    }
 }

@@ -36,6 +36,15 @@ jobs:
       # closed. Lower the floor at the LINKER, never by downgrading the
       # runner that builds it — the build toolchain is itself tatara-script,
       # so a downgraded build runner just breaks the release outright.
+      #
+      # v0.3.41 then red-failed the gate that enforces all of the above, on an
+      # artifact that was correct: rustc emits *-linux-musl as static-PIE, and
+      # the gate was grepping file(1) for the literal 'statically linked' while
+      # file(1) says 'static-pie linked' for that shape. The published asset had
+      # zero GLIBC_* imports and the step directly above had just run it on
+      # ubuntu-22.04. Fixed in substrate (rust-binary-release.yml) by asserting
+      # the ELF fact — no PT_INTERP, no versioned GLIBC_* imports — rather than
+      # one tool's wording for it. Nothing about this repo's musl choice moved.
       linux-libc: musl
 
   image:

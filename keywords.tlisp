@@ -24,6 +24,12 @@
     (:palavra "defalertpolicy" :donos ("tatara/tatara-domains/src/lib.rs"))
     (:palavra "defalias" :donos ("frost/crates/frost-lisp/src/alias.rs"))
     (
+      :palavra "defamostra-alfa"
+      :donos ("tatara-lisp/tatara-lisp/src/compile.rs"))
+    (
+      :palavra "defamostra-beta"
+      :donos ("tatara-lisp/tatara-lisp/src/compile.rs"))
+    (
       :palavra "defarchetype"
       :donos ("repo-forge/repo-forge-archetype/src/archetype.rs"))
     (:palavra "defarnes" :donos ("arnes/arnes-config/src/lib.rs"))

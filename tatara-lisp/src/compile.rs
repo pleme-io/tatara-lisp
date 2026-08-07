@@ -447,23 +447,23 @@ mod compile_typed_from_expanded_tests {
     use tatara_lisp_derive::TataraDomain as DeriveTataraDomain;
 
     #[derive(DeriveTataraDomain, Serialize, Debug, PartialEq)]
-    #[tatara(keyword = "defalias")]
-    struct AliasSpec {
+    #[tatara(keyword = "defamostra-alfa")]
+    struct AlfaSpec {
         name: String,
         value: String,
     }
 
     #[derive(DeriveTataraDomain, Serialize, Debug, PartialEq)]
-    #[tatara(keyword = "defenv")]
-    struct EnvSpec {
+    #[tatara(keyword = "defamostra-beta")]
+    struct BetaSpec {
         name: String,
         value: String,
     }
 
     const MIXED: &str = r#"
-        (defalias :name "ll" :value "ls -la")
-        (defenv   :name "EDITOR" :value "nvim")
-        (defalias :name "gs" :value "git status")
+        (defamostra-alfa :name "ll" :value "ls -la")
+        (defamostra-beta :name "EDITOR" :value "nvim")
+        (defamostra-alfa :name "gs" :value "git status")
         42
         (not-a-known-form :name "x")
     "#;
@@ -479,24 +479,24 @@ mod compile_typed_from_expanded_tests {
     #[test]
     fn projects_only_the_matching_keyword_in_source_order() {
         let expanded = expand(MIXED);
-        let aliases: Vec<AliasSpec> = compile_typed_from_expanded(&expanded).unwrap();
+        let aliases: Vec<AlfaSpec> = compile_typed_from_expanded(&expanded).unwrap();
         assert_eq!(
             aliases,
             vec![
-                AliasSpec {
+                AlfaSpec {
                     name: "ll".into(),
                     value: "ls -la".into()
                 },
-                AliasSpec {
+                AlfaSpec {
                     name: "gs".into(),
                     value: "git status".into()
                 },
             ]
         );
-        let envs: Vec<EnvSpec> = compile_typed_from_expanded(&expanded).unwrap();
+        let envs: Vec<BetaSpec> = compile_typed_from_expanded(&expanded).unwrap();
         assert_eq!(
             envs,
-            vec![EnvSpec {
+            vec![BetaSpec {
                 name: "EDITOR".into(),
                 value: "nvim".into()
             }]
@@ -513,12 +513,12 @@ mod compile_typed_from_expanded_tests {
     fn agrees_with_compile_typed_on_the_same_document() {
         let expanded = expand(MIXED);
 
-        let from_expanded: Vec<AliasSpec> = compile_typed_from_expanded(&expanded).unwrap();
-        let from_source: Vec<AliasSpec> = compile_typed(MIXED).unwrap();
+        let from_expanded: Vec<AlfaSpec> = compile_typed_from_expanded(&expanded).unwrap();
+        let from_source: Vec<AlfaSpec> = compile_typed(MIXED).unwrap();
         assert_eq!(from_expanded, from_source);
 
-        let from_expanded: Vec<EnvSpec> = compile_typed_from_expanded(&expanded).unwrap();
-        let from_source: Vec<EnvSpec> = compile_typed(MIXED).unwrap();
+        let from_expanded: Vec<BetaSpec> = compile_typed_from_expanded(&expanded).unwrap();
+        let from_source: Vec<BetaSpec> = compile_typed(MIXED).unwrap();
         assert_eq!(from_expanded, from_source);
     }
 
@@ -531,22 +531,22 @@ mod compile_typed_from_expanded_tests {
     fn does_not_expand_macros_itself_but_sees_them_once_expanded() {
         let src = r#"
             (defmacro alias-pair (a b)
-              `(defalias :name ,a :value ,b))
+              `(defamostra-alfa :name ,a :value ,b))
             (alias-pair "ll" "ls -la")
         "#;
 
         let raw = read(src).unwrap();
-        let unexpanded: Vec<AliasSpec> = compile_typed_from_expanded(&raw).unwrap();
+        let unexpanded: Vec<AlfaSpec> = compile_typed_from_expanded(&raw).unwrap();
         assert!(
             unexpanded.is_empty(),
             "the from-expanded posture must not macroexpand; got {unexpanded:?}"
         );
 
         let expanded = expand(src);
-        let after: Vec<AliasSpec> = compile_typed_from_expanded(&expanded).unwrap();
+        let after: Vec<AlfaSpec> = compile_typed_from_expanded(&expanded).unwrap();
         assert_eq!(
             after,
-            vec![AliasSpec {
+            vec![AlfaSpec {
                 name: "ll".into(),
                 value: "ls -la".into()
             }],
@@ -558,8 +558,8 @@ mod compile_typed_from_expanded_tests {
     /// with its own typed error rather than being skipped.
     #[test]
     fn a_malformed_matching_form_is_rejected_not_skipped() {
-        let expanded = expand(r#"(defalias :name "ll" :nonsense "boom")"#);
-        let err = compile_typed_from_expanded::<AliasSpec>(&expanded).unwrap_err();
+        let expanded = expand(r#"(defamostra-alfa :name "ll" :nonsense "boom")"#);
+        let err = compile_typed_from_expanded::<AlfaSpec>(&expanded).unwrap_err();
         assert!(
             format!("{err}").contains("nonsense"),
             "the diagnostic must name the offending kwarg, got: {err}"

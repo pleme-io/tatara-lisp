@@ -1144,7 +1144,6 @@ name = "tatara-lisp"
 version = "0.3.38"
 dependencies = [
  "blake3",
- "caixa-fmt",
  "serde",
  "serde_json",
  "tatara-closed-set",

@@ -16,3 +16,16 @@ publish = false
 # The canonical form, as a LIBRARY rather than the `feira` CLI — the two
 # disagree despite sharing a version number. See build.rs.
 caixa-fmt = "=0.1.5"
+
+[dev-dependencies]
+# Same EXACT pin as the build-dependency above, and for the same reason: the
+# installed `feira` CLI ships 0.1.5 while `0.1` floats to 0.1.7, and the two
+# DISAGREE on canonical form for 2 of this repo's 4 lisp files. An unpinned
+# gate rejects files the developer's own formatter just produced, which trains
+# people to disable the gate. Bump both in lockstep with the CLI, never alone.
+#
+# This lives HERE rather than in tatara-lisp because caixa-fmt depends back on
+# published `tatara-lisp ^0.3.26` — a cycle that made tatara-lisp structurally
+# unpublishable (two exact `tatara-lisp-derive` pins in one graph). tatara-kanmon
+# is `publish = false`, so the same cycle costs it nothing.
+caixa-fmt = "=0.1.5"

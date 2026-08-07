@@ -29,12 +29,18 @@ blake3 = "1"
 [features]
 default = []
 
-[dev-dependencies]
-# PINNED EXACTLY, and the pin is what makes "canonical" well-defined.
+# NO caixa-fmt DEV-DEP — it made this crate UNPUBLISHABLE.
 #
-# Measured 2026-08-04: the installed `feira` CLI ships caixa-fmt 0.1.5, while
-# `0.1` resolved to 0.1.7 — and the two DISAGREE on canonical form for 2 of
-# this repo's 4 lisp files. An unpinned gate therefore rejects files the
-# developer's own `feira fmt` just produced, which trains people to disable
-# the gate rather than use it. Bump this in lockstep with the CLI, never alone.
-caixa-fmt = "=0.1.5"
+# caixa-fmt depends on `tatara-lisp ^0.3.26`, which resolves to the PUBLISHED
+# tatara-lisp 0.3.26, which pins `tatara-lisp-derive = "=0.3.26"`. This crate
+# pins `= <own version>`. One graph, two exact pins on the same crate, no
+# solution — `cargo package` fails with "all possible versions conflict".
+#
+# Local builds never saw it: the workspace `[patch.crates-io]` collapses the
+# duplicate. `cargo package` IGNORES patches, so the cycle only ever appeared
+# at publish time, which is why the release was red while every build was green.
+#
+# The gate did not move, only its home: tatara-kanmon runs the identical
+# caixa-fmt check in build.rs, is `publish = false`, and now owns
+# tests/canonical_corpus.rs (including the `--ignored reformat` fixer). Nothing
+# is un-gated by this; a crate that cannot publish is the thing being fixed.

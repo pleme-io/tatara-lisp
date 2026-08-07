@@ -116,7 +116,7 @@ fn main() {
     if !offenders.is_empty() {
         panic!(
             "\n\n  {} of {} lisp source(s) blocked the build:\n    {}\n\n  \
-             Fix with:\n    cargo test -p tatara-lisp --test canonical_corpus \
+             Fix with:\n    cargo test -p tatara-kanmon --test canonical_corpus \
              -- --ignored reformat\n\n  \
              Do NOT reach for `feira fmt`: the CLI on PATH disagrees with the \
              pinned library\n  and would reformat these straight back into a \

@@ -53,6 +53,7 @@
         defaultCrateOverrides = pkgs.defaultCrateOverrides // plemeCrateOverrides;
       };
       tatara-lisp-script = cargoNix.workspaceMembers."tatara-lisp-script".build;
+      tatara-keywords = cargoNix.workspaceMembers."tatara-keywords".build;
 
       # Distroless OCI image — used by the wasm-engine pods to evaluate
       # tatara-lisp programs at runtime. Same content-addressed pattern
@@ -134,9 +135,24 @@
       packages.tatara-script = tatara-lisp-script;
       packages.image = image;
 
+      packages.tatara-keywords = tatara-keywords;
+
       apps.tatara-script = {
         type = "app";
         program = "${tatara-lisp-script}/bin/tatara-script";
+      };
+
+      # The two namespace checks. `names` exists so the naming skill's
+      # step 4 is one command instead of a six-line `rg` recipe with two
+      # silent-zero traps in it — which is the recipe that green-lit
+      # `bancada` over a registered word on 2026-08-08.
+      apps.tatara-keywords = {
+        type = "app";
+        program = "${tatara-keywords}/bin/tatara-keywords";
+      };
+      apps.names = {
+        type = "app";
+        program = "${tatara-keywords}/bin/tatara-keywords";
       };
 
       # Direct symlink alias so downstream `nix run pleme-io/tatara-lisp#script`

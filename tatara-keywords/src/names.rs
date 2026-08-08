@@ -440,6 +440,60 @@ pub fn cited_repos(src: &str) -> Vec<String> {
     out
 }
 
+/// Every `github.com/pleme-io/<name>` a document **links** to.
+///
+/// The sharper sibling of [`cited_repos`], and the one worth gating at zero.
+/// A bare `pleme-io/x` in prose may be a proposal — 49 of the corpus's 51
+/// citations are that, and a plan document naming repos it intends to create
+/// is not lying. **A link is different: it resolves or it 404s.**
+///
+/// Fenced code blocks are skipped, because a URL inside an example manifest is
+/// illustrative, not a reference. That exclusion is not hypothetical — it is
+/// the difference between the corpus's two apparent dead links and its one
+/// real one: `TERRENO.md`'s is a `gitRepository.url` inside a sample
+/// `ArchitectureGem` YAML.
+#[must_use]
+pub fn linked_repos(src: &str) -> Vec<String> {
+    const MARKER: &str = "github.com/pleme-io/";
+    let mut out = Vec::new();
+    let mut in_fence = false;
+    for line in src.lines() {
+        if line.trim_start().starts_with("```") {
+            in_fence = !in_fence;
+            continue;
+        }
+        if in_fence {
+            continue;
+        }
+        let mut at = 0usize;
+        while let Some(i) = line[at..].find(MARKER) {
+            at += i + MARKER.len();
+            let name: String = line[at..]
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+                .collect();
+            if !name.is_empty()
+                && !name.ends_with('-')
+                && !name.chars().any(|c| c.is_ascii_uppercase())
+                && !name.chars().all(|c| c.is_ascii_digit())
+            {
+                out.push(name);
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Linked repos that do not exist under `root` — dead links, gated at zero.
+///
+/// # Errors
+/// Propagates filesystem errors from reading `root/theory`.
+pub fn dead_links(root: &Path) -> std::io::Result<Vec<(String, String)>> {
+    scan_theory(root, linked_repos)
+}
+
 /// Cited repos that do not exist under `root`.
 ///
 /// **The oracle is the local checkout, so a repo that exists on GitHub but is
@@ -453,6 +507,17 @@ pub fn cited_repos(src: &str) -> Vec<String> {
 /// # Errors
 /// Propagates filesystem errors from reading `root/theory`.
 pub fn phantom_repos(root: &Path) -> std::io::Result<Vec<(String, String)>> {
+    scan_theory(root, cited_repos)
+}
+
+/// Walk `root/theory/*.md`, extract names with `extract`, keep the missing.
+///
+/// One walk shared by both rules, so a fix to the traversal cannot land for
+/// dead links and miss bare citations.
+fn scan_theory(
+    root: &Path,
+    extract: fn(&str) -> Vec<String>,
+) -> std::io::Result<Vec<(String, String)>> {
     let theory = root.join("theory");
     if !theory.is_dir() {
         return Ok(Vec::new());
@@ -467,10 +532,7 @@ pub fn phantom_repos(root: &Path) -> std::io::Result<Vec<(String, String)>> {
         }
         let Ok(src) = std::fs::read_to_string(&path) else { continue };
         let doc = entry.file_name().to_string_lossy().into_owned();
-        for name in cited_repos(&src) {
-            // A path like `pleme-io/theory/blob/main/X.md` cites a real repo
-            // whose name is `theory`; the walk above already handles that by
-            // stopping at the `/`.
+        for name in extract(&src) {
             if root.join(&name).is_dir() {
                 continue;
             }
@@ -713,6 +775,37 @@ mod tests {
     }
 
     /// Every exclusion below is a false positive the first live run produced.
+    /// A URL inside a fenced example manifest is illustrative, not a citation.
+    /// This is the whole difference between the corpus's two apparent dead
+    /// links and its one real one.
+    #[test]
+    fn a_url_inside_a_code_fence_is_not_a_link() {
+        let src = "\
+Real reference: [`x`](https://github.com/pleme-io/openclaw-artifact-registry)
+
+```yaml
+    gitRepository:
+      url: https://github.com/pleme-io/terreno-cloudflare
+```
+";
+        assert_eq!(
+            linked_repos(src),
+            vec!["openclaw-artifact-registry".to_string()],
+            "the fenced ArchitectureGem example must not count as a citation"
+        );
+    }
+
+    /// The two rules are deliberately different strengths.
+    #[test]
+    fn a_bare_mention_is_a_citation_but_not_a_link() {
+        let src = "we will create pleme-io/mesh-platform next quarter";
+        assert_eq!(cited_repos(src), vec!["mesh-platform".to_string()]);
+        assert!(
+            linked_repos(src).is_empty(),
+            "a plan naming a future repo is not a dead link"
+        );
+    }
+
     #[test]
     fn the_four_non_citation_shapes_are_excluded() {
         for src in [

@@ -343,6 +343,20 @@ fn run_names(args: &[String]) -> Result<ExitCode, String> {
         return finish_names(&corpus, &root, bad, args);
     }
 
+    // GATING 3a — a dead LINK. Zero tolerance: unlike a bare prose mention,
+    // a `github.com/pleme-io/<name>` URL either resolves or 404s, so there is
+    // no proposal reading of it. Code fences are excluded by the scanner.
+    for (name, doc) in names::dead_links(&root)
+        .map_err(|e| format!("reading theory/ under {}: {e}", root.display()))?
+    {
+        eprintln!(
+            "tatara-keywords names: `{doc}` LINKS to \
+             https://github.com/pleme-io/{name}, which does not exist — a dead \
+             link, not a proposal"
+        );
+        bad += 1;
+    }
+
     let phantom = names::phantom_repos(&root)
         .map_err(|e| format!("reading theory/ under {}: {e}", root.display()))?;
     for (name, doc) in &phantom {

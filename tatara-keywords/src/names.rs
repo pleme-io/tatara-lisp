@@ -380,6 +380,9 @@ fn backticked(cell: &str) -> Vec<(String, bool)> {
             && !word.contains(' ')
             && !word.contains('/')
             && !word.contains('.')
+            // A bare number is a commit or a count cited in prose, never a
+            // name — `9854099` reached the advisory list this way.
+            && !word.chars().all(|c| c.is_ascii_digit())
             && word.chars().all(|c| c.is_alphanumeric() || "-_áàâãéêíóôõúüçñ".contains(c))
         {
             out.push((word.to_string(), glossed));

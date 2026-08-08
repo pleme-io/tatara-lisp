@@ -32,6 +32,8 @@
 //! guarantee that the fleet holds no other keyword. Re-measure with
 //! `tatara-keywords census --emit-ledger` before quoting it.
 
+pub mod names;
+
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};

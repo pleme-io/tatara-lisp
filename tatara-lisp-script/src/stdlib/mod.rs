@@ -30,6 +30,9 @@ use tatara_lisp_eval::{
 use crate::script_ctx::ScriptCtx;
 
 // Core scripting families
+pub mod profile;
+pub use profile::{Capability, Profile};
+
 pub mod cli;
 pub mod crypto_extra;
 pub mod dns;
@@ -79,34 +82,34 @@ pub mod yaml;
 /// Scripts see the full Clojure-flavored environment without calling
 /// any of these installers themselves.
 pub fn install_stdlib(interp: &mut Interpreter<ScriptCtx>, ctx: &mut ScriptCtx) {
+    install_stdlib_with(interp, ctx, &Profile::ambient());
+}
+
+/// Install the stdlib under a capability [`Profile`].
+///
+/// Families outside the profile are never installed, so their names are
+/// simply unbound and calling one is an unbound-symbol error from the
+/// evaluator. There is no runtime policy check to consult or to get
+/// wrong — the containment IS the absence.
+///
+/// [`install_stdlib`] is this with [`Profile::ambient`], which grants
+/// everything, so no existing embedder changes behaviour.
+///
+/// Reach for [`Profile::sealed`] whenever the source being evaluated is
+/// not source you wrote: a controller reconciling a CR, a renderer
+/// inside a compliance boundary. The ambient set includes `sh-exec`
+/// (a literal `sh -c`), `rm-rf`, `env-set`, `kube-bearer-token` and
+/// `sops-extract` — correct for an operator running a deploy script,
+/// wrong for anything else.
+pub fn install_stdlib_with(
+    interp: &mut Interpreter<ScriptCtx>,
+    ctx: &mut ScriptCtx,
+    profile: &Profile,
+) {
     install_primitives(interp);
     install_hof(interp);
     install_map(interp);
-    cli::install(interp);
-    crypto_extra::install(interp);
-    dns::install(interp);
-    encoding::install(interp);
-    env::install(interp);
-    fs::install(interp);
-    hash::install(interp);
-    http::install(interp);
-    http_server::install(interp);
-    io::install(interp);
-    kube::install(interp);
-    json::install(interp);
-    list_ext::install(interp);
-    log::install(interp);
-    module::install(interp);
-    os::install(interp);
-    process::install(interp);
-    regex::install(interp);
-    sops::install(interp);
-    string::install(interp);
-    string_ext::install(interp);
-    time::install(interp);
-    toml::install(interp);
-    uuid::install(interp);
-    yaml::install(interp);
+    profile::install_families(interp, profile);
     // Pure-Lisp layer LAST — it depends on every Rust primitive above
     // (compose calls foldr, juxt calls map, threading macros use list?,
     // etc.). Loading earlier would error on unbound primitives.

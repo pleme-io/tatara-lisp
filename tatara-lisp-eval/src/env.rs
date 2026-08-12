@@ -15,7 +15,16 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use crate::value::Value;
+use crate::value::{PromiseState, Value};
+
+/// How deep [`handles_to_frame`] will walk a value graph before giving up.
+///
+/// Giving up is the conservative answer — it refuses a release rather than
+/// permitting one — so the only cost of the bound is a frame that keeps
+/// leaking exactly as it does today. Far above any hand-built nesting; far
+/// below the recursion depth that would blow the stack inside a destructor,
+/// which is the one place a crash has no useful backtrace.
+const MAX_VALUE_DEPTH: usize = 64;
 
 /// Why an environment's lower frames are closed to `set!`.
 ///
@@ -231,6 +240,106 @@ impl Env {
         self.write_floor
     }
 
+    /// Release the frames this environment OWNS: drop the bindings of every
+    /// frame at or above its write floor, so the frames themselves can be
+    /// freed. Returns how many were released.
+    ///
+    /// # The cycle this exists to break
+    ///
+    /// A top-level `(define (f …) …)` builds a ring. `sf_define` clones the
+    /// env INTO the closure (`Closure::captured_env`) and then defines the
+    /// closure back into that same env, so the `Frame` owns the
+    /// `Value::Closure`, the closure owns the `Env`, and the `Env` owns the
+    /// `Arc<Frame>`. `Arc` is a refcount, not a collector: that ring's strong
+    /// count never reaches zero, and nothing in this crate breaks it — there
+    /// is no `Weak` anywhere in it. Measured downstream at ~832 B per dead
+    /// interpreter incarnation, which a supervisor restarting one process a
+    /// second turns into tens of megabytes a day.
+    ///
+    /// # Why the write floor is the boundary
+    ///
+    /// [`Env::sealed_below_top`] clones the frame vector, raises the floor to
+    /// its length, and pushes ONE fresh frame. So from `write_floor` up sits a
+    /// frame this environment created and handed to nobody, and below it sit
+    /// the frames the parent and every sibling share. Releasing only from the
+    /// floor up is what keeps the stdlib a hundred forks are reading out of
+    /// scope entirely.
+    ///
+    /// # Why that is not sufficient on its own
+    ///
+    /// "Created here" is not "held only here", and there are two real ways a
+    /// frame above the floor becomes somebody else's business:
+    ///
+    /// 1. **a fork of a fork** inherits it *below its own floor* and is still
+    ///    resolving names through it;
+    /// 2. **a closure returned to the embedder** outlives this environment and
+    ///    resolves its own name through it.
+    ///
+    /// Neither is a memory-safety problem — `Arc` keeps the allocation alive
+    /// whatever we do — but clearing the map would silently unbind names
+    /// something live is still reading, which is worse than the leak. So a
+    /// frame is released only when [`Env::frame_is_exclusively_ours`] can
+    /// *prove* nothing outside this environment and its own self-referential
+    /// bindings can reach it; when the proof fails the frame is left exactly
+    /// as it is today. That trades completeness for soundness, never the other
+    /// way round.
+    ///
+    /// Both hazards are gated in `tests/interpreter_release.rs`, each with the
+    /// recorded red run it goes red on when the guard is removed.
+    pub fn release_own_frames(&mut self) -> usize {
+        let mut released = 0;
+        for frame in &self.frames[self.write_floor..] {
+            if Self::frame_is_exclusively_ours(frame) {
+                // Take the map out from under the lock, then drop it with the
+                // guard already gone. The values being dropped own `Env`s that
+                // own `Arc<Frame>`s, and releasing the last handle to a frame
+                // drops ITS map in turn — an unbounded drop chain that has no
+                // business running inside this critical section.
+                let drained = {
+                    let mut bindings = frame.bindings.lock().unwrap();
+                    std::mem::take(&mut *bindings)
+                };
+                drop(drained);
+                released += 1;
+            }
+        }
+        released
+    }
+
+    /// Is `frame` reachable from anywhere but this `Env` and the bindings
+    /// `frame` itself holds?
+    ///
+    /// One equation decides it:
+    ///
+    /// ```text
+    /// Arc::strong_count(frame) == 1 (this Env) + handles held inside frame
+    /// ```
+    ///
+    /// It is sound because the right-hand side can only ever be an
+    /// *under*-count, and an under-count fails the equation, which refuses the
+    /// release. Every handle counted sits behind an `Arc` whose strong count
+    /// is exactly 1, so there is precisely one path to it and it cannot be
+    /// counted twice. Anything [`handles_to_frame`] cannot see through — a
+    /// `Value::Foreign` the host defined, a capture cell something else also
+    /// holds — contributes zero to the right-hand side while still
+    /// contributing to `strong_count`, so it makes the equation fail rather
+    /// than pass.
+    fn frame_is_exclusively_ours(frame: &Arc<Frame>) -> bool {
+        // A poisoned frame is one whose contents cannot be trusted to be
+        // walked; refuse rather than guess.
+        let Ok(bindings) = frame.bindings.lock() else {
+            return false;
+        };
+        let mut internal = 0usize;
+        for value in bindings.values() {
+            let Some(n) = handles_to_frame(frame, value, MAX_VALUE_DEPTH) else {
+                return false;
+            };
+            internal += n;
+        }
+        Arc::strong_count(frame) == 1 + internal
+    }
+
     /// Iterate every binding in the OUTERMOST (root) frame as
     /// `(name, value)` pairs. Useful for module loaders that need to
     /// snapshot the top-level definitions a module evaluated to.
@@ -247,6 +356,122 @@ impl Env {
             Vec::new()
         }
     }
+}
+
+/// How many of `env`'s frame slots are this very `frame`.
+///
+/// A count rather than a bool because the same `Env` may legitimately hold
+/// several distinct handles to one frame, and the exclusivity equation in
+/// [`Env::frame_is_exclusively_ours`] balances handles, not environments.
+fn frames_pointing_at(env: &Env, frame: &Arc<Frame>) -> usize {
+    env.frames.iter().filter(|f| Arc::ptr_eq(f, frame)).count()
+}
+
+/// How many `Arc<Frame>` handles to `frame` live inside `value` — or `None`
+/// when `value`'s graph holds something this function cannot account for.
+///
+/// `None` means "do not release": the caller treats it as a refusal. That is
+/// the whole safety argument, so read the arms with one question in mind —
+/// *can this ever return MORE handles than really exist?* It cannot, because
+/// there are only three shapes of arm and none of them can over-count:
+///
+/// - **descend** — permitted only through an `Arc` whose strong count is 1, so
+///   the value has exactly one owner, lies on exactly one path, and cannot be
+///   reached and counted a second time;
+/// - **refuse** (`None`) — an aliased value, a poisoned lock, or the depth
+///   bound: no count is produced at all;
+/// - **zero** — a variant that carries no `Env`, or a `Foreign` payload this
+///   crate cannot see inside. If such a payload *does* hold a handle, zero
+///   under-counts, the equation fails, and the release is declined.
+fn handles_to_frame(frame: &Arc<Frame>, value: &Value, depth: usize) -> Option<usize> {
+    // The depth bound, spelled as a refusal: at zero this returns `None`, which
+    // the caller reads as "cannot prove exclusivity" and declines to release.
+    let next = depth.checked_sub(1)?;
+    Some(match value {
+        // The cycle `sf_define` builds, and the one this whole operation is
+        // for: the frame owns the closure, the closure owns an env, that env
+        // owns the frame.
+        Value::Closure(c) if Arc::strong_count(c) == 1 => {
+            frames_pointing_at(&c.captured_env, frame)
+        }
+        // The same ring through `sf_delay`: a pending promise's thunk is a
+        // closure over the env the promise is bound in.
+        Value::Promise(p) if Arc::strong_count(p) == 1 => {
+            let state = p.lock().ok()?;
+            match &*state {
+                PromiseState::Pending(thunk) if Arc::strong_count(thunk) == 1 => {
+                    frames_pointing_at(&thunk.captured_env, frame)
+                }
+                PromiseState::Pending(_) => return None,
+                PromiseState::Forced(v) => handles_to_frame(frame, v, next)?,
+            }
+        }
+        Value::List(xs) if Arc::strong_count(xs) == 1 => {
+            let mut n = 0;
+            for x in xs.as_ref() {
+                n += handles_to_frame(frame, x, next)?;
+            }
+            n
+        }
+        Value::Map(m) if Arc::strong_count(m) == 1 => {
+            let mut n = 0;
+            for v in m.values() {
+                n += handles_to_frame(frame, v, next)?;
+            }
+            n
+        }
+        Value::Error(e) if Arc::strong_count(e) == 1 => {
+            let mut n = 0;
+            for (k, v) in &e.data {
+                n += handles_to_frame(frame, k, next)?;
+                n += handles_to_frame(frame, v, next)?;
+            }
+            n
+        }
+        // The VM's callable is a `Value::Foreign`, not a `Value::Closure` —
+        // `CompiledClosure` carries a snapshot of the globals env, so a
+        // VM-defined function closes the identical ring through a variant that
+        // reads as opaque. Downcasting is not a special case for the VM so
+        // much as the reason `Foreign` cannot simply be assumed inert.
+        Value::Foreign(any) => match any.downcast_ref::<crate::vm::run::CompiledClosure>() {
+            Some(cc) if Arc::strong_count(any) == 1 => {
+                let mut n = frames_pointing_at(&cc.globals, frame);
+                for cell in &cc.captures {
+                    if Arc::strong_count(cell) != 1 {
+                        return None;
+                    }
+                    let captured = cell.lock().ok()?;
+                    n += handles_to_frame(frame, &captured, next)?;
+                }
+                n
+            }
+            // An aliased compiled closure, or any other host-owned payload.
+            // Zero here is deliberate rather than lazy: it is the under-count,
+            // and an under-count refuses the release. So a host that boxes an
+            // `Env` in a `Foreign` costs us the leak, never a cleared frame it
+            // is still reading — while a host handle that boxes no `Env` at
+            // all, which is nearly all of them, stops blocking reclamation of
+            // the frame it happens to be bound in.
+            _ => 0,
+        },
+        // Aliased, so on more than one path and not provably ours.
+        Value::Closure(_)
+        | Value::Promise(_)
+        | Value::List(_)
+        | Value::Map(_)
+        | Value::Error(_) => return None,
+        // Carries no `Env`, by construction: every remaining variant is a
+        // scalar, an interned name, a registry key, or source text.
+        Value::Nil
+        | Value::Bool(_)
+        | Value::Int(_)
+        | Value::Float(_)
+        | Value::Str(_)
+        | Value::Symbol(_)
+        | Value::Keyword(_)
+        | Value::NativeFn(_)
+        | Value::Sexp(..) => 0,
+    })
 }
 
 #[cfg(test)]

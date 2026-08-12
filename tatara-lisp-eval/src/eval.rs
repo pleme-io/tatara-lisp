@@ -76,6 +76,35 @@ pub struct Interpreter<H> {
     pub(crate) current_module: Option<Arc<str>>,
 }
 
+/// A dead interpreter frees the frames it owns.
+///
+/// Without this, every top-level `(define (f …) …)` it ever evaluated stays
+/// resident for the life of the process: the frame owns the closure, the
+/// closure owns its captured `Env`, and that `Env` owns the frame. See
+/// [`Env::release_own_frames`] for the ring, the write-floor argument that
+/// scopes the release, and the exclusivity proof that guards it.
+///
+/// # Why `Interpreter` and not `Env`
+///
+/// Because `Env` is `Clone`, and cloning it is not a bookkeeping detail — it
+/// is how the language works. `sf_define`, `sf_lambda` and `sf_delay` each
+/// clone the env into a value that is expected to keep working, and
+/// `eval_require` clones and swaps the whole globals env twice per module
+/// load. A `Drop` on `Env` would fire on every one of those, on environments
+/// that are live by construction, and would pay the exclusivity walk each
+/// time — on the hottest path in the evaluator. The guard would refuse most of
+/// those releases, but "usually refuses" is not where a destructor belongs.
+///
+/// `Interpreter` is the ownership unit instead: it holds `globals` by value,
+/// it is not `Clone`, and one of them is exactly what a test body or a
+/// supervised process incarnation *is*. It dies once, so the walk is paid
+/// once.
+impl<H> Drop for Interpreter<H> {
+    fn drop(&mut self) {
+        self.globals.release_own_frames();
+    }
+}
+
 impl<H: 'static> Interpreter<H> {
     pub fn new() -> Self {
         Self {

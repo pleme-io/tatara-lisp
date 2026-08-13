@@ -198,6 +198,45 @@ impl<H: 'static> Interpreter<H> {
         );
     }
 
+    /// Register a native Rust function that receives its arguments **by
+    /// value** — the parallel path to [`Self::register_fn`], with the same
+    /// overwrite semantics.
+    ///
+    /// The difference is the whole point and it is one word:
+    /// [`crate::ffi::NativeCallable`] gets `&[Value]`,
+    /// [`crate::ffi::OwnedCallable`] gets `Vec<Value>`. A borrowed argument is
+    /// a second live reference to its payload, so `Arc::get_mut` inside a
+    /// primitive *cannot* succeed and every copy-on-write update copies
+    /// unconditionally. An owned argument may be the only reference to its
+    /// payload, in which case the primitive can update that payload in place —
+    /// unobservably, because nobody else holds it.
+    ///
+    /// Use it for a primitive that **builds a new heap value out of an
+    /// argument's heap value** (`hash-map-set`, `hash-map-remove`,
+    /// `hash-map-merge`). A primitive that only reads its arguments gains
+    /// nothing; leave it on `register_fn`, where the borrow says so.
+    ///
+    /// The uniqueness is a run-time reading, never a static promise: the same
+    /// primitive copies when the argument is shared and mutates when it is
+    /// not, so no program changes meaning either way. See
+    /// [`crate::value::Value::is_unique`] for the query, and
+    /// `crate::map::map_cow` for the one place the decision is made.
+    pub fn register_owned_fn<F>(&mut self, name: impl Into<Arc<str>>, arity: Arity, callable: F)
+    where
+        F: crate::ffi::OwnedCallable<H>,
+    {
+        let name = name.into();
+        self.registry.insert(FnEntry {
+            name: name.clone(),
+            arity,
+            callable: FnImpl::Owned(Arc::new(callable)),
+        });
+        self.globals.define(
+            name.clone(),
+            Value::NativeFn(Arc::new(NativeFn { name, arity })),
+        );
+    }
+
     /// Register a higher-order Rust primitive — receives a `Caller` so it
     /// can invoke `Value::Closure` / `Value::NativeFn` arguments back into
     /// the eval loop. Used for `map`, `filter`, `fold`, `apply`,
@@ -881,6 +920,30 @@ impl<H: 'static> Interpreter<H> {
         out
     }
 
+    /// Could applying `callee` return the park sentinel?
+    ///
+    /// The VM has to keep a copy of a call's arguments when the answer is
+    /// yes, so it can rebuild the operand stack for the retry. That copy is
+    /// exactly what makes every argument look shared, so the VM asks before
+    /// paying rather than paying always.
+    ///
+    /// Conservative in the safe direction: everything answers `true` except a
+    /// native fn registered through [`Self::register_owned_fn`], which has
+    /// consumed its arguments by taking them and therefore cannot satisfy the
+    /// park contract at all (see [`crate::ffi::FnImpl::may_park`]). A
+    /// `Closure` answers `true` because its body may tail-call a parking
+    /// primitive, and an unregistered or non-callable value answers `true`
+    /// because it is about to become an error and the cost is irrelevant.
+    pub(crate) fn callee_may_park(&self, callee: &Value) -> bool {
+        match callee {
+            Value::NativeFn(nfn) => self
+                .registry
+                .lookup(&nfn.name)
+                .is_none_or(|entry| entry.callable.may_park()),
+            _ => true,
+        }
+    }
+
     /// External entry point: apply a callable `Value` (closure or
     /// native fn) with `args`. Wraps the internal `apply_external` so
     /// the VM can dispatch to the tree-walker for non-VM callables.
@@ -1222,6 +1285,11 @@ fn apply<H: 'static>(
             })?;
             match &entry.callable {
                 FnImpl::Native(f) => f.call(&args, host, call_span),
+                // The one place `args` is *moved* rather than lent. Nothing
+                // downstream of here holds a second reference to any of them,
+                // which is what lets an owned primitive read an honest
+                // refcount and update an unaliased payload in place.
+                FnImpl::Owned(f) => f.call(args, host, call_span),
                 FnImpl::Higher(f) => {
                     let caller = Caller { registry, expander };
                     f.call(&args, host, &caller, call_span)

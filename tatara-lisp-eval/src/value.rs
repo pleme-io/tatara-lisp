@@ -182,6 +182,48 @@ impl Value {
         !matches!(self, Self::Nil | Self::Bool(false))
     }
 
+    /// Is this `Value` the **only** reference to its heap payload?
+    ///
+    /// The aliasing coordinate. `true` means no other `Value` anywhere can
+    /// observe the payload, so mutating it in place is unobservable and a
+    /// copy-on-write copy would be pure waste. `false` means somebody else
+    /// holds it and the copy is mandatory.
+    ///
+    /// Two things it is not:
+    ///
+    /// - **Not a static promise.** It is a refcount reading at one instant,
+    ///   which is why it is sound to act on: a primitive that reads `true`
+    ///   holds the value by *value*, so nothing can acquire a second
+    ///   reference behind its back.
+    /// - **Not observable from the language.** No Lisp-visible behaviour
+    ///   depends on it — the same call returns the same value either way. It
+    ///   only decides whether an allocation happens.
+    ///
+    /// Variants with no heap payload (`Nil`, `Bool`, `Int`, `Float`) are
+    /// trivially unique: there is nothing to share. `Sexp` answers `false`
+    /// because it carries its tree by value and this query cannot see the
+    /// sharing *inside* that tree — and a wrong `true` is the one answer that
+    /// could license an update somebody else observes, so an unmeasured
+    /// payload rounds down, never up.
+    #[must_use]
+    pub fn is_unique(&self) -> bool {
+        fn solo<T: ?Sized>(a: &Arc<T>) -> bool {
+            Arc::strong_count(a) == 1 && Arc::weak_count(a) == 0
+        }
+        match self {
+            Self::Nil | Self::Bool(_) | Self::Int(_) | Self::Float(_) => true,
+            Self::Str(s) | Self::Symbol(s) | Self::Keyword(s) => solo(s),
+            Self::List(xs) => solo(xs),
+            Self::Map(m) => solo(m),
+            Self::Closure(c) => solo(c),
+            Self::NativeFn(f) => solo(f),
+            Self::Promise(p) => solo(p),
+            Self::Error(e) => solo(e),
+            Self::Sexp(..) => false,
+            Self::Foreign(f) => solo(f),
+        }
+    }
+
     /// Short type name for error messages.
     pub fn type_name(&self) -> &'static str {
         match self {

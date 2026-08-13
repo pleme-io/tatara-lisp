@@ -70,6 +70,59 @@ where
     }
 }
 
+/// A native Rust primitive that receives its arguments **by value**.
+///
+/// ## Why a second shape rather than widening `NativeCallable`
+///
+/// [`NativeCallable`] hands out a borrowed `&[Value]`, and that one
+/// signature decides the runtime's whole memory story. A borrowed slice is
+/// a live second reference to every `Arc` payload it names, so
+/// `Arc::get_mut` / `Arc::try_unwrap` **cannot succeed inside a primitive**
+/// — not "usually fails", cannot. Every copy-on-write update is therefore
+/// an unconditional full copy, whether or not anyone else can still observe
+/// the old value. `hash-map-set` was the measured instance: an O(n)
+/// `HashMap` clone per insert at every size.
+///
+/// Taking `Vec<Value>` **moves** the arguments in. A primitive whose
+/// argument happens to be the only reference to its payload can mutate that
+/// payload in place; one whose argument is shared still copies. The
+/// difference is read off the refcount at run time, so nothing has to be
+/// proved statically and no program changes meaning.
+///
+/// ## This is a parallel path, deliberately
+///
+/// 243 `register_fn` call sites across this workspace keep compiling
+/// untouched. Reach for `register_owned_fn` when a primitive **builds a new
+/// heap value out of an argument's heap value** — that is the whole class
+/// that can profit. A primitive that only reads its arguments gains nothing
+/// and should stay on [`NativeCallable`], where the borrow documents that it
+/// consumes nothing.
+///
+/// ## An owned primitive must not park
+///
+/// [`Park`](crate::vm::run::Park)'s contract is that a parking primitive has
+/// consumed nothing, because the parked call is re-executed from the top. This
+/// signature consumes its arguments by taking them — so the contract is
+/// unsatisfiable here, not merely hard to honour. That is what lets the VM
+/// skip preserving an owned call's arguments for a retry (`Vm::do_call`), and
+/// skipping that copy is what makes the uniqueness visible at all. A parking
+/// primitive belongs on `register_awaitable_fn`, whose two phases exist for
+/// exactly this reason; one that calls [`crate::vm::Vm::park`] from here gets
+/// [`crate::vm::run::VmError::ParkContract`] rather than a silently corrupted
+/// retry.
+pub trait OwnedCallable<H>: Send + Sync + 'static {
+    fn call(&self, args: Vec<Value>, host: &mut H, call_span: Span) -> Result<Value>;
+}
+
+impl<H, F> OwnedCallable<H> for F
+where
+    F: Fn(Vec<Value>, &mut H, Span) -> Result<Value> + Send + Sync + 'static,
+{
+    fn call(&self, args: Vec<Value>, host: &mut H, call_span: Span) -> Result<Value> {
+        (self)(args, host, call_span)
+    }
+}
+
 /// A higher-order Rust primitive — receives a `Caller` so it can invoke
 /// `Value::Closure` / `Value::NativeFn` arguments back into the eval loop.
 /// Used by `map`, `filter`, `fold`, `for-each`, and friends.
@@ -205,6 +258,7 @@ where
 
 pub(crate) enum FnImpl<H> {
     Native(Arc<dyn NativeCallable<H>>),
+    Owned(Arc<dyn OwnedCallable<H>>),
     Higher(Arc<dyn HigherOrderCallable<H>>),
     Awaitable(Arc<dyn AwaitableCallable<H>>),
 }
@@ -213,8 +267,43 @@ impl<H> Clone for FnImpl<H> {
     fn clone(&self) -> Self {
         match self {
             Self::Native(f) => Self::Native(Arc::clone(f)),
+            Self::Owned(f) => Self::Owned(Arc::clone(f)),
             Self::Higher(f) => Self::Higher(Arc::clone(f)),
             Self::Awaitable(f) => Self::Awaitable(Arc::clone(f)),
+        }
+    }
+}
+
+impl<H> FnImpl<H> {
+    /// May a call into this callable return the park sentinel
+    /// ([`crate::vm::Vm::park`])?
+    ///
+    /// The VM preserves a copy of a call's arguments so it can rebuild the
+    /// operand stack if the call parks and has to be retried. That copy is
+    /// also a live second reference to every argument for the whole call —
+    /// which is precisely what stops an owned primitive from ever seeing an
+    /// unaliased argument. So the VM asks this first and only pays when the
+    /// answer is yes.
+    ///
+    /// **Only `Owned` answers `false`, and the reason is the signature, not
+    /// the body.** [`Park`](crate::vm::run::Park)'s contract is that a parking
+    /// primitive *must have consumed nothing*, because the call is re-executed
+    /// from the top. An [`OwnedCallable`] receives `Vec<Value>` **by value**:
+    /// it has consumed its arguments before its first line runs. So a parking
+    /// owned primitive is not merely discouraged, it cannot satisfy the
+    /// contract, and skipping its retry copy costs nothing that was reachable.
+    ///
+    /// The three other shapes all answer `true`, `Native` included — an
+    /// earlier version of this reasoned from "no [`Caller`], so it cannot
+    /// reach the eval loop" and got `Native` wrong. [`crate::vm::Vm::park`] is
+    /// public, and `vm::run::tests::install_parking_prim` registers a parking
+    /// primitive through `register_fn` today. Reachability of the *eval loop*
+    /// was never the question; reachability of `Vm::park` is, and only the
+    /// owned signature settles it.
+    pub(crate) fn may_park(&self) -> bool {
+        match self {
+            Self::Owned(_) => false,
+            Self::Native(_) | Self::Higher(_) | Self::Awaitable(_) => true,
         }
     }
 }

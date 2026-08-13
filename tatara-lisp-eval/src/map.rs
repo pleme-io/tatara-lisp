@@ -130,27 +130,31 @@ pub fn install_map<H: 'static>(interp: &mut Interpreter<H>) {
         },
     );
 
-    interp.register_fn(
+    // The three map-rebuilding primitives take their arguments BY VALUE
+    // (`register_owned_fn`), which is what lets `map_cow` reach an unaliased
+    // map through `Arc::get_mut`. Everything else in this module only reads
+    // its arguments and stays on the borrowed path.
+    interp.register_owned_fn(
         "hash-map-set",
         Arity::Exact(3),
-        |args: &[Value], _h: &mut H, sp| {
-            let m = expect_map(&args[0], sp)?;
-            let k = key_or_err(&args[1], sp)?;
-            let mut copy = m.as_ref().clone();
-            copy.insert(k, args[2].clone());
-            Ok(Value::Map(Arc::new(copy)))
+        |args: Vec<Value>, _h: &mut H, sp| {
+            let [m, k, v] = owned_args::<3>("hash-map-set", args, sp)?;
+            let k = key_or_err(&k, sp)?;
+            map_cow(m, sp, move |map| {
+                map.insert(k, v);
+            })
         },
     );
 
-    interp.register_fn(
+    interp.register_owned_fn(
         "hash-map-remove",
         Arity::Exact(2),
-        |args: &[Value], _h: &mut H, sp| {
-            let m = expect_map(&args[0], sp)?;
-            let k = key_or_err(&args[1], sp)?;
-            let mut copy = m.as_ref().clone();
-            copy.remove(&k);
-            Ok(Value::Map(Arc::new(copy)))
+        |args: Vec<Value>, _h: &mut H, sp| {
+            let [m, k] = owned_args::<2>("hash-map-remove", args, sp)?;
+            let k = key_or_err(&k, sp)?;
+            map_cow(m, sp, move |map| {
+                map.remove(&k);
+            })
         },
     );
 
@@ -187,18 +191,38 @@ pub fn install_map<H: 'static>(interp: &mut Interpreter<H>) {
         },
     );
 
-    interp.register_fn(
+    interp.register_owned_fn(
         "hash-map-merge",
         Arity::AtLeast(1),
-        |args: &[Value], _h: &mut H, sp| {
-            let mut acc = expect_map(&args[0], sp)?.as_ref().clone();
-            for arg in &args[1..] {
-                let other = expect_map(arg, sp)?;
-                for (k, v) in other.iter() {
-                    acc.insert(k.clone(), v.clone());
+        |args: Vec<Value>, _h: &mut H, sp| {
+            let mut args = args.into_iter();
+            let first = args.next().ok_or_else(|| {
+                EvalError::native_fn(
+                    Arc::<str>::from("hash-map-merge"),
+                    "expected at least 1 arg",
+                    sp,
+                )
+            })?;
+            // Type-check every operand before consuming the accumulator, so a
+            // bad third argument cannot leave the first one half-merged.
+            let rest = args
+                .map(|arg| match arg {
+                    Value::Map(m) => Ok(m),
+                    other => Err(EvalError::type_mismatch("map", other.type_name(), sp)),
+                })
+                .collect::<Result<Vec<_>>>()?;
+            map_cow(first, sp, move |acc| {
+                for other in rest {
+                    // An operand we hold alone is drained rather than copied;
+                    // the same reading `map_cow` makes about the accumulator.
+                    match Arc::try_unwrap(other) {
+                        Ok(owned) => acc.extend(owned),
+                        Err(shared) => {
+                            acc.extend(shared.iter().map(|(k, v)| (k.clone(), v.clone())));
+                        }
+                    }
                 }
-            }
-            Ok(Value::Map(Arc::new(acc)))
+            })
         },
     );
 
@@ -219,6 +243,61 @@ pub fn install_map<H: 'static>(interp: &mut Interpreter<H>) {
             Ok(Value::Map(Arc::new(copy)))
         },
     );
+}
+
+/// Update a map, in place when the caller holds it alone.
+///
+/// **The one place the copy-on-write decision is made** — every map-rebuilding
+/// primitive routes through here, so there is one shape to get right and one
+/// shape to test.
+///
+/// `Arc::get_mut` answers the only question that matters: is this the sole
+/// reference? If yes the update lands in the existing allocation and the
+/// returned `Value::Map` names *the same* allocation — which is how the gate
+/// in this module observes which branch ran, without asking the code under
+/// test to report on itself. If no, the map is copied exactly once and the
+/// original is left untouched, which is the semantics the language has always
+/// promised.
+///
+/// This only reads honestly because the argument arrived by value. Under
+/// [`crate::ffi::NativeCallable`]'s `&[Value]` the borrow is itself a second
+/// reference, so `get_mut` returns `None` every time and the `else` branch is
+/// the only reachable one.
+fn map_cow<F>(v: Value, sp: Span, f: F) -> Result<Value>
+where
+    F: FnOnce(&mut HashMap<MapKey, Value>),
+{
+    match v {
+        Value::Map(mut arc) => {
+            if let Some(map) = Arc::get_mut(&mut arc) {
+                f(map);
+                Ok(Value::Map(arc))
+            } else {
+                let mut copy = HashMap::clone(&arc);
+                drop(arc);
+                f(&mut copy);
+                Ok(Value::Map(Arc::new(copy)))
+            }
+        }
+        other => Err(EvalError::type_mismatch("map", other.type_name(), sp)),
+    }
+}
+
+/// Move a fixed-arity argument list out of the `Vec` the runtime handed us.
+///
+/// `apply` has already checked the arity against the registration, so the
+/// error arm is unreachable through the interpreter — but it is a typed error
+/// rather than a panic, because "unreachable" is a claim about a call path and
+/// this function is reachable from anywhere in the crate.
+fn owned_args<const N: usize>(who: &'static str, args: Vec<Value>, sp: Span) -> Result<[Value; N]> {
+    let got = args.len();
+    args.try_into().map_err(|_| {
+        EvalError::native_fn(
+            Arc::<str>::from(who),
+            format!("expected exactly {N} args, got {got}"),
+            sp,
+        )
+    })
 }
 
 fn expect_map(v: &Value, sp: Span) -> Result<Arc<HashMap<MapKey, Value>>> {
@@ -247,10 +326,15 @@ mod tests {
 
     struct NoHost;
 
-    fn run(src: &str) -> Value {
+    fn interp_with_maps() -> Interpreter<NoHost> {
         let mut i: Interpreter<NoHost> = Interpreter::new();
         install_primitives(&mut i);
         install_map(&mut i);
+        i
+    }
+
+    fn run(src: &str) -> Value {
+        let mut i = interp_with_maps();
         let forms = read_spanned(src).unwrap();
         i.eval_program(&forms, &mut NoHost).unwrap()
     }
@@ -352,6 +436,113 @@ mod tests {
     fn hash_map_with_int_keys() {
         let v = run("(hash-map-get (hash-map 42 :answer) 42)");
         assert!(matches!(v, Value::Keyword(s) if &*s == "answer"));
+    }
+
+    // ── The correctness half of the in-place gate ──────────────────────
+    //
+    // "Is the payload mutated in place?" is answered by allocation volume,
+    // in `tests/owned_args.rs` — see the note there on why pointer identity
+    // is NOT usable evidence. What lives here is the half that half can never
+    // check: that a SHARED map is not disturbed. A gate that only measures
+    // the fast path is satisfied by a primitive that always mutates, which is
+    // a correctness bug, not an optimisation.
+
+    fn sample_map(n: usize) -> Value {
+        let mut m = HashMap::with_capacity(n);
+        for k in 0..n {
+            let k = i64::try_from(k).expect("fixture size fits i64");
+        m.insert(MapKey::Int(k), Value::Int(k));
+        }
+        Value::Map(Arc::new(m))
+    }
+
+    /// Dispatch through the shipped call path rather than hand-calling the
+    /// closure, so the gate measures what programs actually reach.
+    fn dispatch(
+        interp: &mut Interpreter<NoHost>,
+        name: &str,
+        arity: Arity,
+        args: Vec<Value>,
+    ) -> Value {
+        let callee = Value::NativeFn(Arc::new(crate::value::NativeFn {
+            name: Arc::from(name),
+            arity,
+        }));
+        interp
+            .apply_external_value(&callee, args, &mut NoHost, Span::synthetic())
+            .unwrap()
+    }
+
+    fn len_of(v: &Value) -> usize {
+        match v {
+            Value::Map(m) => m.len(),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// RED RUN 2026-08-13: `map_cow`'s copy arm rewritten to mutate through
+    /// the shared `Arc` —
+    ///   `let forced = Arc::as_ptr(&arc).cast_mut();`
+    ///   `if let Some(map) = Some(unsafe { &mut *forced }) {`
+    /// — so the primitive updates in place unconditionally. This test fails on
+    /// the first assertion: `hash-map-set left a shared map mutated`,
+    /// `left: 3, right: 2`. `a_named_binding_keeps_its_map` fails with it
+    /// (`"(1 1 1)"` vs `"(1 2 1)"`), as does the pre-existing
+    /// `hash_map_set_returns_new_map` (`"(2 2)"` vs `"(1 2)"`).
+    ///
+    /// Under the opposite mutation — the in-place arm disabled entirely — this
+    /// test stays GREEN while the measurement in `tests/owned_args.rs` goes
+    /// red. That asymmetry is the reason both halves exist.
+    #[test]
+    fn a_shared_map_is_never_mutated() {
+        let mut i = interp_with_maps();
+
+        let m = sample_map(2);
+        let kept = m.clone();
+        assert!(!m.is_unique(), "fixture must start aliased");
+        let out = dispatch(
+            &mut i,
+            "hash-map-set",
+            Arity::Exact(3),
+            vec![m, Value::keyword("new"), Value::Int(9)],
+        );
+        assert_eq!(len_of(&kept), 2, "hash-map-set left a shared map mutated");
+        assert_eq!(len_of(&out), 3);
+
+        let m = sample_map(3);
+        let kept = m.clone();
+        let out = dispatch(
+            &mut i,
+            "hash-map-remove",
+            Arity::Exact(2),
+            vec![m, Value::Int(0)],
+        );
+        assert_eq!(len_of(&kept), 3, "hash-map-remove left a shared map mutated");
+        assert_eq!(len_of(&out), 2);
+
+        let a = sample_map(3);
+        let kept = a.clone();
+        let out = dispatch(
+            &mut i,
+            "hash-map-merge",
+            Arity::AtLeast(1),
+            vec![a, sample_map(4)],
+        );
+        assert_eq!(len_of(&kept), 3, "hash-map-merge left a shared map mutated");
+        assert_eq!(len_of(&out), 4);
+    }
+
+    #[test]
+    fn a_named_binding_keeps_its_map() {
+        // The same property as the language sees it, through the real
+        // pipeline: `m` is still reachable from its binding, so the set must
+        // copy. This is the assertion that breaks first if the uniqueness
+        // reading is ever wrong.
+        let v = run("(let* ((m (hash-map :a 1))
+                            (m2 (hash-map-set m :b 2))
+                            (m3 (hash-map-remove m2 :a)))
+                       (list (hash-map-count m) (hash-map-count m2) (hash-map-count m3)))");
+        assert_eq!(format!("{v}"), "(1 2 1)");
     }
 
     #[test]

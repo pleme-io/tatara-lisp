@@ -60,6 +60,24 @@ pub enum VmError {
     /// is the difference between a diagnosable hang and an inexplicable one.
     #[error("deadlock: a primitive parked, but `run` has no scheduler to unblock it — use `step`/`resume`")]
     Deadlocked,
+    /// A callee that cannot park, parked.
+    ///
+    /// The VM keeps a copy of a call's arguments for every callee **except**
+    /// one registered through `register_owned_fn`, because that copy is what
+    /// stops an owned primitive from ever seeing an unaliased argument (see
+    /// `Interpreter::callee_may_park`). An owned primitive receives its
+    /// arguments by value, so it has consumed them before its first line runs
+    /// and [`Park`]'s "must have consumed nothing" contract is unsatisfiable
+    /// there by construction. One that calls [`Vm::park`] anyway has broken a
+    /// contract nothing else can rescue: the arguments are gone and the retry
+    /// would re-execute against a truncated operand stack.
+    ///
+    /// Naming it is the point. The alternative — keeping the copy
+    /// unconditionally "to be safe" — is what made the whole in-place class
+    /// unreachable, and silently retrying on a wrong stack is worse than
+    /// either.
+    #[error("park contract: a {kind} that cannot park returned the park sentinel at {at} — parking primitives must be registered with `register_awaitable_fn`")]
+    ParkContract { kind: &'static str, at: Span },
 }
 
 /// An execution budget: how much work one run may do before it is stopped.
@@ -833,14 +851,42 @@ impl Vm {
                 // slot so nothing's left in callee_idx.
                 let args: Vec<Value> = self.stack.drain(callee_idx + 1..).collect();
                 self.stack.pop();
-                let args_kept = args.clone();
-                let args_for_call = args;
-                let result = interp.apply_external_value(&callee, args_for_call, host, span)?;
+                // The retry copy, and only when there can be a retry.
+                //
+                // This used to be unconditional, and it was the second half
+                // of the borrowed-`&[Value]` problem: the copy is a live
+                // second reference to every argument for the duration of the
+                // call, so even a primitive that receives its arguments by
+                // value would read a refcount of 2 and copy. Every in-place
+                // update in the runtime is unreachable through the VM while
+                // this line runs for every call.
+                //
+                // Only a callee that can park needs it — see
+                // `Interpreter::callee_may_park`, which is conservative in
+                // the safe direction.
+                let args_kept = if interp.callee_may_park(&callee) {
+                    Some(args.clone())
+                } else {
+                    None
+                };
+                let result = interp.apply_external_value(&callee, args, host, span)?;
                 if Self::is_park(&result) {
                     // Put the stack back exactly as the Call found it and
                     // rewind to the Call itself, so `resume` re-executes it.
                     // Nothing about this attempt is retained — that is what
                     // makes the retry sound.
+                    //
+                    // A callee we proved cannot park, parking anyway, means
+                    // the proof is wrong or a plain primitive called
+                    // `Vm::park` by hand. Either way the arguments are gone
+                    // and the retry would silently execute against a
+                    // truncated stack, so refuse instead of guessing.
+                    let Some(args_kept) = args_kept else {
+                        return Err(VmError::ParkContract {
+                            kind: callee.type_name(),
+                            at: span,
+                        });
+                    };
                     self.stack.push(callee.clone());
                     self.stack.extend(args_kept);
                     let top = self.frames.len() - 1;
@@ -993,6 +1039,15 @@ fn vm_runtime_err_to_value(err: &VmError) -> Value {
             "a primitive parked with no scheduler to unblock it".to_string(),
         ),
         VmError::BadLocal(idx) => ("bad-local", format!("local index out of bounds: {idx}")),
+        // Routable, unlike the two above: a `try`/`catch` around the offending
+        // call should see it. It is an embedder bug — a primitive registered
+        // on a non-parking path called `Vm::park` — and the Lisp author who
+        // hits it is entitled to catch it and report it rather than lose the
+        // whole run.
+        VmError::ParkContract { kind, .. } => (
+            "park-contract",
+            format!("a {kind} that cannot park returned the park sentinel"),
+        ),
         VmError::Eval(inner) => return vm_err_to_value(inner),
     };
     Value::Error(Arc::new(crate::value::ErrorObj {
@@ -1648,6 +1703,44 @@ mod tests {
             }
         }
         panic!("did not converge: {progress:?}");
+    }
+
+    /// The other side of the argument-preservation trade: a callee registered
+    /// through `register_owned_fn` has consumed its arguments by taking them,
+    /// so the VM does not keep a retry copy — and if such a primitive parks
+    /// anyway, there is nothing sound left to do. It must refuse by name.
+    ///
+    /// The pairing with `a_parked_primitive_is_retried_with_its_original_arguments`
+    /// is the gate: the same program, the same `Vm::park()` call, registered
+    /// two different ways — through `register_fn` it retries and reaches 42,
+    /// through `register_owned_fn` it is refused. Either half alone would be
+    /// satisfied by a VM that always retried, or by one that never did.
+    ///
+    /// RED RUN 2026-08-13: `FnImpl::may_park` widened to `true` for `Owned`
+    /// (i.e. the VM keeps a retry copy for owned calls too). This test fails —
+    /// `expected ParkContract, got Ok(Blocked)` — and the byte-count gate in
+    /// `tests/owned_args.rs` goes red with it, because that retry copy is
+    /// exactly the second reference that hides uniqueness.
+    #[test]
+    fn an_owned_primitive_that_parks_is_refused_by_name() {
+        let chunk = compile("(owned-parker 20 22)");
+        let mut host = std::cell::Cell::new(2usize);
+        let mut interp: Interpreter<std::cell::Cell<usize>> = Interpreter::new();
+        interp.register_owned_fn(
+            "owned-parker",
+            crate::ffi::Arity::Exact(2),
+            // Consuming is not optional here — the arguments arrived by value.
+            |_args: Vec<Value>, _host: &mut std::cell::Cell<usize>, _span: Span| Ok(Vm::park()),
+        );
+
+        let mut vm = Vm::new();
+        let err = vm
+            .step(chunk, &mut interp, &mut host)
+            .expect_err("an owned primitive must not be allowed to park");
+        assert!(
+            matches!(err, VmError::ParkContract { .. }),
+            "expected ParkContract, got {err:?}"
+        );
     }
 
     #[test]

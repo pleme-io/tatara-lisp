@@ -56,3 +56,10 @@ toml       = "0.9"
 
 # Process orchestration
 which      = "8"
+
+# XDG tiers resolved once, correctly: a relative `XDG_*` override is invalid
+# per the spec and is IGNORED, never resolved against the cwd. Replaces this
+# binary's hand-rolled cache-root chain, whose override arms took their
+# variable verbatim. Pinned to 0.2 deliberately — 0.3 changes the resolvers'
+# return type to `AbsPath` and is still landing across the fleet.
+okiba      = "0.2"

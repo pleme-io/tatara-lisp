@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "cargo_lock_sha256": "8fc1b092e4b6a07fc15fb97249078ddfd4a20c8d38a9d0cd2fe9102e8d811d58",
+  "cargo_lock_sha256": "cc680c47c2da37d28fc0c9ab39dd606a44238504eeb4426d3c0bf7fb435b9ff0",
   "manifest_sha256": {
     "Cargo.toml": "1d817127df14a2b9a4aa83b42a0cd263a736660e3e1e0461e97627fc9f75a28c",
     "monosashi/Cargo.toml": "17210c59c9167d1955a0ed7c24d2cd1db251216812e56809de4dd3eea25f8602",
@@ -17,7 +17,7 @@
     "tatara-lisp-derive/Cargo.toml": "55d90013e98f76326bf31222368fc6ad38a7afabf36c74eaa7a102a414434720",
     "tatara-lisp-eval/Cargo.toml": "7772659d161388f95d358bcb29d06b38f2a3fb74d50035530002866ae3c5e5ce",
     "tatara-lisp-lint/Cargo.toml": "670ccf870dceb37518532c98bf074d0f80146c2211a7b6f06221038b0e1db3f4",
-    "tatara-lisp-script/Cargo.toml": "0169595343be424866097fc571d84c3b95b18901bcc71cabd8aa5a76bfc8e189",
+    "tatara-lisp-script/Cargo.toml": "cc7b6fd3f57307e7a1d15f22d3d8d3843297e12174799018eb4406c4da8f568f",
     "tatara-lisp-source/Cargo.toml": "1b17ac6ae0b6f0be9ba40e1b3a3f4f10a387ac5c6240eff42d40913b8e90e3c0",
     "tatara-lisp/Cargo.toml": "67b75c3398ec55f2cc2169d7224153046d5e5e19ad93fc82ec59a62ff94ee736",
     "tatara-platform-checks/Cargo.toml": "55c7c894699a8fc6fe029ccf6f82c6be9fa706749a77ab32c0c0c75208b4a4c3",
@@ -1858,6 +1858,11 @@
         "build_dependencies": [],
         "features": []
       },
+      "okiba-0.2.1": {
+        "runtime_dependencies": [],
+        "build_dependencies": [],
+        "features": []
+      },
       "once_cell-1.21.4": {
         "runtime_dependencies": [],
         "build_dependencies": [],
@@ -3536,6 +3541,16 @@
           {
             "name": "hmac",
             "package_key": "hmac-0.12.1",
+            "kind": "normal",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "target"
+          },
+          {
+            "name": "okiba",
+            "package_key": "okiba-0.2.1",
             "kind": "normal",
             "features": [],
             "uses_default_features": true,
@@ -6988,6 +7003,9 @@
     },
     "num-conv-0.2.2": {
       "edition": "2021"
+    },
+    "okiba-0.2.1": {
+      "edition": "2024"
     },
     "once_cell-1.21.4": {
       "edition": "2021"

@@ -125,7 +125,7 @@ fn resolve_input(input: &str) -> Result<(String, PathBuf), String> {
     }
 
     // Remote sources go through the resolver with a file-backed cache.
-    let cache_root = dirs_cache_root().join("tatara").join("sources");
+    let cache_root = source_cache_root();
     let cache = FileCache::new(&cache_root)
         .map_err(|e| format!("open cache {}: {e}", cache_root.display()))?;
     let mut resolver = Resolver::new(cache);
@@ -168,14 +168,57 @@ fn strip_shebang(raw: String) -> String {
     s
 }
 
-fn dirs_cache_root() -> PathBuf {
-    if let Ok(s) = std::env::var("XDG_CACHE_HOME") {
-        return PathBuf::from(s);
-    }
-    if let Ok(home) = std::env::var("HOME") {
-        return PathBuf::from(home).join(".cache");
-    }
-    std::env::temp_dir()
+/// The app segment every tatara cache path hangs under. `$XDG_CACHE_HOME` and
+/// `$HOME/.cache` are shared between programs; this is our room inside them.
+const CACHE_APP: &str = "tatara";
+
+/// Where remote `.tlisp` sources are BLAKE3-cached:
+/// `$XDG_CACHE_HOME/tatara/sources`, else `$HOME/.cache/tatara/sources`, else
+/// `$TMPDIR/tatara/sources`.
+///
+/// Resolved by okiba rather than by hand, because the hand-rolled chain took
+/// BOTH of its variables verbatim: `XDG_CACHE_HOME=""` produced the *relative*
+/// root `tatara/sources` and `XDG_CACHE_HOME=rel/x` produced `rel/x/tatara/…`,
+/// with `HOME` free to do the same. Only the third arm — `env::temp_dir()` —
+/// could not yield a relative path, which is precisely what made the function
+/// read as safe: the arm every test exercises (unset) was fine, and the arm an
+/// operator actually sets was not. A relative root means the cache silently
+/// follows the caller's cwd, so the same script re-downloads per directory and
+/// scatters `tatara/sources` trees wherever it was run from.
+///
+/// okiba IGNORES a non-absolute `XDG_*` override — the XDG spec's own rule —
+/// and falls through to the next arm. Its three arms resolve to exactly the
+/// paths this function already produced (including the `$TMPDIR` one, which
+/// okiba's infallible `path` appends the same `<app>/<leaf>` to), so no valid
+/// configuration moves.
+fn source_cache_root() -> PathBuf {
+    source_cache_root_in(&okiba::Okiba::for_app(CACHE_APP))
+}
+
+/// The seam: resolution against an explicit environment, so the invariant is
+/// testable without mutating `std::env` — which races under a parallel suite
+/// and would make the test that pins this bug flaky.
+fn source_cache_root_in(place: &okiba::Okiba) -> PathBuf {
+    place.path(okiba::Tier::Cache, "sources")
+}
+
+/// Split `$TATARA_PATH` into module search roots, keeping only the ABSOLUTE
+/// ones.
+///
+/// The empty-entry check was here from the start; the absolute check was not —
+/// someone considered the degenerate value and stopped one step short, so
+/// `TATARA_PATH=lib` (or a stray `:.`) passed and made `(require "lib/foo")`
+/// search a directory named relative to whatever cwd the script was invoked
+/// from. The same script then resolved a different module per directory, or
+/// found none at all, with nothing in the error naming the cause. A relative
+/// entry is dropped rather than resolved, matching how okiba treats a relative
+/// `XDG_*` override.
+fn tatara_path_entries(raw: &str) -> Vec<PathBuf> {
+    raw.split(':')
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .collect()
 }
 
 /// Configure the interpreter's module loader to read .tlisp files
@@ -187,14 +230,9 @@ fn install_canonical_loader(interp: &mut Interpreter<ScriptCtx>, script_path: &P
         .parent()
         .map(std::path::Path::to_path_buf)
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-    let mut search_paths: Vec<PathBuf> = Vec::new();
-    if let Ok(extra) = std::env::var("TATARA_PATH") {
-        for s in extra.split(':') {
-            if !s.is_empty() {
-                search_paths.push(PathBuf::from(s));
-            }
-        }
-    }
+    let search_paths: Vec<PathBuf> = std::env::var("TATARA_PATH")
+        .map(|extra| tatara_path_entries(&extra))
+        .unwrap_or_default();
     let loader = tatara_lisp_eval::FilesystemLoader::new(base).with_search_paths(search_paths);
     interp.set_loader(std::sync::Arc::new(loader));
 }
@@ -665,5 +703,101 @@ fn render_value(v: &Value) -> String {
             format!("({})", parts.join(" "))
         }
         other => format!("{other:?}"),
+    }
+}
+
+/// Path resolution from the environment — the masked-branch class, pinned.
+///
+/// Every case drives an EXPLICIT environment (okiba's `from_env` seam, a plain
+/// `&str` for `$TATARA_PATH`) rather than mutating `std::env`, which is process
+/// global and races the moment the suite runs more than one test at a time.
+#[cfg(test)]
+mod path_resolution_tests {
+    use super::{source_cache_root_in, tatara_path_entries, CACHE_APP};
+    use okiba::Okiba;
+    use std::path::PathBuf;
+
+    fn place(pairs: &[(&str, &str)]) -> Okiba {
+        let owned: Vec<(String, String)> = pairs
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+            .collect();
+        Okiba::from_env(CACHE_APP, move |name| {
+            owned
+                .iter()
+                .find(|(k, _)| k == name)
+                .map(|(_, v)| v.clone())
+        })
+    }
+
+    #[test]
+    fn absolute_xdg_cache_home_still_wins() {
+        let root = source_cache_root_in(&place(&[("HOME", "/h"), ("XDG_CACHE_HOME", "/x")]));
+        assert_eq!(root, PathBuf::from("/x/tatara/sources"));
+    }
+
+    #[test]
+    fn home_arm_matches_the_pre_okiba_layout() {
+        let root = source_cache_root_in(&place(&[("HOME", "/h")]));
+        assert_eq!(root, PathBuf::from("/h/.cache/tatara/sources"));
+    }
+
+    /// The bug. A relative override is DROPPED, not resolved against the cwd.
+    #[test]
+    fn relative_xdg_cache_home_is_ignored_not_joined() {
+        let root = source_cache_root_in(&place(&[("HOME", "/h"), ("XDG_CACHE_HOME", "rel/x")]));
+        assert!(
+            root.is_absolute(),
+            "cache root went relative: {}",
+            root.display()
+        );
+        assert_eq!(root, PathBuf::from("/h/.cache/tatara/sources"));
+    }
+
+    /// The value that passes a bare `!is_empty()` check is not the only one
+    /// that bites — but it is the one an unset-vs-set test never reaches.
+    #[test]
+    fn empty_xdg_cache_home_is_ignored_not_joined() {
+        let root = source_cache_root_in(&place(&[("HOME", "/h"), ("XDG_CACHE_HOME", "")]));
+        assert_eq!(root, PathBuf::from("/h/.cache/tatara/sources"));
+    }
+
+    /// A relative `$HOME` is the second unguarded arm, and it used to be taken
+    /// verbatim exactly like the first.
+    #[test]
+    fn no_arm_yields_a_relative_root() {
+        for env in [
+            vec![("HOME", "rel"), ("XDG_CACHE_HOME", "rel/x")],
+            vec![("HOME", ""), ("XDG_CACHE_HOME", "")],
+            vec![],
+        ] {
+            let root = source_cache_root_in(&place(&env));
+            assert!(root.is_absolute(), "{env:?} yielded {}", root.display());
+            assert!(
+                root.ends_with("tatara/sources"),
+                "{env:?} yielded {}",
+                root.display()
+            );
+        }
+    }
+
+    #[test]
+    fn tatara_path_keeps_absolute_entries_in_order() {
+        assert_eq!(
+            tatara_path_entries("/a:/b/c"),
+            vec![PathBuf::from("/a"), PathBuf::from("/b/c")]
+        );
+    }
+
+    /// The partial guard: `!is_empty()` was already here, `is_absolute()` was
+    /// not, so every one of these entries used to reach the module loader.
+    #[test]
+    fn tatara_path_drops_relative_and_empty_entries() {
+        assert_eq!(
+            tatara_path_entries("lib::.:../up:/keep:./rel"),
+            vec![PathBuf::from("/keep")]
+        );
+        assert!(tatara_path_entries("").is_empty());
+        assert!(tatara_path_entries(":::").is_empty());
     }
 }

@@ -1038,8 +1038,21 @@ fn payload_of_arm(arm: &Value, tag_field: Option<&str>) -> Value {
 /// almost always the right name; when two definitions share one, the loser
 /// widens to include its parent module, which is both stable and readable.
 fn unique_rust_name(key: &str, taken: &std::collections::HashSet<String>) -> String {
-    let segments: Vec<&str> = key.split("::").collect();
-    let base = sanitize(segments.last().copied().unwrap_or(key));
+    let segments: Vec<&str> = split_path(key);
+    // For a generic, the meaningful name is the type PLUS its arguments
+    // (`SinkOuter` + `String`), not whichever segment happens to be last.
+    // Relying on the reserved-name widening to reach that answer works by
+    // accident and stops working the moment an argument is not a reserved word.
+    let base = if key.contains('<') {
+        let n = key.matches(',').count() + 1;
+        let start = segments.len().saturating_sub(n + 1);
+        segments[start..]
+            .iter()
+            .map(|s| pascal(&sanitize(s)))
+            .collect::<String>()
+    } else {
+        sanitize(segments.last().copied().unwrap_or(key))
+    };
     if !taken.contains(&base) && !is_reserved_type_name(&base) {
         return base;
     }
@@ -1063,6 +1076,41 @@ fn unique_rust_name(key: &str, taken: &std::collections::HashSet<String>) -> Str
         }
         n += 1;
     }
+}
+
+/// Split a definition key into path segments, keeping a generic monomorphisation
+/// together with the type it parameterises.
+///
+/// ★ Splitting the raw key on `::` is wrong for a generic, and wrong in a way
+/// that produces a plausible name rather than an error.
+/// `vector::config::sink::SinkOuter<alloc::string::String>` split naively ends
+/// in `String>`, so the last segment sanitizes to `String`, hits the reserved
+/// list, widens one step and lands on **`StringString`** — a sink outer type
+/// that says nothing about being a sink, carrying a doc comment that still
+/// reads "Fully resolved sink component". Found by reading the generated
+/// catalog, not by any test.
+///
+/// So the base path and the generic arguments are separated first, and the
+/// name becomes base + each argument's own last segment:
+/// `SinkOuter<alloc::string::String>` → `SinkOuterString`,
+/// `Inputs<alloc::string::String>` → `InputsString`.
+fn split_path(key: &str) -> Vec<&str> {
+    let Some(open) = key.find('<') else {
+        return key.split("::").collect();
+    };
+    let (base, rest) = key.split_at(open);
+    let args = rest.trim_start_matches('<').trim_end_matches('>');
+    let mut out: Vec<&str> = base.split("::").collect();
+    // Only the final segment of each argument carries meaning; the module path
+    // in front of it (`alloc::string::`) is noise in a type name.
+    for arg in args.split(',') {
+        if let Some(last) = arg.trim().rsplit("::").next() {
+            if !last.is_empty() {
+                out.push(last);
+            }
+        }
+    }
+    out
 }
 
 /// Names a generated type may never take, because taking one SHADOWS it.
@@ -1634,6 +1682,37 @@ mod tests {
             d.types.contains_key("SinkOuterString"),
             "got {:?}",
             d.types.keys().collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_generic_argument_with_a_module_path_keeps_the_outer_type_name() {
+        // ★ The real-world form, and the one that broke. Splitting the raw key
+        // on `::` makes the LAST segment `String>`, which sanitizes to
+        // `String`, hits the reserved list, widens one step, and lands on
+        // `StringString` -- a sink outer type whose name says nothing about
+        // being a sink, carrying a doc comment that still reads "Fully
+        // resolved sink component". It compiled and round-tripped perfectly;
+        // it was found by READING the generated catalog.
+        let doc = r#"{"definitions":{
+          "vector::config::sink::SinkOuter<alloc::string::String>":
+            {"type":"object","properties":{"inputs":{"type":"string"}}},
+          "vector_common::id::Inputs<alloc::string::String>":
+            {"type":"array","items":{"type":"string"}}
+        }}"#;
+        let d = from_json_schema(doc, &opts()).expect("lowers");
+        let names: Vec<&String> = d.types.keys().collect();
+        assert!(
+            d.types.contains_key("SinkOuterString"),
+            "the outer type must survive its own generic argument, got {names:?}"
+        );
+        assert!(
+            d.types.contains_key("InputsString"),
+            "and the argument's module path is noise, got {names:?}"
+        );
+        assert!(
+            !d.types.contains_key("StringString"),
+            "the accidental name must not come back, got {names:?}"
         );
     }
 

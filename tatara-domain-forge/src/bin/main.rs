@@ -12,16 +12,55 @@
 //! overwrites the output unconditionally — the generated tree is
 //! "boilerplate" (per repo-forge taxonomy), not "authored".
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use std::path::PathBuf;
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum Format {
+    /// Kubernetes CustomResourceDefinition YAML.
+    Crd,
+    /// A JSON Schema document with a reusable-definitions section.
+    JsonSchema,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum Defs {
+    /// `#/definitions/…` (draft-07; what `vector generate-schema` emits).
+    Definitions,
+    /// `#/$defs/…` (canonical draft 2019-09).
+    Defs,
+}
 
 #[derive(Parser, Debug)]
 #[command(name = "tatara-domain-forge")]
 #[command(about = "Generate a tatara-lisp domain crate from typed inputs")]
 struct Args {
-    /// Input file. Currently a K8s CRD YAML (single or multi-doc).
+    /// Input file. A K8s CRD YAML bundle, or a JSON Schema document —
+    /// see `--format`.
     #[arg(long)]
     input: PathBuf,
+
+    /// What kind of document `--input` is.
+    ///
+    /// `crd` lowers a Kubernetes CRD bundle: a tree, inlined, permissive
+    /// about `x-kubernetes-preserve-unknown-fields`.
+    ///
+    /// `json-schema` lowers a `$ref` graph into named types: shared
+    /// definitions stay shared, `oneOf` becomes a union, and anything that
+    /// cannot be typed is an ERROR rather than a `serde_json::Value` hole.
+    #[arg(long, value_enum, default_value_t = Format::Crd)]
+    format: Format,
+
+    /// Which keyword the input keeps its reusable definitions under.
+    ///
+    /// Deliberately not inferred. `vector generate-schema` declares JSON
+    /// Schema draft 2019-09 but writes `definitions` (a draft-07 keyword)
+    /// for schemars back-compatibility, so a reader that assumes `$defs`
+    /// from the `$schema` line finds nothing — and an empty catalog is
+    /// indistinguishable from a successfully-lowered empty document.
+    /// Ignored unless `--format json-schema`.
+    #[arg(long, value_enum, default_value_t = Defs::Definitions)]
+    defs: Defs,
 
     /// Crate name, by convention `tatara-{thing}`.
     #[arg(long)]
@@ -46,11 +85,29 @@ struct Args {
 
 fn main() -> std::process::ExitCode {
     let args = Args::parse();
-    let domain = match tatara_domain_forge::from_crd_yaml(&args.input, &args.name) {
-        Ok(d) => d,
-        Err(e) => {
-            eprintln!("tatara-domain-forge: parse failed: {e}");
-            return std::process::ExitCode::FAILURE;
+    let domain = match args.format {
+        Format::Crd => match tatara_domain_forge::from_crd_yaml(&args.input, &args.name) {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("tatara-domain-forge: parse failed: {e}");
+                return std::process::ExitCode::FAILURE;
+            }
+        },
+        Format::JsonSchema => {
+            let mut opts = tatara_domain_forge::JsonSchemaOptions::new(args.name.clone());
+            opts.defs_key = match args.defs {
+                Defs::Definitions => tatara_domain_forge::DefsKey::Definitions,
+                Defs::Defs => tatara_domain_forge::DefsKey::Defs,
+            };
+            match tatara_domain_forge::from_json_schema_file(&args.input, &opts) {
+                Ok(d) => d,
+                Err(e) => {
+                    // The error carries a JSON pointer on purpose: a 1.5 MB
+                    // schema needs the gap located, not merely reported.
+                    eprintln!("tatara-domain-forge: parse failed: {e}");
+                    return std::process::ExitCode::FAILURE;
+                }
+            }
         }
     };
     let opts = tatara_domain_forge::EmitOptions {
@@ -88,9 +145,10 @@ fn main() -> std::process::ExitCode {
         println!("wrote {}", path.display());
     }
     println!(
-        "✓ generated {} from {} resource(s)",
+        "✓ generated {} from {} resource(s) + {} named type(s)",
         args.name,
-        domain.resources.len()
+        domain.resources.len(),
+        domain.types.len()
     );
     std::process::ExitCode::SUCCESS
 }

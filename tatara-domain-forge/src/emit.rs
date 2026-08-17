@@ -449,6 +449,12 @@ fn render_type(
 ) -> String {
     match ty {
         FieldType::Scalar(s) => s.rust_str().to_string(),
+        // A `Ref` names a type emitted once at module scope from
+        // `Domain::types`, so in field position it is just the name -- there
+        // is nothing to queue in `pending`, and queueing it would emit the
+        // definition once per reference, which is the duplication the graph
+        // IR exists to avoid.
+        FieldType::Ref(name) => name.clone(),
         FieldType::List(inner) => format!("Vec<{}>", render_type(inner, pending, seen)),
         FieldType::Map(inner) => {
             format!(

@@ -56,6 +56,11 @@ pub fn from_crd_str(yaml: &str, domain_name: &str) -> Result<Domain, FromCrdErro
         description: format!("Tatara domain wrapping {} CRD(s).", resources.len()),
         kind: DomainKind::Kubernetes,
         resources,
+        // The CRD path inlines every nested shape into `FieldType::Nested`
+        // and emits no `FieldType::Ref`, so it contributes no named types.
+        // Keeping this empty is what makes the graph IR additive: the three
+        // crates already generated from CRDs lower exactly as before.
+        types: IndexMap::new(),
     })
 }
 
@@ -277,7 +282,7 @@ fn lower_type(
 /// `r#type`, `match` → `r#match`) so the wire form survives
 /// round-trips — `r#type` as a field name serializes as `"type"`
 /// in serde, which preserves the source schema exactly.
-fn json_key_to_rust(s: &str) -> String {
+pub(crate) fn json_key_to_rust(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 4);
     for (i, c) in s.chars().enumerate() {
         if c.is_uppercase() {

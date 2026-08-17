@@ -27,8 +27,14 @@
 
 pub mod emit;
 pub mod ir;
+pub mod json_schema;
 pub mod source;
 
 pub use emit::{emit_cargo_toml, emit_lib_rs, emit_readme, emit_register_fn, EmitOptions};
-pub use ir::{Domain, DomainKind, Field, FieldType, Resource, ScalarType};
+pub use ir::{
+    Domain, DomainKind, Field, FieldType, NamedType, Resource, ScalarType, Strictness, UnionVariant,
+};
+pub use json_schema::{
+    from_json_schema, from_json_schema_file, DefsKey, JsonSchemaError, JsonSchemaOptions,
+};
 pub use source::{from_crd_str, from_crd_yaml, FromCrdError};

@@ -29,6 +29,83 @@ pub struct Domain {
     pub kind: DomainKind,
     /// One entry per typed resource the domain exposes.
     pub resources: Vec<Resource>,
+    /// Named types referenced by [`FieldType::Ref`], keyed by the name the
+    /// emitter will give them.
+    ///
+    /// **Empty for every source that inlines its shapes** — the CRD path
+    /// lowers nested objects straight into [`FieldType::Nested`] and never
+    /// touches this, so it stays byte-identical. It exists for schema
+    /// *graphs*: a document whose definitions are shared and mutually
+    /// referential rather than a tree. Vector's `generate-schema` output is
+    /// the motivating case — 351 definitions with heavy reuse, where inlining
+    /// would duplicate `TlsConfig`/`BatchConfig`/`RequestConfig` into a
+    /// hundred call sites and produce a crate nobody can compile.
+    ///
+    /// An inline tree is the special case of a graph with no sharing, which
+    /// is why one IR can serve both rather than two forges existing.
+    #[serde(default)]
+    pub types: IndexMap<String, NamedType>,
+}
+
+/// A type that is emitted once, at module scope, and referred to by name.
+///
+/// Distinct from [`FieldType`], which describes a type *in field position*.
+/// The split is what lets a `$ref` graph lower without duplication.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum NamedType {
+    /// A plain struct.
+    Struct {
+        doc: Option<String>,
+        fields: IndexMap<String, Field>,
+    },
+    /// A closed set of string values.
+    Enum {
+        doc: Option<String>,
+        variants: Vec<String>,
+    },
+    /// A sum type.
+    ///
+    /// `tag` carries the wire field that discriminates the variants
+    /// (`Some("type")` → `#[serde(tag = "type")]`); `None` means the source
+    /// gave no discriminator and the emitter must use `#[serde(untagged)]`.
+    /// The distinction is load-bearing rather than cosmetic: an untagged
+    /// union deserializes by trial and can silently pick the wrong arm, so
+    /// a source that *does* carry a discriminator must never be lowered to
+    /// `None` for convenience.
+    Union {
+        doc: Option<String>,
+        tag: Option<String>,
+        variants: Vec<UnionVariant>,
+    },
+    /// A single-field wrapper around another type.
+    ///
+    /// Exists so a schema can say "this `String` is not any old string" —
+    /// e.g. a Vector template or a VRL program — and have that survive into
+    /// the Rust types instead of being flattened back to `String`.
+    Newtype {
+        doc: Option<String>,
+        inner: FieldType,
+    },
+}
+
+/// One arm of a [`NamedType::Union`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnionVariant {
+    /// Rust variant name, PascalCase.
+    pub name: String,
+    /// The wire value of the parent's tag field for this arm (`"file"`,
+    /// `"kubernetes_logs"`). `None` when the union is untagged.
+    pub tag_value: Option<String>,
+    /// The payload this arm carries, or `None` for a **unit variant**.
+    ///
+    /// A tagged union routinely mixes the two — `codec: "bytes"` carries no
+    /// options at all while `codec: "json"` carries a config struct — and the
+    /// distinction has to survive into Rust, because `Bytes` and
+    /// `Bytes(EmptyStruct)` do not serialize the same way. Modelling every
+    /// arm as carrying a payload forces an empty struct that then appears on
+    /// the wire.
+    pub ty: Option<FieldType>,
+    pub doc: Option<String>,
 }
 
 /// The provenance + flavor of the domain. Drives dependency choices
@@ -132,12 +209,42 @@ pub enum FieldType {
         /// Allowed string values, in source order.
         variants: Vec<String>,
     },
+    /// Reference to a [`Domain::types`] entry by key.
+    ///
+    /// The graph half of the IR. A source that inlines everything never
+    /// produces one; a source lowering a `$ref` document produces little
+    /// else.
+    Ref(String),
     /// `serde_json::Value` — escape hatch for unschematized payloads.
     /// Use sparingly; the whole point of the typed boundary is to
     /// avoid this. Emitted when the source schema can't be
     /// destructured (e.g. `additionalProperties: true` on a free-form
     /// object).
+    ///
+    /// ★ Sources may refuse to produce this. `Strictness::Strict` turns
+    /// every would-be `Untyped` into a hard error, because "we could not
+    /// type this, so here is a `Value`" is indistinguishable at the call
+    /// site from "this is genuinely free-form" — and the first is a gap
+    /// that should stop the build.
     Untyped,
+}
+
+/// Whether a source may fall back to [`FieldType::Untyped`].
+///
+/// The CRD path is [`Strictness::Permissive`]: `x-kubernetes-preserve-unknown-fields`
+/// is a legitimate, deliberate "this really is free-form" marker, and CRDs use
+/// it constantly. A generated *component catalog* is the opposite case — every
+/// hole is a component whose options silently stop being checked — so those
+/// sources pass [`Strictness::Strict`] and get an error instead.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum Strictness {
+    /// `Untyped` is allowed wherever the source decides it is appropriate.
+    #[default]
+    Permissive,
+    /// Any construct that would lower to `Untyped` is an error naming its
+    /// path in the source document.
+    Strict,
 }
 
 /// Primitive scalar types. Maps directly to Rust primitives the
@@ -149,6 +256,17 @@ pub enum ScalarType {
     Bool,
     I64,
     F64,
+    /// Unsigned. JSON Schema's `type: integer` cannot express signedness,
+    /// so this is only reachable from a source that carries the width out
+    /// of band — e.g. Vector's `_metadata.docs::numeric_type`, where 291 of
+    /// 357 numeric fields are `uint` and lowering them all to `i64` would
+    /// let a negative `batch.max_events` deserialize cleanly and fail in
+    /// the executor instead of at the parse boundary.
+    U64,
+    /// Narrow unsigned, same provenance as [`ScalarType::U64`].
+    U32,
+    /// Narrow signed, same provenance as [`ScalarType::U64`].
+    I32,
 }
 
 impl ScalarType {
@@ -161,6 +279,9 @@ impl ScalarType {
             Self::Bool => "bool",
             Self::I64 => "i64",
             Self::F64 => "f64",
+            Self::U64 => "u64",
+            Self::U32 => "u32",
+            Self::I32 => "i32",
         }
     }
 }

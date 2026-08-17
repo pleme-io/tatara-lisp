@@ -7,6 +7,12 @@ members = [
     # tatara-lisp, so tatara-lisp cannot depend on blue). It takes no
     # dependency on any other member.
     "monosashi",
+    # Same structural position as monosashi — zero dependencies, BELOW every
+    # lisp — different subject: monosashi measures, kumihan composes. It has to
+    # sit here because `caixa-fmt` depends back on published tatara-lisp, so a
+    # shared pretty-printing algebra placed in tatara-lisp, blue-lang-fmt or
+    # caixa-fmt is a cycle from at least one direction.
+    "kumihan",
     "tatara",
     "tatara-cilium",
     "tatara-closed-set",

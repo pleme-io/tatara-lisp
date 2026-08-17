@@ -1,0 +1,27 @@
+[package]
+name = "kumihan"
+description = "組版 — typesetting: the act of composing type onto the page. One lisp-agnostic Wadler/Oppen pretty-printing algebra (text/line/concat/nest/group) with a strict linear renderer, so every pleme-io emitter decides line breaks the same way instead of hand-rolling a shape classifier."
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# DELIBERATELY EMPTY, and — exactly as with `monosashi` — it is the point.
+#
+# kumihan has to sit BELOW every consumer that composes text, and the graph
+# here is tighter than it first appears:
+#
+#   * `blue` depends on `tatara-lisp`, so tatara-lisp cannot depend on blue;
+#   * `caixa-fmt` depends BACK on published `tatara-lisp ^0.3.26` — the cycle
+#     that made tatara-lisp structurally unpublishable and is why
+#     `tatara-kanmon` exists as a separate `publish = false` crate.
+#
+# So a shared algebra living in tatara-lisp, blue-lang-fmt, or caixa-fmt is a
+# cycle from at least one direction. Depending on nothing is what lets all
+# three consume it.

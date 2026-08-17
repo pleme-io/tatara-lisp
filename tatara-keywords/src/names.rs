@@ -115,9 +115,41 @@ pub struct Corpus {
 
 impl Corpus {
     /// Record one sighting.
+    ///
+    /// **An empty word is refused here, at the one place every extractor passes
+    /// through.** Measured 2026-08-17: `pleme-io/theory`'s `naming-gate` was red
+    /// on a violation whose subject was the empty string —
+    ///
+    /// ```text
+    /// `` is advertised as untaken in a NAMING.md Room-to-grow column but is
+    ///    already claimed by [Term, FamilyMember] — move it into Members
+    /// ```
+    ///
+    /// — which names a remediation nobody can perform: an empty name cannot be
+    /// moved into Members. A violation whose subject is empty is never actionable, and
+    /// emitting one turns a real gate into noise readers learn to skip, which is
+    /// how a gate ends up deleted.
+    ///
+    /// The guard is HERE rather than at each report site for a reason. Four
+    /// causes were ruled out while hunting the producer —
+    /// [`names_in_naming_families`]'s `backticked` already filters empties, the
+    /// corpus-health table is out of scope because column indices reset on any
+    /// non-table line, no malformed `****` cell exists in either document, and
+    /// the other violation in that run was a genuine (since-fixed) mistake — so
+    /// the exact producer is still unidentified. A guard at the *boundary* does
+    /// not depend on knowing which extractor misbehaves: it makes an empty name
+    /// unrepresentable in the corpus, so every downstream report is covered by
+    /// construction, including ones written later.
+    ///
+    /// Refusing on the FOLDED value, not the raw one, is deliberate: a
+    /// whitespace-only word folds to empty, and it is just as unactionable.
     pub fn see(&mut self, word: &str, surface: Surface, raw: &str) {
+        let folded = fold(word);
+        if folded.is_empty() {
+            return;
+        }
         self.sightings
-            .entry(fold(word))
+            .entry(folded)
             .or_default()
             .insert((surface, raw.to_string()));
     }
@@ -605,6 +637,42 @@ pub fn scan_corpus(root: &Path) -> std::io::Result<Corpus> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_empty_word_never_enters_the_corpus() {
+        // The guard, and its anti-vacuity half in the same test: refusing empties
+        // is only correct if real words still land. A guard that dropped
+        // everything would also make the gate green, and that is the failure this
+        // pairing rules out.
+        let mut c = Corpus::default();
+        c.see("", Surface::RoomToGrow, "``");
+        c.see("   ", Surface::Term, "`   `");
+        assert!(
+            c.sightings.is_empty(),
+            "an empty or whitespace-only word must be refused, got {:?}",
+            c.sightings.keys().collect::<Vec<_>>()
+        );
+
+        c.see("kumihan", Surface::RoomToGrow, "`kumihan`");
+        assert_eq!(
+            c.sightings.keys().collect::<Vec<_>>(),
+            vec!["kumihan"],
+            "a real word must still be recorded — otherwise the guard is a mute button"
+        );
+    }
+
+    #[test]
+    fn a_real_stale_reservation_still_reports_after_the_empty_guard() {
+        // The guard must not buy a green gate by silencing genuine findings. A
+        // word both advertised as untaken AND claimed elsewhere is exactly the
+        // `bancada` shape this lint exists for, and it must survive.
+        let mut c = Corpus::default();
+        c.see("bancada", Surface::RoomToGrow, "`bancada` (workbench)");
+        c.see("bancada", Surface::FamilyMember, "`bancada`");
+        let stale = stale_reservations(&c);
+        assert_eq!(stale.len(), 1, "a genuine stale reservation must still fire");
+        assert_eq!(stale[0].word, "bancada");
+    }
 
     fn corpus(rows: &[(&str, Surface)]) -> Corpus {
         let mut c = Corpus::default();

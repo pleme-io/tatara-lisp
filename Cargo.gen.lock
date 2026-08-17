@@ -1,8 +1,9 @@
 {
   "schema_version": 2,
-  "cargo_lock_sha256": "d6893da4c19268980272fa969a6d7b61c7181b4b682d380bf377237e5663e879",
+  "cargo_lock_sha256": "2665213e514a0cefde5bb4271c8cafdba4f353202faedddbf39e6029151ef350",
   "manifest_sha256": {
-    "Cargo.toml": "e5a7dca4b17d6f8c5254ba4b6c1ef92db6ecc201b39858f9f4732c3f992260fe",
+    "Cargo.toml": "f79b01601619b32a33b6ffc89337dffa1caf6bf696e44e6afd2531019544eefc",
+    "kumihan/Cargo.toml": "a46d2ca6ac9adc86f076e72dd80bc2888f1294a04e52b2a7a7bf2ddec2db9f19",
     "monosashi/Cargo.toml": "17210c59c9167d1955a0ed7c24d2cd1db251216812e56809de4dd3eea25f8602",
     "tatara-cilium/Cargo.toml": "1a556d537ee60e616b61251aad766b0198291fe84a534c2718fb77d75968c34a",
     "tatara-closed-set-derive/Cargo.toml": "2fc3319ac7d59d99a114b54474b1bc489e2e2c91f8f8dcde90a81bb5f16e231b",
@@ -1663,6 +1664,11 @@
         ]
       },
       "itoa-1.0.18": {
+        "runtime_dependencies": [],
+        "build_dependencies": [],
+        "features": []
+      },
+      "kumihan-0.3.47": {
         "runtime_dependencies": [],
         "build_dependencies": [],
         "features": []
@@ -6958,6 +6964,13 @@
     },
     "itoa-1.0.18": {
       "edition": "2021"
+    },
+    "kumihan-0.3.47": {
+      "edition": "2021",
+      "lib_target": {
+        "name": "kumihan",
+        "path": "src/lib.rs"
+      }
     },
     "lazy_static-1.5.0": {
       "edition": "2015"

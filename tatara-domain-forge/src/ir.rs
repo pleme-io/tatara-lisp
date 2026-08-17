@@ -57,6 +57,20 @@ pub enum NamedType {
     Struct {
         doc: Option<String>,
         fields: IndexMap<String, Field>,
+        /// Emit `#[serde(deny_unknown_fields)]`.
+        ///
+        /// This is where "a misspelled config key is parse-time-rejected"
+        /// actually comes from — without it serde ignores unknown keys and a
+        /// typo'd option is silently dropped, which is the defect class the
+        /// typed catalog exists to remove.
+        ///
+        /// Set from the source's own closure marker (`unevaluatedProperties:
+        /// false`), never guessed, and **suppressed when any field is
+        /// flattened** — serde cannot combine `deny_unknown_fields` with
+        /// `flatten`, and emitting both produces a struct that rejects
+        /// everything.
+        #[serde(default)]
+        deny_unknown: bool,
     },
     /// A closed set of string values.
     Enum {
@@ -180,6 +194,18 @@ pub struct Field {
     /// Wraps the emitted Rust type in `Option<…>` if false (with
     /// `#[serde(default)]` for cleaner defaults at deserialization).
     pub required: bool,
+    /// Emit `#[serde(flatten)]` — this field's keys live in the PARENT
+    /// object, not under a key of their own.
+    ///
+    /// Needed because an `allOf` branch that is a union contributes no
+    /// `properties` to merge: `SourceOuter` is
+    /// `allOf: [{$ref: Sources}, {properties: {graph, proxy}}]`, and merging
+    /// only properties silently drops the union — leaving a struct that
+    /// accepts every component *including ones that do not exist*, because
+    /// there is no longer a `type` tag to check. Measured: that is exactly
+    /// what made an unknown source deserialize cleanly.
+    #[serde(default)]
+    pub flatten: bool,
 }
 
 /// Type of a single field. Recursive — Object/Vec/Map nest other

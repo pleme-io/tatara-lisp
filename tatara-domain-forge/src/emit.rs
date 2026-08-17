@@ -11,7 +11,7 @@
 //! library testable and lets downstream pipelines (e.g. embedding
 //! the forge in another Rust binary) compose freely.
 
-use crate::ir::{Domain, DomainKind, Field, FieldType, Resource};
+use crate::ir::{Domain, DomainKind, Field, FieldType, NamedType, Resource};
 use std::fmt::Write;
 
 /// Knobs that don't fit naturally on the `Domain` IR — author /
@@ -136,6 +136,12 @@ pub fn emit_lib_rs(domain: &Domain) -> String {
     for r in &domain.resources {
         emit_resource_struct(r, &mut out, &mut pending, &mut seen);
     }
+
+    // Named types from a schema GRAPH. Emitted before the nested-type flush
+    // below so `pending` picks up anything they reference — a `Ref` names a
+    // module-scope type, but a named type's own fields can still contain
+    // inline `Nested`/`Enum` shapes that need hoisting.
+    emit_named_types(domain, &mut out, &mut pending, &mut seen);
 
     // Pass 2: emit collected nested types in deterministic order.
     if !pending.is_empty() {
@@ -411,6 +417,48 @@ fn emit_resource_struct(
 /// queued in `pending` for later emission. `seen` dedupes by name
 /// so the same nested type isn't emitted twice if it's referenced
 /// from multiple parents.
+/// A Rust type expression, built as a tree and rendered once.
+///
+/// Exists because `format!("Vec<{inner}>")` is a `format!()` of *target
+/// language syntax*, which ★★ TYPED EMISSION bans — and the ban is not
+/// stylistic. An interpolated type is a string that always looks plausible:
+/// a wrong or unescaped inner type produces valid-looking output that fails
+/// only at `rustc`, far from the code that made the mistake. Composing the
+/// tree and rendering through one `Display` puts the syntax in exactly one
+/// place.
+///
+/// `write!` into a `Formatter` is the `Display`-family surface the doctrine
+/// sanctions, as distinct from `format!` allocating a fragment mid-expression.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RustType {
+    /// A bare path — a generated struct/enum name, or a primitive.
+    Named(String),
+    Vec(Box<RustType>),
+    /// `HashMap<String, V>`. The key is always `String` because JSON object
+    /// keys are, so there is no key parameter to get wrong.
+    StringMap(Box<RustType>),
+    Option(Box<RustType>),
+    /// Indirection, for a type that would otherwise be infinitely sized.
+    Boxed(Box<RustType>),
+    /// The explicit "any value" lowering. Deliberately its own variant rather
+    /// than `Named("serde_json::Value")` so a reader can grep the *concept*
+    /// and count the holes, not a string that could also be a field name.
+    JsonValue,
+}
+
+impl std::fmt::Display for RustType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Named(n) => f.write_str(n),
+            Self::Vec(inner) => write!(f, "Vec<{inner}>"),
+            Self::StringMap(v) => write!(f, "std::collections::HashMap<String, {v}>"),
+            Self::Option(inner) => write!(f, "Option<{inner}>"),
+            Self::Boxed(inner) => write!(f, "Box<{inner}>"),
+            Self::JsonValue => f.write_str("serde_json::Value"),
+        }
+    }
+}
+
 fn emit_field_into(
     rust_name: &str,
     field: &Field,
@@ -423,16 +471,22 @@ fn emit_field_into(
             let _ = writeln!(target, "    /// {}", line.trim());
         }
     }
-    let serde_attr = if field.required {
+    let serde_attr = if field.flatten {
+        // A flattened field's keys live in the parent object. It is never
+        // `Option` and never `default`: it carries the parent's identity
+        // (for a component, the `type` tag), and making it optional would
+        // let the discriminator go missing while the value still parsed.
+        "    #[serde(flatten)]\n".to_string()
+    } else if field.required {
         String::new()
     } else {
         "    #[serde(default)]\n".to_string()
     };
-    let ty_str = render_type(&field.ty, pending, seen);
+    let ty = render_type(&field.ty, pending, seen);
     let final_ty = if field.required {
-        ty_str
+        ty
     } else {
-        format!("Option<{ty_str}>")
+        RustType::Option(Box::new(ty))
     };
     target.push_str(&serde_attr);
     let _ = writeln!(target, "    pub {rust_name}: {final_ty},");
@@ -446,22 +500,17 @@ fn render_type(
     ty: &FieldType,
     pending: &mut Vec<(String, String)>,
     seen: &mut std::collections::HashSet<String>,
-) -> String {
+) -> RustType {
     match ty {
-        FieldType::Scalar(s) => s.rust_str().to_string(),
+        FieldType::Scalar(s) => RustType::Named(s.rust_str().to_string()),
         // A `Ref` names a type emitted once at module scope from
         // `Domain::types`, so in field position it is just the name -- there
         // is nothing to queue in `pending`, and queueing it would emit the
         // definition once per reference, which is the duplication the graph
         // IR exists to avoid.
-        FieldType::Ref(name) => name.clone(),
-        FieldType::List(inner) => format!("Vec<{}>", render_type(inner, pending, seen)),
-        FieldType::Map(inner) => {
-            format!(
-                "std::collections::HashMap<String, {}>",
-                render_type(inner, pending, seen)
-            )
-        }
+        FieldType::Ref(name) => RustType::Named(name.clone()),
+        FieldType::List(inner) => RustType::Vec(Box::new(render_type(inner, pending, seen))),
+        FieldType::Map(inner) => RustType::StringMap(Box::new(render_type(inner, pending, seen))),
         FieldType::Nested {
             struct_name,
             fields,
@@ -480,7 +529,7 @@ fn render_type(
                 let _ = writeln!(body);
                 pending.push((struct_name.clone(), body));
             }
-            struct_name.clone()
+            RustType::Named(struct_name.clone())
         }
         FieldType::Enum {
             type_name,
@@ -518,9 +567,163 @@ fn render_type(
                 let _ = writeln!(body);
                 pending.push((type_name.clone(), body));
             }
-            type_name.clone()
+            RustType::Named(type_name.clone())
         }
-        FieldType::Untyped => "serde_json::Value".to_string(),
+        FieldType::Untyped => RustType::JsonValue,
+    }
+}
+
+/// Emit every entry of [`Domain::types`] at module scope.
+///
+/// The graph half of emission. Each named type is written exactly once, no
+/// matter how many fields refer to it — which is the whole reason the IR
+/// carries a table instead of inlining, and the difference between a crate
+/// that compiles and one where `TlsConfig` appears a hundred times.
+fn emit_named_types(
+    domain: &Domain,
+    out: &mut String,
+    pending: &mut Vec<(String, String)>,
+    seen: &mut std::collections::HashSet<String>,
+) {
+    if domain.types.is_empty() {
+        return;
+    }
+    let _ = writeln!(
+        out,
+        "// ── Named types (lowered from the schema graph) ───────────"
+    );
+    for (name, ty) in &domain.types {
+        let _ = writeln!(out);
+        match ty {
+            NamedType::Struct {
+                doc,
+                fields,
+                deny_unknown,
+            } => {
+                emit_doc(doc.as_deref(), out);
+                let _ = writeln!(out, "#[derive(Debug, Clone, Serialize, Deserialize)]");
+                // Where "a misspelled config key is parse-time-rejected"
+                // actually comes from. Without it serde ignores unknown keys,
+                // so a typo'd option is silently dropped and the config runs
+                // with a default the author never chose.
+                if *deny_unknown {
+                    let _ = writeln!(out, "#[serde(deny_unknown_fields)]");
+                }
+                let _ = writeln!(out, "pub struct {name} {{");
+                for (n, f) in fields {
+                    emit_field_into(n, f, out, pending, seen);
+                }
+                let _ = writeln!(out, "}}");
+            }
+            NamedType::Enum { doc, variants } => {
+                emit_doc(doc.as_deref(), out);
+                let _ = writeln!(out, "#[derive(Debug, Clone, Serialize, Deserialize)]");
+                let _ = writeln!(out, "pub enum {name} {{");
+                emit_unit_variants(variants, out);
+                let _ = writeln!(out, "}}");
+            }
+            NamedType::Union { doc, tag, variants } => {
+                emit_doc(doc.as_deref(), out);
+                let _ = writeln!(out, "#[derive(Debug, Clone, Serialize, Deserialize)]");
+                // A tagged union round-trips by reading one field; an untagged
+                // one round-trips by TRIAL, trying arms in declaration order
+                // and keeping the first that deserializes. Emitting `untagged`
+                // where the schema gave a discriminator would silently accept
+                // a value under the wrong arm, so the two are never merged.
+                match tag {
+                    Some(t) => {
+                        let _ = writeln!(out, "#[serde(tag = \"{}\")]", escape_rust_str(t));
+                    }
+                    None => {
+                        let _ = writeln!(out, "#[serde(untagged)]");
+                    }
+                }
+                let _ = writeln!(out, "pub enum {name} {{");
+                let mut local: std::collections::HashMap<String, usize> =
+                    std::collections::HashMap::new();
+                for v in variants {
+                    emit_doc_indented(v.doc.as_deref(), out);
+                    if let Some(tv) = &v.tag_value {
+                        let _ = writeln!(out, "    #[serde(rename = \"{}\")]", escape_rust_str(tv));
+                    }
+                    let base = variant_pascal(&v.name);
+                    let n = local.entry(base.clone()).or_insert(0);
+                    let ident = if *n == 0 {
+                        base.clone()
+                    } else {
+                        let mut s = base.clone();
+                        // Same collision rule the string-enum path uses: a
+                        // suffix with no underscore keeps the ident in valid
+                        // UpperCamelCase for Rust's naming lint.
+                        let _ = write!(s, "V{n}");
+                        s
+                    };
+                    *n += 1;
+                    match &v.ty {
+                        // A unit variant carries nothing. Writing `Bytes(X)`
+                        // with an empty X instead would put `{}` on the wire
+                        // where the schema says there is nothing at all.
+                        None => {
+                            let _ = writeln!(out, "    {ident},");
+                        }
+                        Some(t) => {
+                            let rendered = render_type(t, pending, seen);
+                            let _ = writeln!(out, "    {ident}({rendered}),");
+                        }
+                    }
+                }
+                let _ = writeln!(out, "}}");
+            }
+            NamedType::Newtype { doc, inner } => {
+                emit_doc(doc.as_deref(), out);
+                let rendered = render_type(inner, pending, seen);
+                let _ = writeln!(out, "#[derive(Debug, Clone, Serialize, Deserialize)]");
+                // `transparent` keeps the wrapper off the wire: the point of a
+                // newtype here is to distinguish a Vector template from any
+                // other String in RUST, not to add a layer to the JSON.
+                let _ = writeln!(out, "#[serde(transparent)]");
+                let _ = writeln!(out, "pub struct {name}(pub {rendered});");
+            }
+        }
+    }
+}
+
+fn emit_doc(doc: Option<&str>, out: &mut String) {
+    if let Some(d) = doc {
+        for line in d.lines() {
+            let _ = writeln!(out, "/// {}", line.trim());
+        }
+    }
+}
+
+fn emit_doc_indented(doc: Option<&str>, out: &mut String) {
+    if let Some(d) = doc {
+        for line in d.lines() {
+            let _ = writeln!(out, "    /// {}", line.trim());
+        }
+    }
+}
+
+/// Emit `#[serde(rename = "…")] Ident,` for each wire value, deduping idents.
+///
+/// Two source values can pascal-case to one Rust ident (`replace` and
+/// `Replace`), which is a hard duplicate-variant error; the rename attribute
+/// preserves the wire form either way.
+fn emit_unit_variants(variants: &[String], out: &mut String) {
+    let mut local: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for v in variants {
+        let base = variant_pascal(v);
+        let n = local.entry(base.clone()).or_insert(0);
+        let ident = if *n == 0 {
+            base.clone()
+        } else {
+            let mut s = base.clone();
+            let _ = write!(s, "V{n}");
+            s
+        };
+        *n += 1;
+        let _ = writeln!(out, "    #[serde(rename = \"{}\")]", escape_rust_str(v));
+        let _ = writeln!(out, "    {ident},");
     }
 }
 

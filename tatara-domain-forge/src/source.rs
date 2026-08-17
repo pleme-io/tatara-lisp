@@ -188,6 +188,9 @@ fn lower_object(
                 ty,
                 doc,
                 required: req,
+                // The CRD path never flattens: a CRD schema is a tree, and
+                // every nested shape is inlined under a key of its own.
+                flatten: false,
             },
         );
     }

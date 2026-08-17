@@ -62,6 +62,15 @@ struct Args {
     #[arg(long, value_enum, default_value_t = Defs::Definitions)]
     defs: Defs,
 
+    /// Also emit the ROOT schema as a type with this name.
+    ///
+    /// Without it a graph domain is all component types and no way in: the
+    /// document's own root — the thing an actual config file deserializes
+    /// into — lives outside the definitions section and would be dropped.
+    /// Ignored unless `--format json-schema`.
+    #[arg(long)]
+    root_name: Option<String>,
+
     /// Crate name, by convention `tatara-{thing}`.
     #[arg(long)]
     name: String,
@@ -95,6 +104,7 @@ fn main() -> std::process::ExitCode {
         },
         Format::JsonSchema => {
             let mut opts = tatara_domain_forge::JsonSchemaOptions::new(args.name.clone());
+            opts.root_name = args.root_name.clone();
             opts.defs_key = match args.defs {
                 Defs::Definitions => tatara_domain_forge::DefsKey::Definitions,
                 Defs::Defs => tatara_domain_forge::DefsKey::Defs,

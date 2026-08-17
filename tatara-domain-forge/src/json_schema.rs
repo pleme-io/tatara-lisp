@@ -87,6 +87,15 @@ pub struct JsonSchemaOptions {
     pub strictness: Strictness,
     /// Which definitions keyword this document uses.
     pub defs_key: DefsKey,
+    /// Emit the ROOT schema as a named type too, under this name.
+    ///
+    /// Without it the catalog is 351 types with no way in: `vector
+    /// generate-schema`'s root is the whole config document (the `sources` /
+    /// `transforms` / `sinks` maps plus the global options), and it lives
+    /// outside `definitions`. Lowering only the definitions produces every
+    /// component type and nothing that can deserialize an actual
+    /// `vector.yaml`.
+    pub root_name: Option<String>,
 }
 
 impl JsonSchemaOptions {
@@ -99,7 +108,15 @@ impl JsonSchemaOptions {
             domain_name,
             strictness: Strictness::Strict,
             defs_key: DefsKey::Definitions,
+            root_name: None,
         }
+    }
+
+    /// Also emit the root schema, under `name`.
+    #[must_use]
+    pub fn with_root(mut self, name: impl Into<String>) -> Self {
+        self.root_name = Some(name.into());
+        self
     }
 }
 
@@ -178,6 +195,20 @@ pub fn from_json_schema(json: &str, opts: &JsonSchemaOptions) -> Result<Domain, 
         let path = format!("{}/{key}", opts.defs_key.key());
         let named = ctx.lower_named(schema, rust_name, &path)?;
         types.insert(rust_name.clone(), named);
+    }
+
+    // The root document itself, if the caller wants a way in.
+    if let Some(root_name) = &opts.root_name {
+        // `definitions` is a container for reusable subschemas, not a
+        // property of the instance — leaving it in would emit a `definitions`
+        // field on the config struct that no config ever carries.
+        let mut root = root.clone();
+        if let Some(obj) = root.as_object_mut() {
+            obj.remove(opts.defs_key.key());
+            obj.remove("$schema");
+        }
+        let named = ctx.lower_named(&root, root_name, "#")?;
+        types.insert(root_name.clone(), named);
     }
 
     // Anonymous unions lifted out of field position. Appended after the
@@ -266,18 +297,43 @@ impl Ctx<'_> {
 
         // An object with properties -> struct. `allOf` composition is merged
         // first so a definition assembled from parts still lands here.
-        let merged = self.merge_all_of(schema, path)?;
-        if merged.get("properties").is_some() {
-            let fields = self.lower_properties(&merged, rust_name, path)?;
-            return Ok(NamedType::Struct { doc, fields });
+        let (merged, flat) = self.merge_all_of(schema, rust_name, path)?;
+        if merged.get("properties").is_some() || !flat.is_empty() {
+            let has_flat = !flat.is_empty();
+            let fields = self.struct_fields(&merged, flat, rust_name, path)?;
+            return Ok(NamedType::Struct {
+                doc,
+                fields,
+                deny_unknown: deny_unknown_for(schema, has_flat),
+            });
         }
 
         // Anything else is a wrapper around a single type -- a scalar
         // definition, an array, a map. Newtype keeps the NAME, which is the
         // whole reason `vector::template::Template` survives as a distinct
         // type instead of collapsing into `String`.
+        //
+        // ★ Except when the "wrapper" would wrap a struct of its own name.
+        // `lower_type` seeds anonymous struct names from the definition name,
+        // so an object with no `properties` at this level (the three
+        // options-less `unit_test` components) came back as
+        // `Nested { struct_name: "UnitTestSourceConfig" }` -- yielding
+        // `pub struct UnitTestSourceConfig(pub UnitTestSourceConfig);`, which
+        // is simultaneously a duplicate definition and an infinitely-sized
+        // self-reference. An object definition IS a struct; it needs no
+        // wrapper, and the wrapper would also add a layer the wire lacks.
         let inner = self.lower_type(&merged, rust_name, path)?;
-        Ok(NamedType::Newtype { doc, inner })
+        match inner {
+            FieldType::Nested {
+                struct_name,
+                fields,
+            } if struct_name == rust_name => Ok(NamedType::Struct {
+                doc,
+                fields,
+                deny_unknown: deny_unknown_for(schema, false),
+            }),
+            other => Ok(NamedType::Newtype { doc, inner: other }),
+        }
     }
 
     /// Recover a discriminated union from `oneOf`.
@@ -315,13 +371,6 @@ impl Ctx<'_> {
             // serde then also writes itself -- a duplicate key on the wire
             // and a field the author can set to contradict the variant they
             // chose.
-            let payload = payload_of_arm(arm, tag_field.as_deref());
-            let ty = if is_unit_payload(&payload) {
-                None
-            } else {
-                Some(self.lower_type(&payload, rust_name, &arm_path)?)
-            };
-
             // Variant name: prefer the metadata's logical name (Vector gives
             // `logical_name: "File"`), then the tag value, then the position.
             // Position is a last resort and deliberately ugly -- `Variant7`
@@ -331,6 +380,19 @@ impl Ctx<'_> {
                 .map(|s| pascal(&s))
                 .or_else(|| tag_value.as_deref().map(pascal))
                 .unwrap_or_else(|| format!("Variant{i}"));
+
+            // ★ The seed is per-ARM, not the union's own name. An arm whose
+            // payload is an inline object gets its struct name seeded from
+            // this; seeding it with `rust_name` made every such arm collide
+            // with the union it belongs to (`Compression`, `BufferType`,
+            // `MetricValue`, `AwsAuthentication` all hit this), emitting two
+            // items with one name.
+            let payload = payload_of_arm(arm, tag_field.as_deref());
+            let ty = if is_unit_payload(&payload) {
+                None
+            } else {
+                Some(self.lower_type(&payload, &format!("{rust_name}_{name}"), &arm_path)?)
+            };
 
             tags.push(tag_field);
             variants.push(UnionVariant {
@@ -364,10 +426,19 @@ impl Ctx<'_> {
     /// first `type`/`description`. Deep merging would silently reconcile
     /// genuinely conflicting branches; a conflict should surface as a wrong
     /// field, which a test catches, rather than as a plausible merge.
-    fn merge_all_of(&self, schema: &Value, path: &str) -> Result<Value, JsonSchemaError> {
+    /// Returns the merged object schema plus any branches that could NOT be
+    /// merged as properties and must instead become `#[serde(flatten)]`
+    /// fields.
+    fn merge_all_of(
+        &self,
+        schema: &Value,
+        seed: &str,
+        path: &str,
+    ) -> Result<(Value, Vec<(String, FieldType)>), JsonSchemaError> {
         let Some(branches) = schema.get("allOf").and_then(Value::as_array) else {
-            return Ok(schema.clone());
+            return Ok((schema.clone(), Vec::new()));
         };
+        let mut flattened: Vec<(String, FieldType)> = Vec::new();
         let mut out = schema.clone();
         if let Some(obj) = out.as_object_mut() {
             obj.remove("allOf");
@@ -386,14 +457,33 @@ impl Ctx<'_> {
             // A branch may itself be a `$ref`; resolve it so its properties
             // participate in the merge.
             let resolved = self.resolve_ref(branch, &branch_path)?;
-            let resolved = resolved.as_ref().unwrap_or(branch);
-            if let Some(p) = resolved.get("properties").and_then(Value::as_object) {
+            let resolved_ref = resolved.as_ref().unwrap_or(branch);
+            let has_props = resolved_ref.get("properties").is_some();
+            if let Some(p) = resolved_ref.get("properties").and_then(Value::as_object) {
                 for (k, v) in p {
                     props.insert(k.clone(), v.clone());
                 }
             }
-            if let Some(r) = resolved.get("required").and_then(Value::as_array) {
+            if let Some(r) = resolved_ref.get("required").and_then(Value::as_array) {
                 required.extend(r.clone());
+            }
+            // ★ A branch with NO properties still carries meaning. The
+            // motivating case is `SourceOuter = allOf[{$ref: Sources},
+            // {properties: {graph, proxy}}]`: `Sources` is a `oneOf`, so it
+            // contributes zero properties and a properties-only merge drops
+            // it entirely -- leaving a struct with no `type` tag, which then
+            // accepts a component that does not exist. It becomes a flattened
+            // field instead, which is what serde's `flatten` is for and what
+            // Vector's own Rust does.
+            if !has_props && union_arms(resolved_ref).is_some() {
+                let ty = self.lower_type(branch, &format!("{seed}_flat{i}"), &branch_path)?;
+                // Name the field after the type it carries, so two flattened
+                // branches cannot collide on a generic name like `inner`.
+                let field_name = match &ty {
+                    FieldType::Ref(n) => crate::source::json_key_to_rust(n),
+                    _ => format!("flattened_{i}"),
+                };
+                flattened.push((field_name, ty));
             }
         }
 
@@ -405,7 +495,36 @@ impl Ctx<'_> {
                 obj.insert("required".into(), Value::Array(required));
             }
         }
-        Ok(out)
+        Ok((out, flattened))
+    }
+
+    /// Build a struct's field map: the merged properties, preceded by any
+    /// flattened branches.
+    fn struct_fields(
+        &self,
+        merged: &Value,
+        flattened: Vec<(String, FieldType)>,
+        seed: &str,
+        path: &str,
+    ) -> Result<IndexMap<String, Field>, JsonSchemaError> {
+        let mut fields: IndexMap<String, Field> = IndexMap::new();
+        for (name, ty) in flattened {
+            fields.insert(
+                name.clone(),
+                Field {
+                    rust_name: name,
+                    ty,
+                    doc: None,
+                    // A flattened branch is part of the object's identity, not
+                    // an optional extra: wrapping it in `Option` would let the
+                    // discriminator go missing and the value still parse.
+                    required: true,
+                    flatten: true,
+                },
+            );
+        }
+        fields.extend(self.lower_properties(merged, seed, path)?);
+        Ok(fields)
     }
 
     fn lower_properties(
@@ -434,6 +553,7 @@ impl Ctx<'_> {
                     ty,
                     doc: doc_of(sub),
                     required: required.contains(key.as_str()),
+                    flatten: false,
                 },
             );
         }
@@ -536,7 +656,7 @@ impl Ctx<'_> {
                     // type, so lift it to module scope and refer to it.
                     let (tag, variants) = self.lower_union(arms, seed, path)?;
                     let name = self.hoist(
-                        pascal(seed),
+                        &pascal(seed),
                         NamedType::Union {
                             doc: doc_of(schema),
                             tag,
@@ -566,7 +686,7 @@ impl Ctx<'_> {
                 }
                 // No `type`. Could still be a composition.
                 if schema.get("oneOf").is_some() || schema.get("allOf").is_some() {
-                    let merged = self.merge_all_of(schema, path)?;
+                    let (merged, _) = self.merge_all_of(schema, seed, path)?;
                     if merged.get("properties").is_some() {
                         return self.lower_object_type(&merged, seed, path);
                     }
@@ -594,9 +714,9 @@ impl Ctx<'_> {
             }
             _ => {}
         }
-        let merged = self.merge_all_of(schema, path)?;
-        if merged.get("properties").is_some() {
-            let fields = self.lower_properties(&merged, seed, path)?;
+        let (merged, flat) = self.merge_all_of(schema, seed, path)?;
+        if merged.get("properties").is_some() || !flat.is_empty() {
+            let fields = self.struct_fields(&merged, flat, seed, path)?;
             return Ok(FieldType::Nested {
                 struct_name: pascal(seed),
                 fields,
@@ -631,11 +751,11 @@ impl Ctx<'_> {
     /// Collides against BOTH the definition names and the already-hoisted
     /// ones, because a hoisted name that shadows a definition would silently
     /// redirect every reference to that definition.
-    fn hoist(&self, preferred: String, ty: NamedType) -> String {
+    fn hoist(&self, preferred: &str, ty: NamedType) -> String {
         let mut taken: std::collections::HashSet<String> =
             self.names.values().cloned().collect();
         taken.extend(self.hoisted.borrow().keys().cloned());
-        let mut name = preferred.clone();
+        let mut name = preferred.to_string();
         let mut n = 2usize;
         while taken.contains(&name) {
             name = format!("{preferred}{n}");
@@ -724,6 +844,25 @@ fn json_type_of(schema: &Value) -> Option<String> {
             .map(str::to_string),
         _ => None,
     }
+}
+
+/// Whether a struct lowered from `schema` should `deny_unknown_fields`.
+///
+/// Taken from the source's own closure marker, never guessed: this dialect
+/// stamps `unevaluatedProperties: false` on schemas it means to close, and
+/// inventing closure where the schema did not ask for it would reject configs
+/// the binary accepts.
+///
+/// Suppressed whenever a field is flattened, because serde cannot combine
+/// `deny_unknown_fields` with `flatten` — the flattened child's keys look
+/// unknown to the parent, so the pair rejects every value. That is a silent,
+/// total failure, which is why it is enforced here rather than left to the
+/// emitter to remember.
+fn deny_unknown_for(schema: &Value, has_flattened: bool) -> bool {
+    if has_flattened {
+        return false;
+    }
+    schema.get("unevaluatedProperties").and_then(Value::as_bool) == Some(false)
 }
 
 /// Whether a node constrains nothing — JSON Schema's explicit "any value".
@@ -901,7 +1040,7 @@ fn payload_of_arm(arm: &Value, tag_field: Option<&str>) -> Value {
 fn unique_rust_name(key: &str, taken: &std::collections::HashSet<String>) -> String {
     let segments: Vec<&str> = key.split("::").collect();
     let base = sanitize(segments.last().copied().unwrap_or(key));
-    if !taken.contains(&base) {
+    if !taken.contains(&base) && !is_reserved_type_name(&base) {
         return base;
     }
     // Widen leftwards until unique.
@@ -910,7 +1049,7 @@ fn unique_rust_name(key: &str, taken: &std::collections::HashSet<String>) -> Str
             .iter()
             .map(|s| pascal(&sanitize(s)))
             .collect();
-        if !taken.contains(&joined) {
+        if !taken.contains(&joined) && !is_reserved_type_name(&joined) {
             return joined;
         }
     }
@@ -924,6 +1063,34 @@ fn unique_rust_name(key: &str, taken: &std::collections::HashSet<String>) -> Str
         }
         n += 1;
     }
+}
+
+/// Names a generated type may never take, because taking one SHADOWS it.
+///
+/// ★ This is the subtlest failure in the whole lowering, and it was found by
+/// compiling rather than by reading. A definition whose last path segment is
+/// `String` (schemars emits `alloc::string::String` and friends) mangles to
+/// `String` and then shadows the prelude — so every field the IR lowered as
+/// `ScalarType::String` silently resolves to the GENERATED struct instead of
+/// Rust's. It surfaced as `E0072: recursive types have infinite size` across
+/// four unrelated types, which points nowhere near the cause; a shadow that
+/// happened not to close a cycle would have compiled and been wrong.
+///
+/// Primitives are included even though a `struct u64` would not shadow the
+/// primitive in type position, because a type named `u64` is a trap for every
+/// later reader whether or not the compiler minds.
+fn is_reserved_type_name(name: &str) -> bool {
+    const RESERVED: &[&str] = &[
+        // Prelude types a generated name would genuinely shadow.
+        "String", "Option", "Result", "Vec", "Box", "Some", "None", "Ok", "Err", "Cow", "Rc",
+        "Arc", "HashMap", "BTreeMap", "HashSet", "BTreeSet", "Self",
+        // Primitives.
+        "bool", "char", "str", "u8", "u16", "u32", "u64", "u128", "usize", "i8", "i16", "i32",
+        "i64", "i128", "isize", "f32", "f64",
+        // Traits the emitted derives bring into scope.
+        "Serialize", "Deserialize", "Debug", "Clone", "Default",
+    ];
+    RESERVED.contains(&name)
 }
 
 /// Strip generics and punctuation a Rust identifier cannot carry.
@@ -947,17 +1114,28 @@ fn sanitize(s: &str) -> String {
     out
 }
 
+/// PascalCase an arbitrary string into something that is definitely a legal
+/// Rust identifier.
+///
+/// ★ Every non-alphanumeric character is a SEPARATOR, never passed through.
+/// Type names here are seeded from field names, and a field whose JSON key is
+/// a Rust keyword becomes a raw identifier (`type` → `r#type`) — so a
+/// pass-through implementation produced struct names containing `#`, which
+/// fail to parse with a message ("unknown prefix") that points at the emitted
+/// crate rather than at the naming rule that made it.
 fn pascal(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut upper = true;
     for c in s.chars() {
-        if c == '_' || c == '-' || c == ' ' || c == '.' {
-            upper = true;
-        } else if upper {
-            out.extend(c.to_uppercase());
-            upper = false;
+        if c.is_alphanumeric() {
+            if upper {
+                out.extend(c.to_uppercase());
+                upper = false;
+            } else {
+                out.push(c);
+            }
         } else {
-            out.push(c);
+            upper = true;
         }
     }
     out
@@ -1142,15 +1320,63 @@ mod tests {
         let doc = r#"{"definitions":{"v::UnitTestSource":{"type":"object",
             "_metadata":{"docs::component_type":"source"}}}}"#;
         let d = from_json_schema(doc, &opts()).expect("lowers");
-        // Reached through the newtype wrapper the definition-level lowering
-        // produces for a non-`properties` object.
-        let NamedType::Newtype { inner, .. } = &d.types["UnitTestSource"] else {
+        // A STRUCT, not a newtype wrapping a same-named struct. The wrapper
+        // shape this used to produce was
+        //   pub struct UnitTestSource(pub UnitTestSource);
+        // which is at once a duplicate definition and an infinitely-sized
+        // self-reference — caught only by compiling the generated crate.
+        let NamedType::Struct { fields, .. } = &d.types["UnitTestSource"] else {
             panic!("got {:?}", d.types["UnitTestSource"]);
         };
         assert!(
-            matches!(inner, FieldType::Nested { fields, .. } if fields.is_empty()),
+            fields.is_empty(),
             "an options-less component is a zero-field struct, never Untyped"
         );
+    }
+
+    #[test]
+    fn a_generated_name_never_shadows_a_prelude_type() {
+        // The subtlest failure found in this whole lowering, and it was found
+        // by COMPILING, not by reading. A definition whose last segment is
+        // `String` mangles to `String` and shadows the prelude, so every
+        // field lowered as a string silently resolves to the generated struct.
+        // It surfaced as E0072 across four unrelated types — and a shadow that
+        // happened not to close a cycle would have compiled and been wrong.
+        let doc = r#"{"definitions":{
+            "alloc::string::String":{"type":"object","properties":{"a":{"type":"string"}}},
+            "core::option::Option":{"type":"object","properties":{"b":{"type":"string"}}}
+        }}"#;
+        let d = from_json_schema(doc, &opts()).expect("lowers");
+        assert!(
+            !d.types.contains_key("String") && !d.types.contains_key("Option"),
+            "reserved names must be widened, got {:?}",
+            d.types.keys().collect::<Vec<_>>()
+        );
+        assert_eq!(d.types.len(), 2, "both definitions still land, under safe names");
+    }
+
+    #[test]
+    fn a_union_arm_struct_does_not_collide_with_its_own_union() {
+        // An arm whose payload is an inline object gets its struct name seeded
+        // from the arm, not from the union. Seeding from the union emitted two
+        // items with one name (`Compression`, `BufferType`, `MetricValue` and
+        // `AwsAuthentication` all hit this on the real schema).
+        let doc = r#"{"definitions":{"v::Compression":{"oneOf":[
+            {"type":"object","properties":{"level":{"type":"integer"}},
+             "_metadata":{"logical_name":"Detailed"}}
+        ]}}}"#;
+        let d = from_json_schema(doc, &opts()).expect("lowers");
+        assert!(matches!(&d.types["Compression"], NamedType::Union { .. }));
+        // Whatever the arm's payload struct is called, it is not the union.
+        let NamedType::Union { variants, .. } = &d.types["Compression"] else {
+            panic!()
+        };
+        if let Some(FieldType::Nested { struct_name, .. }) = &variants[0].ty {
+            assert_ne!(
+                struct_name, "Compression",
+                "an arm's payload struct must not take the union's own name"
+            );
+        }
     }
 
     #[test]
@@ -1167,6 +1393,116 @@ mod tests {
         assert!(
             matches!(&fields["log_fields"].ty, FieldType::Map(inner) if matches!(**inner, FieldType::Untyped)),
             "an open map keeps its map shape and carries Untyped as the VALUE"
+        );
+    }
+
+    #[test]
+    fn an_allof_branch_that_is_a_union_becomes_a_flattened_field() {
+        // `SourceOuter = allOf[{$ref: Sources}, {properties:{graph}}]`.
+        // `Sources` is a oneOf and contributes NO properties, so a
+        // properties-only merge dropped it -- leaving a struct with no `type`
+        // tag, which then accepted components that do not exist. Measured:
+        // that is exactly what let an unknown source deserialize cleanly.
+        let doc = r##"{
+          "definitions": {
+            "v::Sources": {"oneOf":[
+              {"type":"object","required":["type"],
+               "properties":{"type":{"const":"file"}},
+               "_metadata":{"logical_name":"File"}}]},
+            "v::SourceOuter": {"allOf":[
+              {"$ref":"#/definitions/v::Sources"},
+              {"type":"object","properties":{"graph":{"type":"string"}}}]}
+          }
+        }"##;
+        let d = from_json_schema(doc, &opts()).expect("lowers");
+        let NamedType::Struct { fields, .. } = &d.types["SourceOuter"] else {
+            panic!("got {:?}", d.types["SourceOuter"]);
+        };
+        let flat: Vec<_> = fields.values().filter(|f| f.flatten).collect();
+        assert_eq!(flat.len(), 1, "the union branch must survive as a flattened field");
+        assert!(
+            matches!(&flat[0].ty, FieldType::Ref(r) if r == "Sources"),
+            "and it must point at the union, got {:?}",
+            flat[0].ty
+        );
+        assert!(
+            flat[0].required,
+            "a flattened discriminator is never optional -- optional would let \
+             the tag go missing and the value still parse"
+        );
+        assert!(fields.contains_key("graph"), "sibling properties still merge");
+    }
+
+    #[test]
+    fn deny_unknown_fields_follows_the_schemas_own_closure_marker() {
+        // Never guessed: inventing closure would reject configs the binary
+        // accepts, and omitting it silently drops typo'd keys.
+        let doc = r#"{"definitions":{
+          "v::Closed":{"type":"object","unevaluatedProperties":false,
+                       "properties":{"a":{"type":"string"}}},
+          "v::Open":{"type":"object","properties":{"a":{"type":"string"}}}
+        }}"#;
+        let d = from_json_schema(doc, &opts()).expect("lowers");
+        let NamedType::Struct { deny_unknown, .. } = &d.types["Closed"] else {
+            panic!()
+        };
+        assert!(*deny_unknown, "a closed schema denies unknown fields");
+        let NamedType::Struct { deny_unknown, .. } = &d.types["Open"] else {
+            panic!()
+        };
+        assert!(!*deny_unknown, "an open schema does not");
+    }
+
+    #[test]
+    fn deny_unknown_fields_is_suppressed_when_a_field_is_flattened() {
+        // serde cannot combine the two: the flattened child's keys look
+        // unknown to the parent, so the pair rejects EVERY value. A silent,
+        // total failure -- hence enforced in lowering, not left to the
+        // emitter to remember.
+        let doc = r##"{
+          "definitions": {
+            "v::Inner": {"oneOf":[
+              {"type":"object","required":["type"],
+               "properties":{"type":{"const":"x"}},"_metadata":{"logical_name":"X"}}]},
+            "v::Outer": {"unevaluatedProperties": false, "allOf":[
+              {"$ref":"#/definitions/v::Inner"},
+              {"type":"object","properties":{"g":{"type":"string"}}}]}
+          }
+        }"##;
+        let d = from_json_schema(doc, &opts()).expect("lowers");
+        let NamedType::Struct {
+            fields,
+            deny_unknown,
+            ..
+        } = &d.types["Outer"]
+        else {
+            panic!()
+        };
+        assert!(fields.values().any(|f| f.flatten), "precondition: something flattens");
+        assert!(
+            !*deny_unknown,
+            "the schema asked for closure, but flatten makes it unsatisfiable"
+        );
+    }
+
+    #[test]
+    fn a_reserved_keyword_field_cannot_poison_a_generated_type_name() {
+        // Type names are seeded from field names, and a field whose JSON key
+        // is a Rust keyword becomes `r#type`. Passing `#` through produced
+        // struct names that fail to parse, with a message pointing at the
+        // emitted crate rather than at the naming rule.
+        let doc = r#"{"definitions":{"v::T":{"type":"object","properties":{
+            "type":{"type":"object","properties":{"a":{"type":"string"}}}}}}}"#;
+        let d = from_json_schema(doc, &opts()).expect("lowers");
+        let NamedType::Struct { fields, .. } = &d.types["T"] else {
+            panic!()
+        };
+        let FieldType::Nested { struct_name, .. } = &fields["r#type"].ty else {
+            panic!("expected a nested struct, got {:?}", fields["r#type"].ty);
+        };
+        assert!(
+            struct_name.chars().all(char::is_alphanumeric),
+            "a generated type name must be a legal ident, got {struct_name}"
         );
     }
 

@@ -102,38 +102,138 @@ pub fn families() -> Vec<Family> {
     };
     vec![
         // ── pure ────────────────────────────────────────────────────
-        Family { name: "cli", capability: Capability::Pure, install: cli::install },
-        Family { name: "encoding", capability: Capability::Pure, install: encoding::install },
-        Family { name: "hash", capability: Capability::Pure, install: hash::install },
-        Family { name: "json", capability: Capability::Pure, install: json::install },
-        Family { name: "list_ext", capability: Capability::Pure, install: list_ext::install },
-        Family { name: "log", capability: Capability::Pure, install: log::install },
-        Family { name: "regex", capability: Capability::Pure, install: regex::install },
-        Family { name: "string", capability: Capability::Pure, install: string::install },
-        Family { name: "string_ext", capability: Capability::Pure, install: string_ext::install },
-        Family { name: "toml", capability: Capability::Pure, install: toml::install },
-        Family { name: "yaml", capability: Capability::Pure, install: yaml::install },
+        Family {
+            name: "cli",
+            capability: Capability::Pure,
+            install: cli::install,
+        },
+        Family {
+            name: "encoding",
+            capability: Capability::Pure,
+            install: encoding::install,
+        },
+        Family {
+            name: "hash",
+            capability: Capability::Pure,
+            install: hash::install,
+        },
+        Family {
+            name: "json",
+            capability: Capability::Pure,
+            install: json::install,
+        },
+        Family {
+            name: "list_ext",
+            capability: Capability::Pure,
+            install: list_ext::install,
+        },
+        Family {
+            name: "log",
+            capability: Capability::Pure,
+            install: log::install,
+        },
+        Family {
+            name: "regex",
+            capability: Capability::Pure,
+            install: regex::install,
+        },
+        Family {
+            name: "string",
+            capability: Capability::Pure,
+            install: string::install,
+        },
+        Family {
+            name: "string_ext",
+            capability: Capability::Pure,
+            install: string_ext::install,
+        },
+        Family {
+            name: "toml",
+            capability: Capability::Pure,
+            install: toml::install,
+        },
+        Family {
+            name: "yaml",
+            capability: Capability::Pure,
+            install: yaml::install,
+        },
         // ── ambient nondeterminism ──────────────────────────────────
         // Not "pure": a sealed build that must be reproducible wants
         // these absent too, which is why they are their own tier rather
         // than being folded in above.
-        Family { name: "crypto_extra", capability: Capability::Ambient, install: crypto_extra::install },
-        Family { name: "time", capability: Capability::Ambient, install: time::install },
-        Family { name: "uuid", capability: Capability::Ambient, install: uuid::install },
+        Family {
+            name: "crypto_extra",
+            capability: Capability::Ambient,
+            install: crypto_extra::install,
+        },
+        Family {
+            name: "time",
+            capability: Capability::Ambient,
+            install: time::install,
+        },
+        Family {
+            name: "uuid",
+            capability: Capability::Ambient,
+            install: uuid::install,
+        },
         // ── reaches outside the process ─────────────────────────────
-        Family { name: "fs", capability: Capability::FsWrite, install: fs::install },
+        Family {
+            name: "fs",
+            capability: Capability::FsWrite,
+            install: fs::install,
+        },
         // io carries read-file AND write-file/exit; classified by its
         // strongest member, which is the only safe direction.
-        Family { name: "io", capability: Capability::FsWrite, install: io::install },
-        Family { name: "env", capability: Capability::Env, install: env::install },
-        Family { name: "os", capability: Capability::HostInfo, install: os::install },
-        Family { name: "http", capability: Capability::Net, install: http::install },
-        Family { name: "http_server", capability: Capability::Net, install: http_server::install },
-        Family { name: "dns", capability: Capability::Net, install: dns::install },
-        Family { name: "kube", capability: Capability::ClusterCredentials, install: kube::install },
-        Family { name: "sops", capability: Capability::Secrets, install: sops::install },
-        Family { name: "process", capability: Capability::Subprocess, install: process::install },
-        Family { name: "module", capability: Capability::ModuleLoad, install: module::install },
+        Family {
+            name: "io",
+            capability: Capability::FsWrite,
+            install: io::install,
+        },
+        Family {
+            name: "env",
+            capability: Capability::Env,
+            install: env::install,
+        },
+        Family {
+            name: "os",
+            capability: Capability::HostInfo,
+            install: os::install,
+        },
+        Family {
+            name: "http",
+            capability: Capability::Net,
+            install: http::install,
+        },
+        Family {
+            name: "http_server",
+            capability: Capability::Net,
+            install: http_server::install,
+        },
+        Family {
+            name: "dns",
+            capability: Capability::Net,
+            install: dns::install,
+        },
+        Family {
+            name: "kube",
+            capability: Capability::ClusterCredentials,
+            install: kube::install,
+        },
+        Family {
+            name: "sops",
+            capability: Capability::Secrets,
+            install: sops::install,
+        },
+        Family {
+            name: "process",
+            capability: Capability::Subprocess,
+            install: process::install,
+        },
+        Family {
+            name: "module",
+            capability: Capability::ModuleLoad,
+            install: module::install,
+        },
     ]
 }
 
@@ -251,10 +351,22 @@ mod tests {
             names.len()
         );
         for expected in [
-            "fs", "io", "env", "os", "process", "http", "http_server", "dns", "kube", "sops",
+            "fs",
+            "io",
+            "env",
+            "os",
+            "process",
+            "http",
+            "http_server",
+            "dns",
+            "kube",
+            "sops",
             "module",
         ] {
-            assert!(names.contains(&expected), "{expected} missing from the catalogue");
+            assert!(
+                names.contains(&expected),
+                "{expected} missing from the catalogue"
+            );
         }
     }
 
@@ -270,7 +382,10 @@ mod tests {
     fn a_sealed_profile_grants_nothing_that_escapes_the_process() {
         let sealed = Profile::sealed();
         let all = families();
-        assert!(!all.is_empty(), "empty catalogue — the gate would be vacuous");
+        assert!(
+            !all.is_empty(),
+            "empty catalogue — the gate would be vacuous"
+        );
 
         let mut examined = 0;
         for f in &all {

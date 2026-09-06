@@ -283,11 +283,7 @@ impl Ctx<'_> {
                 return Ok(NamedType::Enum { doc, variants });
             }
             let (tag, variants) = self.lower_union(arms, rust_name, path)?;
-            return Ok(NamedType::Union {
-                doc,
-                tag,
-                variants,
-            });
+            return Ok(NamedType::Union { doc, tag, variants });
         }
 
         // A closed string set.
@@ -742,7 +738,10 @@ impl Ctx<'_> {
                 fields: IndexMap::new(),
             });
         }
-        self.untypeable(path, "object with neither `properties` nor typed `additionalProperties`")
+        self.untypeable(
+            path,
+            "object with neither `properties` nor typed `additionalProperties`",
+        )
     }
 
     /// Lift an anonymous type to module scope and return the name to refer to
@@ -752,8 +751,7 @@ impl Ctx<'_> {
     /// ones, because a hoisted name that shadows a definition would silently
     /// redirect every reference to that definition.
     fn hoist(&self, preferred: &str, ty: NamedType) -> String {
-        let mut taken: std::collections::HashSet<String> =
-            self.names.values().cloned().collect();
+        let mut taken: std::collections::HashSet<String> = self.names.values().cloned().collect();
         taken.extend(self.hoisted.borrow().keys().cloned());
         let mut name = preferred.to_string();
         let mut n = 2usize;
@@ -1130,13 +1128,47 @@ fn split_path(key: &str) -> Vec<&str> {
 fn is_reserved_type_name(name: &str) -> bool {
     const RESERVED: &[&str] = &[
         // Prelude types a generated name would genuinely shadow.
-        "String", "Option", "Result", "Vec", "Box", "Some", "None", "Ok", "Err", "Cow", "Rc",
-        "Arc", "HashMap", "BTreeMap", "HashSet", "BTreeSet", "Self",
+        "String",
+        "Option",
+        "Result",
+        "Vec",
+        "Box",
+        "Some",
+        "None",
+        "Ok",
+        "Err",
+        "Cow",
+        "Rc",
+        "Arc",
+        "HashMap",
+        "BTreeMap",
+        "HashSet",
+        "BTreeSet",
+        "Self",
         // Primitives.
-        "bool", "char", "str", "u8", "u16", "u32", "u64", "u128", "usize", "i8", "i16", "i32",
-        "i64", "i128", "isize", "f32", "f64",
+        "bool",
+        "char",
+        "str",
+        "u8",
+        "u16",
+        "u32",
+        "u64",
+        "u128",
+        "usize",
+        "i8",
+        "i16",
+        "i32",
+        "i64",
+        "i128",
+        "isize",
+        "f32",
+        "f64",
         // Traits the emitted derives bring into scope.
-        "Serialize", "Deserialize", "Debug", "Clone", "Default",
+        "Serialize",
+        "Deserialize",
+        "Debug",
+        "Clone",
+        "Default",
     ];
     RESERVED.contains(&name)
 }
@@ -1242,7 +1274,10 @@ mod tests {
             panic!("Sinks should be a union");
         };
         assert_eq!(tag.as_deref(), Some("type"), "tag must be recovered");
-        assert_eq!(variants[0].name, "File", "logical_name wins the variant name");
+        assert_eq!(
+            variants[0].name, "File",
+            "logical_name wins the variant name"
+        );
         assert_eq!(variants[0].tag_value.as_deref(), Some("file"));
         assert!(
             matches!(&variants[0].ty, Some(FieldType::Ref(r)) if r == "FileConfig"),
@@ -1319,7 +1354,10 @@ mod tests {
             panic!("Outer should be a struct");
         };
         let FieldType::Ref(target) = &fields["buffer"].ty else {
-            panic!("buffer must be a Ref to a hoisted type, got {:?}", fields["buffer"].ty);
+            panic!(
+                "buffer must be a Ref to a hoisted type, got {:?}",
+                fields["buffer"].ty
+            );
         };
         assert!(
             matches!(&d.types[target], NamedType::Union { variants, .. } if variants.len() == 2),
@@ -1400,7 +1438,11 @@ mod tests {
             "reserved names must be widened, got {:?}",
             d.types.keys().collect::<Vec<_>>()
         );
-        assert_eq!(d.types.len(), 2, "both definitions still land, under safe names");
+        assert_eq!(
+            d.types.len(),
+            2,
+            "both definitions still land, under safe names"
+        );
     }
 
     #[test]
@@ -1467,7 +1509,11 @@ mod tests {
             panic!("got {:?}", d.types["SourceOuter"]);
         };
         let flat: Vec<_> = fields.values().filter(|f| f.flatten).collect();
-        assert_eq!(flat.len(), 1, "the union branch must survive as a flattened field");
+        assert_eq!(
+            flat.len(),
+            1,
+            "the union branch must survive as a flattened field"
+        );
         assert!(
             matches!(&flat[0].ty, FieldType::Ref(r) if r == "Sources"),
             "and it must point at the union, got {:?}",
@@ -1478,7 +1524,10 @@ mod tests {
             "a flattened discriminator is never optional -- optional would let \
              the tag go missing and the value still parse"
         );
-        assert!(fields.contains_key("graph"), "sibling properties still merge");
+        assert!(
+            fields.contains_key("graph"),
+            "sibling properties still merge"
+        );
     }
 
     #[test]
@@ -1526,7 +1575,10 @@ mod tests {
         else {
             panic!()
         };
-        assert!(fields.values().any(|f| f.flatten), "precondition: something flattens");
+        assert!(
+            fields.values().any(|f| f.flatten),
+            "precondition: something flattens"
+        );
         assert!(
             !*deny_unknown,
             "the schema asked for closure, but flatten makes it unsatisfiable"
@@ -1667,7 +1719,9 @@ mod tests {
         assert_eq!(d.types.len(), 2, "two definitions must yield two types");
         assert!(d.types.contains_key("Config"));
         assert!(
-            d.types.keys().any(|k| k != "Config" && k.contains("Config")),
+            d.types
+                .keys()
+                .any(|k| k != "Config" && k.contains("Config")),
             "the loser widens: {:?}",
             d.types.keys().collect::<Vec<_>>()
         );

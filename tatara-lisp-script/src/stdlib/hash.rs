@@ -57,7 +57,9 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
             let mut hasher = blake3::Hasher::new();
             stream_into(&path, &mut hasher)
                 .map_err(|e| EvalError::native_fn("blake3-file", e, sp))?;
-            Ok(Value::Str(Arc::from(hasher.finalize().to_hex().to_string())))
+            Ok(Value::Str(Arc::from(
+                hasher.finalize().to_hex().to_string(),
+            )))
         },
     );
 

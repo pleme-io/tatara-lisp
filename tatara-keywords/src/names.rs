@@ -219,7 +219,11 @@ pub fn stale_reservations(c: &Corpus) -> Vec<StaleReservation> {
             if !surfaces.contains(&Surface::RoomToGrow) {
                 return None;
             }
-            let claimed: Vec<Surface> = surfaces.iter().copied().filter(|s| s.is_a_thing()).collect();
+            let claimed: Vec<Surface> = surfaces
+                .iter()
+                .copied()
+                .filter(|s| s.is_a_thing())
+                .collect();
             (!claimed.is_empty()).then(|| StaleReservation {
                 word: word.clone(),
                 claimed_by: claimed,
@@ -304,8 +308,12 @@ pub fn names_in_vocabulary(src: &str) -> Vec<(String, Surface)> {
             section_is_naming = h.trim() == "Naming";
             continue;
         }
-        let Some(rest) = line.trim_start().strip_prefix("| **") else { continue };
-        let Some((word, _)) = rest.split_once("**") else { continue };
+        let Some(rest) = line.trim_start().strip_prefix("| **") else {
+            continue;
+        };
+        let Some((word, _)) = rest.split_once("**") else {
+            continue;
+        };
         let word = word.split('(').next().unwrap_or(word).trim();
         if word.is_empty() || word.contains(' ') {
             continue;
@@ -315,7 +323,11 @@ pub fn names_in_vocabulary(src: &str) -> Vec<(String, Surface)> {
         }
         out.push((
             word.to_string(),
-            if section_is_naming { Surface::Registry } else { Surface::Term },
+            if section_is_naming {
+                Surface::Registry
+            } else {
+                Surface::Term
+            },
         ));
     }
     out
@@ -356,7 +368,9 @@ pub fn names_in_naming_families(src: &str) -> Vec<(String, Surface)> {
 
         // A header row names its columns; adopt it and move on.
         let header_members = cells.iter().position(|c| c.trim().starts_with("Members"));
-        let header_room = cells.iter().position(|c| c.trim().starts_with("Room to grow"));
+        let header_room = cells
+            .iter()
+            .position(|c| c.trim().starts_with("Room to grow"));
         if header_members.is_some() || header_room.is_some() {
             members = header_members;
             room = header_room;
@@ -565,7 +579,9 @@ fn scan_theory(
         if path.extension().is_none_or(|e| e != "md") {
             continue;
         }
-        let Ok(src) = std::fs::read_to_string(&path) else { continue };
+        let Ok(src) = std::fs::read_to_string(&path) else {
+            continue;
+        };
         let doc = entry.file_name().to_string_lossy().into_owned();
         for name in extract(&src) {
             if root.join(&name).is_dir() {
@@ -608,12 +624,20 @@ pub fn scan_corpus(root: &Path) -> std::io::Result<Corpus> {
     if theory.is_dir() {
         // Docs whose stem is a heading, not a minted name.
         const NOT_NAMES: &[&str] = &[
-            "readme", "vocabulary", "naming", "theory", "index", "claude", "license",
+            "readme",
+            "vocabulary",
+            "naming",
+            "theory",
+            "index",
+            "claude",
+            "license",
         ];
         for entry in std::fs::read_dir(&theory)? {
             let entry = entry?;
             let f = entry.file_name().to_string_lossy().into_owned();
-            let Some(stem) = f.strip_suffix(".md") else { continue };
+            let Some(stem) = f.strip_suffix(".md") else {
+                continue;
+            };
             if NOT_NAMES.contains(&fold(stem).as_str()) {
                 continue;
             }
@@ -670,7 +694,11 @@ mod tests {
         c.see("bancada", Surface::RoomToGrow, "`bancada` (workbench)");
         c.see("bancada", Surface::FamilyMember, "`bancada`");
         let stale = stale_reservations(&c);
-        assert_eq!(stale.len(), 1, "a genuine stale reservation must still fire");
+        assert_eq!(
+            stale.len(),
+            1,
+            "a genuine stale reservation must still fire"
+        );
         assert_eq!(stale[0].word, "bancada");
     }
 
@@ -694,7 +722,10 @@ mod tests {
     /// consulting the family table was told it was available.
     #[test]
     fn a_reserved_word_that_is_already_taken_is_reported() {
-        let c = corpus(&[("bancada", Surface::RoomToGrow), ("bancada", Surface::Registry)]);
+        let c = corpus(&[
+            ("bancada", Surface::RoomToGrow),
+            ("bancada", Surface::Registry),
+        ]);
         let stale = stale_reservations(&c);
         assert_eq!(stale.len(), 1, "the bancada drift must be caught");
         assert_eq!(stale[0].word, "bancada");
@@ -714,7 +745,10 @@ mod tests {
     #[test]
     fn room_to_grow_is_reserved_but_is_not_a_thing() {
         let c = corpus(&[("alicerce", Surface::RoomToGrow)]);
-        assert!(!c.is_free("alicerce"), "a reserved word is not free to mint");
+        assert!(
+            !c.is_free("alicerce"),
+            "a reserved word is not free to mint"
+        );
         assert!(!Surface::RoomToGrow.is_a_thing());
         assert!(phantoms(&c).is_empty(), "a reservation is not a phantom");
     }
@@ -746,7 +780,11 @@ mod tests {
     fn the_shared_collision_engine_runs_over_names_unchanged() {
         let c = corpus(&[("bancada", Surface::Registry), ("bancada", Surface::Repo)]);
         let found = crate::collisions(&c.declarations());
-        assert_eq!(found.len(), 1, "two surfaces claiming one word is a collision");
+        assert_eq!(
+            found.len(),
+            1,
+            "two surfaces claiming one word is a collision"
+        );
         assert_eq!(found[0].keyword, "bancada");
     }
 
@@ -754,7 +792,10 @@ mod tests {
     #[test]
     fn is_free_consults_the_whole_corpus_not_just_the_registry() {
         let c = corpus(&[("suri", Surface::Repo)]);
-        assert!(!c.is_free("suri"), "a repo with no doc still claims its name");
+        assert!(
+            !c.is_free("suri"),
+            "a repo with no doc still claims its name"
+        );
         assert!(c.is_free("nomes"), "an untouched word is free");
     }
 
@@ -886,7 +927,10 @@ Real reference: [`x`](https://github.com/pleme-io/openclaw-artifact-registry)
             "`pleme-io/${V}-go` is generated",                // a template
             "commit pleme-io/9854099",                        // a number
         ] {
-            assert!(cited_repos(src).is_empty(), "should not be a citation: {src}");
+            assert!(
+                cited_repos(src).is_empty(),
+                "should not be a citation: {src}"
+            );
         }
         // …and the shape that must still be caught: a flake input naming a
         // repo that does not exist.

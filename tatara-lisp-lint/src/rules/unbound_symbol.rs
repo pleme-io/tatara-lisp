@@ -274,7 +274,9 @@ impl Prescription {
             Prescription::Data => "data         (not walked)",
             Prescription::DataWithHoles => "data+holes   (only unquoted parts walked)",
             Prescription::Abstain => "abstain      (whole program skipped)",
-            Prescription::ResolvedByCallerExpansion => "expand-first (caller macro-expands; rule alone reports)",
+            Prescription::ResolvedByCallerExpansion => {
+                "expand-first (caller macro-expands; rule alone reports)"
+            }
             Prescription::UnresolvedFalsePositive => "UNRESOLVED   (false positives today)",
         }
     }
@@ -297,11 +299,23 @@ pub struct CatalogListing;
 
 impl fmt::Display for CatalogListing {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "unbound-symbol — form shapes and their prescribed handling")?;
+        writeln!(
+            f,
+            "unbound-symbol — form shapes and their prescribed handling"
+        )?;
         writeln!(f)?;
-        writeln!(f, "Each row is what the rule DOES with a shape. Rows marked UNRESOLVED")?;
-        writeln!(f, "produce false positives today and say what would fix them; that is")?;
-        writeln!(f, "why the rule is opt-in (`--unbound`) rather than default-on.")?;
+        writeln!(
+            f,
+            "Each row is what the rule DOES with a shape. Rows marked UNRESOLVED"
+        )?;
+        writeln!(
+            f,
+            "produce false positives today and say what would fix them; that is"
+        )?;
+        writeln!(
+            f,
+            "why the rule is opt-in (`--unbound`) rather than default-on."
+        )?;
         writeln!(f)?;
         for shape in SHAPES {
             writeln!(f, "  {}", shape.name)?;
@@ -538,7 +552,11 @@ impl UnboundSymbol {
                 // parameter list — which is exactly why it cannot share the
                 // generic `def*` arm below.
                 let mut names = binder_names(items);
-                let params: Vec<String> = if names.len() > 1 { names.split_off(1) } else { vec![] };
+                let params: Vec<String> = if names.len() > 1 {
+                    names.split_off(1)
+                } else {
+                    vec![]
+                };
                 if let Some(scope) = scopes.last_mut() {
                     scope.extend(names);
                 }

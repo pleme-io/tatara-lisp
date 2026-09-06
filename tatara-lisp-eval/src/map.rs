@@ -451,7 +451,7 @@ mod tests {
         let mut m = HashMap::with_capacity(n);
         for k in 0..n {
             let k = i64::try_from(k).expect("fixture size fits i64");
-        m.insert(MapKey::Int(k), Value::Int(k));
+            m.insert(MapKey::Int(k), Value::Int(k));
         }
         Value::Map(Arc::new(m))
     }
@@ -517,7 +517,11 @@ mod tests {
             Arity::Exact(2),
             vec![m, Value::Int(0)],
         );
-        assert_eq!(len_of(&kept), 3, "hash-map-remove left a shared map mutated");
+        assert_eq!(
+            len_of(&kept),
+            3,
+            "hash-map-remove left a shared map mutated"
+        );
         assert_eq!(len_of(&out), 2);
 
         let a = sample_map(3);

@@ -101,7 +101,10 @@ fn run_then_kill(src: &str) -> Arc<AtomicBool> {
     let proto = prototype();
 
     let mut child = proto.fork();
-    child.define_global("sentinel", Value::Foreign(Arc::new(Sentinel(freed.clone()))));
+    child.define_global(
+        "sentinel",
+        Value::Foreign(Arc::new(Sentinel(freed.clone()))),
+    );
     eval(&mut child, src).expect("the program under test must run");
     drop(child);
 

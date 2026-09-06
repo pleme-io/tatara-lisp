@@ -14,10 +14,18 @@ use tatara_lisp_lint::{lint_source, rules, Rule};
 /// `reserved_head_names()` + globals; the rule cannot tell the difference, which
 /// is the point of injecting it.
 fn env() -> Vec<String> {
-    ["display", "car", "argv", "string-split", "string-lowercase", "+", "list"]
-        .into_iter()
-        .map(String::from)
-        .collect()
+    [
+        "display",
+        "car",
+        "argv",
+        "string-split",
+        "string-lowercase",
+        "+",
+        "list",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect()
 }
 
 fn violations(src: &str) -> Vec<String> {
@@ -429,11 +437,17 @@ fn catalog_listing_shows_every_row() {
 /// than trusted to review. Doc comments may still *name* it.
 #[test]
 fn no_format_macro_in_crate_code() {
-    for entry in ["src/rules/unbound_symbol.rs", "src/rules/mutation_discard.rs", "src/lib.rs"] {
+    for entry in [
+        "src/rules/unbound_symbol.rs",
+        "src/rules/mutation_discard.rs",
+        "src/lib.rs",
+    ] {
         let src = std::fs::read_to_string(entry).expect("source readable");
         for (n, line) in src.lines().enumerate() {
             let trimmed = line.trim_start();
-            let is_doc = trimmed.starts_with("///") || trimmed.starts_with("//!") || trimmed.starts_with("//");
+            let is_doc = trimmed.starts_with("///")
+                || trimmed.starts_with("//!")
+                || trimmed.starts_with("//");
             assert!(
                 is_doc || !line.contains("format!"),
                 "{entry}:{}: `format!()` is banned for emitted strings — build the text with \
@@ -451,6 +465,10 @@ fn no_format_macro_in_crate_code() {
 fn environment_is_injected_not_baked_in() {
     let rules: Vec<Box<dyn Rule>> = vec![Box::new(rules::unbound_symbol(Vec::<String>::new()))];
     let found = lint_source("(display 1)", &rules).expect("parses");
-    assert_eq!(found.len(), 1, "an empty env must not silently pass: {found:?}");
+    assert_eq!(
+        found.len(),
+        1,
+        "an empty env must not silently pass: {found:?}"
+    );
     assert!(found[0].message.contains("display"));
 }

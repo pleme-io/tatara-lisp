@@ -11,7 +11,7 @@
 //! silent-PATH-fallback class — was invisible from the record and could only be
 //! settled by reading source.
 
-use tatara_lisp_script::{Value, eval_str};
+use tatara_lisp_script::{eval_str, Value};
 
 fn eval_str_field(src: &str) -> String {
     match eval_str(src).unwrap_or_else(|e| panic!("script failed: {e}")) {

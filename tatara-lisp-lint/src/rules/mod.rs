@@ -13,6 +13,5 @@ pub use mutation_discard::{
 // source of truth must be the live interpreter, never a table in this crate),
 // and `default_rules()` takes no arguments. The binary constructs it.
 pub use unbound_symbol::{
-    CatalogListing, special_cased_heads, unbound_symbol, Prescription, Shape, UnboundSymbol,
-    SHAPES,
+    special_cased_heads, unbound_symbol, CatalogListing, Prescription, Shape, UnboundSymbol, SHAPES,
 };

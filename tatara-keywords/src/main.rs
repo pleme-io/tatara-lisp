@@ -321,7 +321,10 @@ fn run_names(args: &[String]) -> Result<ExitCode, String> {
         .filter(|s| s.iter().any(|(sf, _)| *sf == names::Surface::Repo))
         .count();
     let cap = flag_value(args, "--max-phantom-repos")?
-        .map(|v| v.parse::<usize>().map_err(|e| format!("--max-phantom-repos: {e}")))
+        .map(|v| {
+            v.parse::<usize>()
+                .map_err(|e| format!("--max-phantom-repos: {e}"))
+        })
         .transpose()?;
     if repo_count < ORG_FLOOR {
         if cap.is_some() {

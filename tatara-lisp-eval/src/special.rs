@@ -173,16 +173,26 @@ impl SpecialForm {
             | Self::MacroexpandAll
             | Self::MacroexpandOne => VmDisposition::Fallback,
 
-            // Derived forms. Each has tree-walker semantics the VM does not
-            // yet lower; until it does they route through the fallback so
-            // they cannot reach the wildcard and miscompile into a call to
-            // an unbound global.
-            Self::Quasiquote
-            | Self::Cond
-            | Self::When
-            | Self::Unless
-            | Self::LetStar
-            | Self::LetRec => VmDisposition::Fallback,
+            // Derived forms the VM now DESUGARS into natively-compiled
+            // forms — see `Compiler::desugar_*`. They are `Compiled` because
+            // that is what the disposition means: the VM produces bytecode for
+            // them and does not call the tree-walker.
+            //
+            // ★ They were `Fallback` until 2026-09-06, and it was WRONG, not
+            // merely slow. `Op::EvalSexp` evaluates in the INTERPRETER's
+            // environment, which cannot see a VM local — so `(let ((x 1))
+            // (cond (#t x)))` answered `unbound symbol` on the VM while the
+            // tree-walker answered 1. The most ordinary shape in the language,
+            // and zero of the then-58 parity cases exercised a fallback form
+            // with a local in scope.
+            Self::Cond | Self::When | Self::Unless | Self::LetStar | Self::LetRec => {
+                VmDisposition::Compiled
+            }
+
+            // Quasiquote stays deferred: it is not a derived form with an
+            // exact expansion into `if`/`let`, and its unquote splicing needs
+            // runtime construction the compiler does not perform.
+            Self::Quasiquote => VmDisposition::Fallback,
         }
     }
 

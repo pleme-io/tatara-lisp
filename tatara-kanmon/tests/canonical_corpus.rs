@@ -124,7 +124,12 @@ fn every_lisp_source_is_canonically_formatted() {
     for path in &files {
         let src = std::fs::read_to_string(path).expect("readable lisp source");
         if !caixa_fmt::is_canonical(&src) {
-            offenders.push(path.strip_prefix(&root).unwrap_or(path).display().to_string());
+            offenders.push(
+                path.strip_prefix(&root)
+                    .unwrap_or(path)
+                    .display()
+                    .to_string(),
+            );
         }
     }
 

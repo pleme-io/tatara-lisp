@@ -375,7 +375,11 @@ fn run_lint(args: &[String]) -> ExitCode {
                     Some(
                         parsed
                             .iter()
-                            .map(|f| interp.fully_expand(f, &mut ctx).unwrap_or_else(|_| f.clone()))
+                            .map(|f| {
+                                interp
+                                    .fully_expand(f, &mut ctx)
+                                    .unwrap_or_else(|_| f.clone())
+                            })
                             .collect::<Vec<_>>(),
                     )
                 }

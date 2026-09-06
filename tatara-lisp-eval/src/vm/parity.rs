@@ -61,6 +61,40 @@ mod tests {
     /// known to produce IDENTICAL results from both the tree-walker
     /// and the VM. Add a row when a VM phase lands new functionality.
     const PARITY_CASES: &[ParityCase] = &[
+        // ── ★ THE FALLBACK-FORMS-WITH-A-LOCAL GAP ────────────────
+        // Cond/When/Unless/LetStar/LetRec are VmDisposition::Fallback, so
+        // the VM emits Op::EvalSexp, which calls `interp.eval_spanned` with
+        // the INTERPRETER's environment. VM locals live in the value stack
+        // at `locals_base` and are invisible to it — so any fallback form
+        // referring to a local resolves to `unbound symbol` on the VM while
+        // the tree-walker answers correctly.
+        //
+        // Zero of the pre-existing 58 cases exercised a fallback form with a
+        // local in scope, which is why the whole class was green.
+        ParityCase {
+            name: "cond-reading-a-local",
+            src: "(let ((x 7)) (cond ((> x 3) :big) (else :small)))",
+        },
+        ParityCase {
+            name: "when-reading-a-local",
+            src: "(let ((x 1)) (when (= x 1) :yes))",
+        },
+        ParityCase {
+            name: "unless-reading-a-local",
+            src: "(let ((x 2)) (unless (= x 1) :not-one))",
+        },
+        ParityCase {
+            name: "let-star-reading-an-outer-local",
+            src: "(let ((a 1)) (let* ((b (+ a 1)) (c (+ b 1))) c))",
+        },
+        ParityCase {
+            name: "letrec-reading-an-outer-local",
+            src: "(let ((n 3)) (letrec ((f (lambda (k) (if (= k 0) n (f (- k 1)))))) (f 2)))",
+        },
+        ParityCase {
+            name: "cond-inside-a-lambda-body",
+            src: "(define (classify v) (cond ((< v 0) :neg) ((= v 0) :zero) (else :pos))) (classify 5)",
+        },
         // ── Atoms + arithmetic ────────────────────────────────────
         ParityCase {
             name: "literal-int",

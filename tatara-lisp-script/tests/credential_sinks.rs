@@ -24,7 +24,10 @@ fn stdin_sink_delivers_the_value() {
     let out = eval(&format!(
         r#"(alist-get (exec-with-stdin "{SECRET}" "cat") "stdout" "")"#
     ));
-    assert!(out.contains(SECRET), "stdin payload did not reach the child");
+    assert!(
+        out.contains(SECRET),
+        "stdin payload did not reach the child"
+    );
 }
 
 #[test]

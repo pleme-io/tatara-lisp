@@ -569,6 +569,32 @@ impl<'a> Compiler<'a> {
             // to an unbound global. `VM_FALLBACK_FORMS` is retained only as
             // documentation of the original module-system set and is
             // asserted to be a subset — see `vm_covers_every_special_form`.
+            // ── Derived forms: DESUGARED, not deferred ───────────────
+            // Each expands exactly into forms the VM lowers natively, so the
+            // expansion inherits correct local scoping, tail position and
+            // parking. Routing them through EvalSexp instead produced
+            // `unbound symbol` for any of them that touched a local — see the
+            // desugar helpers' header.
+            Some("when") => {
+                let f = Self::desugar_when(items, span)?;
+                self.compile_form(&f, tail)
+            }
+            Some("unless") => {
+                let f = Self::desugar_unless(items, span)?;
+                self.compile_form(&f, tail)
+            }
+            Some("cond") => {
+                let f = Self::desugar_cond(items, span)?;
+                self.compile_form(&f, tail)
+            }
+            Some("let*") => {
+                let f = Self::desugar_let_star(items, span)?;
+                self.compile_form(&f, tail)
+            }
+            Some("letrec") => {
+                let f = Self::desugar_letrec(items, span)?;
+                self.compile_form(&f, tail)
+            }
             Some(name) if is_vm_fallback(name) => {
                 let form = Spanned::new(span, SpannedForm::List(items.to_vec()));
                 self.emit_eval_sexp(&form);
@@ -576,6 +602,226 @@ impl<'a> Compiler<'a> {
             }
             _ => self.compile_call(items, span, tail),
         }
+    }
+
+    // ── Desugaring the derived forms ──────────────────────────────
+    //
+    // ★ WHY THESE ARE DESUGARED RATHER THAN LEFT AS FALLBACKS.
+    //
+    // `cond`/`when`/`unless`/`let*` routed to `Op::EvalSexp`, which calls
+    // `interp.eval_spanned` with the INTERPRETER's environment. A VM local
+    // lives in the value stack at `locals_base` and is invisible to that
+    // environment — so any of these forms referring to a local resolved to
+    // `unbound symbol` on the VM while the tree-walker answered correctly.
+    //
+    // That is not a missing optimisation, it is a WRONG ANSWER, and it hit the
+    // most ordinary shape in the language: a `cond` inside a `let` or a
+    // function body. Zero of the then-58 parity cases exercised a fallback form
+    // with a local in scope, which is exactly why the whole class read green.
+    //
+    // Desugaring is the right fix rather than teaching `EvalSexp` about locals:
+    // these forms are DERIVED — each has an exact expansion into `if` / `let` /
+    // `begin`, which the VM already lowers natively — so the expansion inherits
+    // correct scoping, tail position and parking for free. Teaching the
+    // fallback to materialise a frame into an environment would add a second
+    // scoping mechanism that must then agree with the first.
+
+    /// A synthesised symbol form at `span`.
+    fn sym(name: &str, span: Span) -> Spanned {
+        Spanned::new(
+            span,
+            SpannedForm::Atom(tatara_lisp::Atom::Symbol(name.to_string())),
+        )
+    }
+
+    /// `(begin body...)`, or the single form when there is exactly one, or
+    /// `nil` when the body is empty.
+    ///
+    /// Collapsing the one-form case matters for TAIL POSITION: wrapping a lone
+    /// tail expression in a `begin` must not cost it its tail call, and the
+    /// simplest way to guarantee that is not to wrap it.
+    fn body_form(body: &[Spanned], span: Span) -> Spanned {
+        match body.len() {
+            0 => Spanned::new(span, SpannedForm::Nil),
+            1 => body[0].clone(),
+            _ => {
+                let mut items = Vec::with_capacity(body.len() + 1);
+                items.push(Self::sym("begin", span));
+                items.extend(body.iter().cloned());
+                Spanned::new(span, SpannedForm::List(items))
+            }
+        }
+    }
+
+    /// `(when c body...)` => `(if c <body> nil)`.
+    fn desugar_when(items: &[Spanned], span: Span) -> Result<Spanned, CompileError> {
+        if items.len() < 2 {
+            return Err(CompileError::bad(
+                span,
+                "(when cond body...): missing condition",
+            ));
+        }
+        Ok(Spanned::new(
+            span,
+            SpannedForm::List(vec![
+                Self::sym("if", span),
+                items[1].clone(),
+                Self::body_form(&items[2..], span),
+                Spanned::new(span, SpannedForm::Nil),
+            ]),
+        ))
+    }
+
+    /// `(unless c body...)` => `(if c nil <body>)`.
+    fn desugar_unless(items: &[Spanned], span: Span) -> Result<Spanned, CompileError> {
+        if items.len() < 2 {
+            return Err(CompileError::bad(
+                span,
+                "(unless cond body...): missing condition",
+            ));
+        }
+        Ok(Spanned::new(
+            span,
+            SpannedForm::List(vec![
+                Self::sym("if", span),
+                items[1].clone(),
+                Spanned::new(span, SpannedForm::Nil),
+                Self::body_form(&items[2..], span),
+            ]),
+        ))
+    }
+
+    /// `(cond (c1 e1...) (else e...))` => right-nested `if`.
+    ///
+    /// `else` is recognised as a clause head, matching the tree-walker. A cond
+    /// with no matching clause and no else yields nil — also matching.
+    fn desugar_cond(items: &[Spanned], span: Span) -> Result<Spanned, CompileError> {
+        // Build from the tail backwards so the nesting comes out right.
+        let mut out = Spanned::new(span, SpannedForm::Nil);
+        for clause in items[1..].iter().rev() {
+            let parts = clause.as_list().ok_or_else(|| {
+                CompileError::bad(clause.span, "cond: each clause must be a list")
+            })?;
+            if parts.is_empty() {
+                return Err(CompileError::bad(clause.span, "cond: empty clause"));
+            }
+            let test = &parts[0];
+            let body = Self::body_form(&parts[1..], clause.span);
+            // `(else ...)` is unconditional: it becomes the accumulated tail
+            // outright rather than an `if` whose test is the symbol `else`,
+            // which would resolve as a variable and be unbound.
+            if test.as_symbol().map(|s| &*s == "else").unwrap_or(false) {
+                out = body;
+                continue;
+            }
+            // A one-element clause `(test)` yields the TEST's value when truthy,
+            // which is the tree-walker's behaviour.
+            let consequent = if parts.len() == 1 { test.clone() } else { body };
+            out = Spanned::new(
+                clause.span,
+                SpannedForm::List(vec![
+                    Self::sym("if", clause.span),
+                    test.clone(),
+                    consequent,
+                    out,
+                ]),
+            );
+        }
+        Ok(out)
+    }
+
+    /// `(let* ((a x) (b y)) body...)` => `(let ((a x)) (let ((b y)) body...))`.
+    ///
+    /// The nesting IS the semantics: each binding sees the ones before it,
+    /// which a single flat `let` does not provide.
+    fn desugar_let_star(items: &[Spanned], span: Span) -> Result<Spanned, CompileError> {
+        if items.len() < 3 {
+            return Err(CompileError::bad(
+                span,
+                "(let* ((name val)...) body...): expected bindings + body",
+            ));
+        }
+        let bindings = items[1]
+            .as_list()
+            .ok_or_else(|| CompileError::bad(items[1].span, "let*: bindings must be a list"))?;
+        // No bindings degenerates to the body — NOT to a `let` with an empty
+        // binding list, which `compile_let` rejects.
+        if bindings.is_empty() {
+            return Ok(Self::body_form(&items[2..], span));
+        }
+        let mut out = Self::body_form(&items[2..], span);
+        for b in bindings.iter().rev() {
+            out = Spanned::new(
+                b.span,
+                SpannedForm::List(vec![
+                    Self::sym("let", b.span),
+                    Spanned::new(b.span, SpannedForm::List(vec![b.clone()])),
+                    out,
+                ]),
+            );
+        }
+        Ok(out)
+    }
+
+    /// `(letrec ((a x) (b y)) body...)` =>
+    /// `(let ((a nil) (b nil)) (set! a x) (set! b y) body...)`.
+    ///
+    /// The two-phase shape IS the semantics: every name must be BOUND before
+    /// any value is evaluated, or mutual recursion cannot see its partner. A
+    /// `let*`-style nesting would give `(letrec ((ev ..od..) (od ..ev..)))` an
+    /// unbound `od` while evaluating `ev`.
+    ///
+    /// This works on the VM specifically because closures capture by CELL
+    /// (`Arc<Mutex<Value>>`), so a lambda built during phase 1 and assigned in
+    /// phase 2 observes the later value through the same cell. A
+    /// capture-by-value VM would need a different lowering.
+    fn desugar_letrec(items: &[Spanned], span: Span) -> Result<Spanned, CompileError> {
+        if items.len() < 3 {
+            return Err(CompileError::bad(
+                span,
+                "(letrec ((name val)...) body...): expected bindings + body",
+            ));
+        }
+        let bindings = items[1]
+            .as_list()
+            .ok_or_else(|| CompileError::bad(items[1].span, "letrec: bindings must be a list"))?;
+        if bindings.is_empty() {
+            return Ok(Self::body_form(&items[2..], span));
+        }
+
+        let mut nil_binds = Vec::with_capacity(bindings.len());
+        let mut assigns = Vec::with_capacity(bindings.len());
+        for b in bindings {
+            let pair = b.as_list().ok_or_else(|| {
+                CompileError::bad(b.span, "letrec: each binding must be (name val)")
+            })?;
+            if pair.len() != 2 {
+                return Err(CompileError::bad(
+                    b.span,
+                    "letrec: each binding must be (name val)",
+                ));
+            }
+            let name = pair[0].clone();
+            nil_binds.push(Spanned::new(
+                b.span,
+                SpannedForm::List(vec![name.clone(), Spanned::new(b.span, SpannedForm::Nil)]),
+            ));
+            assigns.push(Spanned::new(
+                b.span,
+                SpannedForm::List(vec![Self::sym("set!", b.span), name, pair[1].clone()]),
+            ));
+        }
+
+        let mut body = Vec::with_capacity(assigns.len() + items.len() - 2);
+        body.extend(assigns);
+        body.extend(items[2..].iter().cloned());
+
+        let mut out = vec![
+            Self::sym("let", span),
+            Spanned::new(items[1].span, SpannedForm::List(nil_binds)),
+        ];
+        out.extend(body);
+        Ok(Spanned::new(span, SpannedForm::List(out)))
     }
 
     // ── Special forms ────────────────────────────────────────────

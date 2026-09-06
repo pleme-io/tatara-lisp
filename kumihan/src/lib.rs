@@ -286,7 +286,11 @@ mod tests {
     #[test]
     fn nest_indents_only_what_is_inside_it() {
         let inner = Doc::line().concat(t("x")).nest(2);
-        let d = t("(").concat(inner).concat(Doc::line()).concat(t(")")).group();
+        let d = t("(")
+            .concat(inner)
+            .concat(Doc::line())
+            .concat(t(")"))
+            .group();
         // Width 3 forces the break; `x` carries the nest, `)` does not.
         assert_eq!(pretty(&d, 3), "(\n  x\n)");
     }
@@ -304,10 +308,7 @@ mod tests {
         // group decides independently, so an outer break does not force inner
         // ones.
         let inner = t("c").concat(Doc::line()).concat(t("d")).group();
-        let d = t("aaaaaaaa")
-            .concat(Doc::line())
-            .concat(inner)
-            .group();
+        let d = t("aaaaaaaa").concat(Doc::line()).concat(inner).group();
         assert_eq!(pretty(&d, 10), "aaaaaaaa\nc d");
     }
 
@@ -363,7 +364,11 @@ mod tests {
         // break lines early on any non-ASCII source — and this corpus is full
         // of CJK, ★ and §.
         let d = t("交換").concat(Doc::line()).concat(t("ab")).group();
-        assert_eq!(pretty(&d, 5), "交換 ab", "2 chars + space + 2 chars fits in 5");
+        assert_eq!(
+            pretty(&d, 5),
+            "交換 ab",
+            "2 chars + space + 2 chars fits in 5"
+        );
     }
 
     #[test]

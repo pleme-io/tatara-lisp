@@ -164,3 +164,68 @@ fn every_capture_form_returns_the_same_field_set() {
         }
     }
 }
+
+// ── The native readers: status-of / stdout-of / stderr-of ───────────────────
+//
+// Added 2026-09-15. These were named as record consumers in process.rs's header
+// for months without being bound, so a script trusting that header died with
+// `unbound symbol`. 40 files across 8 repos hand-rolled identical copies.
+
+#[test]
+fn the_readers_are_bound_and_read_the_record() {
+    assert_eq!(
+        eval_str_field(r#"(stdout-of (exec-capture "echo" "hi"))"#).trim(),
+        "hi"
+    );
+    assert_eq!(eval_int_field(r#"(status-of (exec-capture "true"))"#), 0);
+    assert_eq!(eval_int_field(r#"(status-of (exec-capture "false"))"#), 1);
+    assert_eq!(
+        eval_str_field(r#"(stderr-of (exec-capture "sh" "-c" "echo oops >&2"))"#).trim(),
+        "oops"
+    );
+}
+
+#[test]
+fn the_readers_agree_with_alist_get_exactly() {
+    // One lookup, not two: the readers must never disagree with the general
+    // accessor on what a key match is.
+    for (reader, key, default) in [
+        ("status-of", "status", "-1"),
+        ("stdout-of", "stdout", "\"\""),
+        ("stderr-of", "stderr", "\"\""),
+    ] {
+        let via_reader = format!(r#"({reader} (exec-capture "echo" "x"))"#);
+        let via_alist = format!(r#"(alist-get (exec-capture "echo" "x") "{key}" {default})"#);
+        assert_eq!(
+            format!("{:?}", tatara_lisp_script::eval_str(&via_reader).unwrap()),
+            format!("{:?}", tatara_lisp_script::eval_str(&via_alist).unwrap()),
+            "{reader} diverged from alist-get",
+        );
+    }
+}
+
+#[test]
+fn a_missing_key_yields_the_producers_own_sentinels() {
+    // -1 is what capture_result writes for a signal-killed child; "" is the
+    // empty stream. A record lacking the key must answer the same way, or a
+    // killed child and a malformed record would be indistinguishable in a
+    // different way than they are today.
+    assert_eq!(eval_int_field(r"(status-of (list))"), -1);
+    assert_eq!(eval_str_field(r"(stdout-of (list))"), "");
+    assert_eq!(eval_str_field(r"(stderr-of (list))"), "");
+}
+
+#[test]
+fn a_script_local_definition_still_shadows_the_native_reader() {
+    // THE NON-BREAKING PROPERTY. 40 existing .tlisp files define these
+    // locally; adding natives must not change what those scripts compute.
+    // If this ever fails, landing the natives broke every one of them.
+    assert_eq!(
+        eval_int_field(
+            r#"(begin
+                 (define (status-of r) 4242)
+                 (status-of (exec-capture "true")))"#
+        ),
+        4242
+    );
+}

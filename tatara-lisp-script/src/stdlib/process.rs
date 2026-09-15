@@ -53,9 +53,15 @@
 //! `:argv` is a LIST and never a joined string, because re-quoting a command
 //! changes it — a single string cannot be compared against what was run.
 //!
-//! ADDITIVE by construction: `status-of` / `stdout-of` / `stderr-of` and every
-//! other `alist-get` consumer are unaffected, and nothing in the tree asserted
-//! the record's length.
+//! ADDITIVE by construction: every `alist-get` consumer of the record is
+//! unaffected, and nothing in the tree asserted the record's length.
+//!
+//! **The record's readers are native as of 2026-09-15** — `status-of`,
+//! `stdout-of`, `stderr-of`, installed by `install_capture_readers` below.
+//! Before that, this paragraph named them as consumers while they were NOT
+//! builtins, and a script trusting it died with `unbound symbol` at runtime.
+//! A doc comment that names a symbol is not a binding; see that function for
+//! the 40-file measurement that licensed making them one.
 //!
 //! Canonical technique: pleme-io/docs/controlled-subprocess.md (rung 2).
 
@@ -200,6 +206,60 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
             Ok(capture_result(&inv, &out))
         },
     );
+
+    install_capture_readers(interp);
+}
+
+/// `status-of` / `stdout-of` / `stderr-of` — the readers of the record
+/// [`capture_result`] produces, installed beside the producer.
+///
+/// ── WHY THESE ARE NATIVE ───────────────────────────────────────────────
+/// They were never builtins, yet this module's own header named them as
+/// consumers of the record, so a reader (human or agent) took them to exist.
+/// A script calling one died at runtime with `unbound symbol`.
+///
+/// `tatara-script lint` DOES catch that statically — its `unbound-symbol`
+/// rule reports `status-of is not bound by the interpreter or this program`
+/// (verified 2026-09-15 against the 0.3.55 binary). So the class was caught
+/// at lint time, in any repo that runs the lint. The scripts that shipped the
+/// call were ones where it did not run; the defect was gate coverage, not
+/// a missing check.
+///
+/// The fleet answered by hand-rolling them. Measured 2026-09-15 with `rg`
+/// across every `.tlisp` in pleme-io: **40 files in 8 repos** define them
+/// locally — nix 29, actions 3, substrate 3, and five `caixa-tlisp-*` — and
+/// `caixa-tlisp-core/stdlib.tlisp:148-152` is an extraction with ZERO
+/// consumers, because standalone `tatara-script file.tlisp` cannot load it.
+/// Every copy has the SAME body. That is convergent evidence, not duplication:
+/// independent authors kept arriving at one shape because the record forces it.
+///
+/// ── THE DEFAULTS ARE THE PRODUCER'S, NOT A CHOICE ───────────────────────
+/// `-1` for status is what [`capture_result`] itself writes when a child is
+/// killed by a signal (`out.status.code().unwrap_or(-1)`, and `(:status N)`
+/// is documented as "exit code, or -1 when killed by a signal"). Every local
+/// copy picked `-1` independently. Using anything else here would make a
+/// signal-killed child and a missing key report differently for no reason.
+///
+/// ── NON-BREAKING ────────────────────────────────────────────────────────
+/// A script-level `(define (status-of r) ...)` SHADOWS a native binding, so
+/// all 40 existing local definitions keep working unchanged. They can be
+/// deleted at leisure; nothing forces a migration.
+fn install_capture_readers(interp: &mut Interpreter<ScriptCtx>) {
+    use crate::stdlib::json::alist_lookup;
+
+    for (name, key, default) in [
+        ("status-of", "status", Value::Int(-1)),
+        ("stdout-of", "stdout", Value::Str(Arc::from(""))),
+        ("stderr-of", "stderr", Value::Str(Arc::from(""))),
+    ] {
+        interp.register_fn(
+            name,
+            Arity::Exact(1),
+            move |args: &[Value], _ctx: &mut ScriptCtx, _sp| {
+                Ok(alist_lookup(&args[0], key).unwrap_or_else(|| default.clone()))
+            },
+        );
+    }
 }
 
 fn split_cmd(

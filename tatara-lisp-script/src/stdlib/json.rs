@@ -194,7 +194,11 @@ fn map_key_to_json_key(k: &MapKey) -> String {
 }
 
 /// Look up `key` in an alist represented as a list of 2-element lists.
-fn alist_lookup(alist: &Value, key: &str) -> Option<Value> {
+///
+/// `pub(crate)` so the capture-record readers in `stdlib::process` share this
+/// one lookup rather than growing a second — `alist-get` and `status-of` must
+/// agree on what a key match is, and one function is how that stays true.
+pub(crate) fn alist_lookup(alist: &Value, key: &str) -> Option<Value> {
     let Value::List(entries) = alist else {
         return None;
     };

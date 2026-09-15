@@ -57,3 +57,46 @@ pub fn eval_str(src: &str) -> Result<Value, anyhow::Error> {
         .eval_program(&forms, &mut ctx)
         .map_err(|e| anyhow::anyhow!("eval error: {e:?}"))
 }
+
+/// Every name a script may call on THIS binary: special forms, macros, and
+/// every top-level global the real stdlib installs.
+///
+/// ── ONE SOURCE, TWO READERS ──────────────────────────────────────────────
+/// `tatara-script lint`'s `unbound-symbol` rule and `tatara-script symbols`
+/// both read this. They must never disagree: if `symbols` listed a name the
+/// lint rejects (or the reverse), the listing would send an author to a name
+/// that fails. So there is exactly one computation, and it comes from a real
+/// interpreter with the real stdlib — never a hand-kept table, which would
+/// drift the first time a primitive landed.
+///
+/// ── WHY `symbols` EXISTS ─────────────────────────────────────────────────
+/// The lint's own diagnostic says "check the spelling against the installed
+/// primitives", but until this there was no way to LIST them; `--help` pointed
+/// at crate docs unreachable from the binary. The cost was measured
+/// 2026-09-15: `member?` was hand-rolled ~10 times under 5 names across the
+/// fleet while being a builtin the whole time, and
+/// `hardened-images/tools/classic-crypto-gate.tlisp:77` records probing for a
+/// function by trial and error. Authors re-derive what they cannot see.
+///
+/// A `BTreeSet`, so the output is sorted and duplicate-free:
+/// `reserved_head_names` already folds in top-level globals, and the lint's
+/// original construction added them a second time.
+#[must_use]
+pub fn bound_symbol_names() -> std::collections::BTreeSet<String> {
+    let mut interp: Interpreter<ScriptCtx> = Interpreter::new();
+    let mut ctx = ScriptCtx::with_argv(Vec::<String>::new());
+    install_stdlib(&mut interp, &mut ctx);
+    let mut names: std::collections::BTreeSet<String> = interp
+        .reserved_head_names()
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    names.extend(
+        interp
+            .globals_snapshot()
+            .iter_top_level()
+            .into_iter()
+            .map(|(name, _)| name.to_string()),
+    );
+    names
+}

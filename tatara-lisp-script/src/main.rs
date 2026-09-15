@@ -73,6 +73,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Some("lint") => run_lint(&args[1..]),
+        Some("symbols") => run_symbols(&args[1..]),
         Some(path) if path.starts_with("--") => {
             eprintln!("tatara-script: unknown flag {path:?}; see --help");
             ExitCode::from(2)
@@ -95,6 +96,7 @@ fn print_help() {
            tatara-script lint [path ...]               semantic lint (.tlisp); no paths = walk cwd\n  \
            tatara-script lint --no-unbound <path>      skip the unbound-symbol rule\n  \
            tatara-script lint --shapes                 print the unbound-symbol shape catalog\n  \
+           tatara-script symbols [substring ...]       list every bound primitive (the lint's set)\n  \
            tatara-script --repl                        interactive read-eval-print loop\n  \
            tatara-script --help                        this banner\n\
          \n\
@@ -106,7 +108,7 @@ fn print_help() {
            https://example.com/...[#blake3=hex]         direct fetch + optional pin\n\
          \n\
          URLs cache at ~/.cache/tatara/sources keyed by BLAKE3.\n\
-         See the tatara-lisp-script crate stdlib docs for the full primitive list."
+         `tatara-script symbols` lists every primitive this binary binds."
     );
 }
 
@@ -242,6 +244,39 @@ fn install_canonical_loader(interp: &mut Interpreter<ScriptCtx>, script_path: &P
 /// Prints `path:line:col: [rule] message` per violation; exits non-zero if any
 /// violation or unparseable file is found, unless `--warn` downgrades to a
 /// warning-only pass.
+/// `tatara-script symbols [substring ...]` — every name this binary binds.
+///
+/// With no arguments, prints the whole set, one per line, sorted. With
+/// arguments, prints the names containing ANY of them — so
+/// `tatara-script symbols lower` answers "is it `string-lowercase` or
+/// `string-downcase`?" without a trial run.
+///
+/// Exit status follows `grep`, so it composes as a probe in a script or hook:
+/// 0 when at least one name printed, 1 when a filter matched nothing. An
+/// empty match is a FINDING (the name is genuinely unbound here), reported on
+/// stderr so stdout stays a clean list — never folded into success.
+///
+/// Reads `bound_symbol_names`, the same set the lint's `unbound-symbol` rule
+/// checks against, so a name listed here is a name the lint accepts.
+fn run_symbols(filters: &[String]) -> ExitCode {
+    let names = tatara_lisp_script::bound_symbol_names();
+    let mut shown = 0usize;
+    for name in &names {
+        if filters.is_empty() || filters.iter().any(|f| name.contains(f.as_str())) {
+            println!("{name}");
+            shown += 1;
+        }
+    }
+    if shown == 0 {
+        eprintln!(
+            "tatara-script symbols: no bound name contains {filters:?} ({} names bound)",
+            names.len()
+        );
+        return ExitCode::from(1);
+    }
+    ExitCode::SUCCESS
+}
+
 fn run_lint(args: &[String]) -> ExitCode {
     let warn_only = args.iter().any(|a| a == "--warn");
     // DEFAULT-ON since 2026-08-03. `--unbound` is still accepted (no-op) so
@@ -307,21 +342,11 @@ fn run_lint(args: &[String]) -> ExitCode {
     //             genuinely not self-contained.
     // Opt out per-run with `--no-unbound`.
     if check_unbound {
-        let mut interp: Interpreter<ScriptCtx> = Interpreter::new();
-        let mut ctx = ScriptCtx::with_argv(Vec::<String>::new());
-        install_stdlib(&mut interp, &mut ctx);
-        let mut known: Vec<String> = interp
-            .reserved_head_names()
-            .iter()
-            .map(|n| n.to_string())
+        // The SAME set `tatara-script symbols` prints — see
+        // `bound_symbol_names` for why the two may never be computed apart.
+        let known: Vec<String> = tatara_lisp_script::bound_symbol_names()
+            .into_iter()
             .collect();
-        known.extend(
-            interp
-                .globals_snapshot()
-                .iter_top_level()
-                .into_iter()
-                .map(|(name, _)| name.to_string()),
-        );
         rules.push(Box::new(tatara_lisp_lint::rules::unbound_symbol(known)));
     }
 

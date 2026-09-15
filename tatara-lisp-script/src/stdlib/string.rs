@@ -6,6 +6,8 @@
 //!   (string-lowercase STR)        → new string
 //!   (string-format TMPL &rest VS) → printf-ish, `{}` placeholders consumed left-to-right
 //!   (string-trim STR)             → new string with leading/trailing whitespace removed
+//!   (string->number STR)          → Int when the text is an integer, else Float;
+//!                                   a typed error when it is neither
 
 use std::sync::Arc;
 
@@ -65,6 +67,43 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
         |args: &[Value], _ctx: &mut ScriptCtx, sp| {
             let s = str_arg(&args[0], "string-trim", sp)?;
             Ok(Value::Str(Arc::from(s.trim())))
+        },
+    );
+
+    // (string->number STR)
+    //
+    // The gap this closes: every value that arrives from outside a script —
+    // a captured stdout, a matched group, a JSON string field — is text, and
+    // without this there is no way to do arithmetic on it. Scripts were
+    // working around it by folding over `string-chars`, which handles neither
+    // a sign nor a decimal point, or by pushing the arithmetic out into a
+    // shell one-liner, which is the thing the stack law exists to prevent.
+    //
+    // Integer-first, deliberately: `"60"` must come back as Int so it can index,
+    // compare and add against other Ints without a silent float contaminating
+    // the result. Only text that is not a valid integer is tried as a float.
+    // Failure is a typed error, never a silent 0 — a 0 returned for "abc" is
+    // the same shape of defect as an unreachable cluster reported as an empty
+    // one.
+    interp.register_fn(
+        "string->number",
+        Arity::Exact(1),
+        |args: &[Value], _ctx: &mut ScriptCtx, sp| {
+            let s = str_arg(&args[0], "string->number", sp)?;
+            let t = s.trim();
+            if let Ok(n) = t.parse::<i64>() {
+                return Ok(Value::Int(n));
+            }
+            if let Ok(f) = t.parse::<f64>() {
+                if f.is_finite() {
+                    return Ok(Value::Float(f));
+                }
+            }
+            Err(EvalError::native_fn(
+                "string->number",
+                format!("not a number: {t:?}"),
+                sp,
+            ))
         },
     );
 

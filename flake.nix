@@ -117,7 +117,7 @@
             Labels = {
               "org.opencontainers.image.source" = "https://github.com/pleme-io/tatara-lisp";
               "org.opencontainers.image.description" =
-                "tatara-script + common tooling — universal base image for pleme-io/actions Docker actions";
+                "tatara-script + common tooling — base image pleme-io/actions builds its actions from via nix; never published to a registry";
               "org.opencontainers.image.licenses" = "MIT";
               "org.opencontainers.image.version" = "0.3.0";
             };

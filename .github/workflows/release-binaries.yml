@@ -1,10 +1,20 @@
 # tatara-lisp ships its standalone CLI (`tatara-script`) as a
-# cross-arch GitHub Release on every `v*` tag, plus a Linux x86_64
-# Docker image built via nix dockerTools and published to ghcr.io.
+# cross-arch GitHub Release on every `v*` tag. That is ALL this workflow
+# publishes.
 #
-# The Docker image is what pleme-io/actions/* consume as the FROM
-# layer in their per-action Dockerfiles — replaces the composite-
-# action bash bootstrap that used to curl the binary on every run.
+# ── NO REGISTRY IMAGE (removed 2026-09-15) ───────────────────────────
+# This workflow used to also push a Docker image to ghcr.io/pleme-io/
+# tatara-script. It was removed on purpose: tatara-lisp is an open-source
+# crates.io package, and a registry image dragged a write credential into
+# its release path for no consumer that needed it. The image job had been
+# failing on a GHCR 403 ("token does not match expected scopes") on every
+# tag, runs 34003170242 and 34977927798.
+#
+# The IMAGE DERIVATION is deliberately kept: flake.nix `packages.image` is
+# what pleme-io/actions builds its action images from, through nix
+# (actions/flake.nix `baseImage = tatara-lisp.packages.${system}.image`),
+# with no registry in the path. Removing the publish job changes nothing for
+# that consumer; removing the derivation would break it.
 
 name: release-binaries
 
@@ -46,12 +56,3 @@ jobs:
       # the ELF fact — no PT_INTERP, no versioned GLIBC_* imports — rather than
       # one tool's wording for it. Nothing about this repo's musl choice moved.
       linux-libc: musl
-
-  image:
-    name: Docker image → ghcr.io
-    uses: pleme-io/substrate/.github/workflows/image-push.yml@main
-    with:
-      imageAttr: image
-      imageName: pleme-io/tatara-script
-      tag: ${{ github.ref_name }}
-    secrets: inherit

@@ -30,6 +30,12 @@
       :palavra "defamostra-beta"
       :donos ("tatara-lisp/tatara-lisp/src/compile.rs"))
     (
+      :palavra "defamostra-slot"
+      :donos ("tatara-lisp/tatara-lisp/tests/phase_f_constructs.rs"))
+    (
+      :palavra "defamostra-sonda"
+      :donos ("tatara-lisp/tatara-lisp/tests/phase_f_constructs.rs"))
+    (
       :palavra "defarchetype"
       :donos ("repo-forge/repo-forge-archetype/src/archetype.rs"))
     (:palavra "defarnes" :donos ("arnes/arnes-config/src/lib.rs"))

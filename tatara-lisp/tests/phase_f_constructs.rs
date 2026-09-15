@@ -32,7 +32,7 @@ enum Polarity {
 }
 
 #[derive(Debug, PartialEq, Eq, DeriveTataraDomain)]
-#[tatara(keyword = "slot")]
+#[tatara(keyword = "defamostra-slot")]
 struct Slot {
     name: String,
     hex: String,
@@ -43,7 +43,7 @@ struct Slot {
 /// ramp, a set of routes) is expressed at all, given the language has neither
 /// a map nor a vector type.
 #[derive(Debug, PartialEq, Eq, DeriveTataraDomain)]
-#[tatara(keyword = "defprobe")]
+#[tatara(keyword = "defamostra-sonda")]
 struct Probe {
     name: String,
     #[tatara(keyword_enum)]
@@ -73,12 +73,12 @@ impl TryFrom<String> for Hex {
 }
 
 const GOOD: &str = r#"
-(defprobe
+(defamostra-sonda
   :name "nord"
   :polarity :dark
-  :primary (slot :name "base00" :hex "2e3440")
-  :slots ((slot :name "base00" :hex "2e3440")
-          (slot :name "base01" :hex "3b4252")))
+  :primary (defamostra-slot :name "base00" :hex "2e3440")
+  :slots ((defamostra-slot :name "base00" :hex "2e3440")
+          (defamostra-slot :name "base01" :hex "3b4252")))
 "#;
 
 fn compile(src: &str) -> tatara_lisp::Result<Probe> {
@@ -139,7 +139,7 @@ fn keyword_sexp_lowercases_the_ident_with_no_separator() {
 
 #[test]
 fn newtype_reaches_the_border_via_serde_try_from() {
-    let forms = tatara_lisp::read(r#"(slot :name "base00" :hex "2e3440")"#).unwrap();
+    let forms = tatara_lisp::read(r#"(defamostra-slot :name "base00" :hex "2e3440")"#).unwrap();
     let s = Slot::compile_from_sexp(&forms[0]).unwrap();
     let h = Hex::try_from(s.hex).unwrap();
     assert_eq!((h.0, h.1, h.2), (0x2e, 0x34, 0x40));

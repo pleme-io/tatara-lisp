@@ -84,6 +84,7 @@ pub const HOF_NAMES: &[&str] = &[
     "scan-left",
     "some",
     "sort-by",
+    "sort-by-key",
     "take-while",
 ];
 
@@ -471,6 +472,29 @@ pub fn install_hof<H: 'static>(interp: &mut Interpreter<H>) {
         },
     );
 
+    // (sort-by-key key xs): xs ordered by (key x), under the rules
+    // `compare` states. The comparator form above is an insertion sort, n^2
+    // calls into the comparator; this is the one for data. Each key is
+    // computed once, the sort is Rust's stable merge sort, O(n log n), and
+    // nothing recurses per element, so it does not run out of stack at any
+    // length.
+    interp.register_higher_order_fn(
+        "sort-by-key",
+        Arity::Exact(2),
+        |args: &[Value], host: &mut H, caller: &Caller<H>, sp: Span| {
+            let key = &args[0];
+            let xs = expect_list(&args[1], sp)?;
+            let mut keyed = Vec::with_capacity(xs.len());
+            for x in xs.iter() {
+                keyed.push((
+                    caller.apply_value(key, vec![x.clone()], host, sp)?,
+                    x.clone(),
+                ));
+            }
+            Ok(Value::list(sort_keyed_values(keyed, sp)?))
+        },
+    );
+
     // ── generation ───────────────────────────────────────────────────
     interp.register_higher_order_fn(
         "iterate",
@@ -540,6 +564,34 @@ pub fn install_hof<H: 'static>(interp: &mut Interpreter<H>) {
 }
 
 // ── shared helpers ───────────────────────────────────────────────────
+
+/// The values of `keyed` ordered by their keys, stably, under
+/// `primitive::compare_values`. Public so an embedder binding its own name
+/// for a keyed sort (blue's `sort_keyed`) runs this one.
+///
+/// The keys are checked before sorting rather than during it: Rust's sort may
+/// panic when a comparison is not a total order, and two keys of different
+/// kinds, or a NaN (which `compare` calls equal to everything), would make it
+/// one. So every key must be comparable with the first, and none may be NaN;
+/// either failure is a typed error naming the key's position.
+pub fn sort_keyed_values(mut keyed: Vec<(Value, Value)>, sp: Span) -> Result<Vec<Value>> {
+    if let Some((first, _)) = keyed.first() {
+        for (i, (k, _)) in keyed.iter().enumerate() {
+            if matches!(k, Value::Float(x) if x.is_nan()) {
+                return Err(EvalError::native_fn(
+                    "sort-by-key",
+                    format!("the key at position {i} is NaN, which has no order"),
+                    sp,
+                ));
+            }
+            crate::primitive::compare_values(first, k, sp)?;
+        }
+    }
+    keyed.sort_by(|a, b| {
+        crate::primitive::compare_values(&a.0, &b.0, sp).unwrap_or(std::cmp::Ordering::Equal)
+    });
+    Ok(keyed.into_iter().map(|(_, v)| v).collect())
+}
 
 fn expect_list(v: &Value, sp: Span) -> Result<Vec<Value>> {
     match v {

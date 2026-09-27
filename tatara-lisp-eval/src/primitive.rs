@@ -658,36 +658,10 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
     interp.register_fn(
         "compare",
         Arity::Exact(2),
-        |args: &[Value], _h: &mut H, sp| match (&args[0], &args[1]) {
-            (Value::Int(a), Value::Int(b)) => Ok(Value::Int(cmp_to_int(a.cmp(b)))),
-            (Value::Float(a), Value::Float(b)) => Ok(Value::Int(cmp_to_int(
-                a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal),
-            ))),
-            (Value::Int(a), Value::Float(b)) => Ok(Value::Int(cmp_to_int(
-                (*a as f64)
-                    .partial_cmp(b)
-                    .unwrap_or(std::cmp::Ordering::Equal),
-            ))),
-            (Value::Float(a), Value::Int(b)) => Ok(Value::Int(cmp_to_int(
-                a.partial_cmp(&(*b as f64))
-                    .unwrap_or(std::cmp::Ordering::Equal),
-            ))),
-            (Value::Str(a), Value::Str(b)) => {
-                Ok(Value::Int(cmp_to_int(a.as_ref().cmp(b.as_ref()))))
-            }
-            (Value::Symbol(a), Value::Symbol(b)) => {
-                Ok(Value::Int(cmp_to_int(a.as_ref().cmp(b.as_ref()))))
-            }
-            (Value::Keyword(a), Value::Keyword(b)) => {
-                Ok(Value::Int(cmp_to_int(a.as_ref().cmp(b.as_ref()))))
-            }
-            (a, b) => Err(EvalError::type_mismatch(
-                "comparable values of the same kind",
-                std::boxed::Box::leak(
-                    format!("{} vs {}", a.type_name(), b.type_name()).into_boxed_str(),
-                ),
-                sp,
-            )),
+        |args: &[Value], _h: &mut H, sp| {
+            Ok(Value::Int(cmp_to_int(compare_values(
+                &args[0], &args[1], sp,
+            )?)))
         },
     );
 
@@ -937,6 +911,36 @@ fn gcd(a: i64, b: i64) -> i64 {
         a
     } else {
         gcd(b, a % b)
+    }
+}
+
+/// The ordering `compare` answers with, as a Rust `Ordering`: numbers by
+/// value (an int and a float compare as floats), strings, symbols and
+/// keywords by their text. Anything else, or two values of different kinds,
+/// is a type error. Public so a sort orders by exactly the rules `compare`
+/// states (`hof::sort_keyed_values`).
+pub fn compare_values(a: &Value, b: &Value, sp: Span) -> Result<std::cmp::Ordering> {
+    match (a, b) {
+        (Value::Int(a), Value::Int(b)) => Ok(a.cmp(b)),
+        (Value::Float(a), Value::Float(b)) => {
+            Ok(a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+        }
+        (Value::Int(a), Value::Float(b)) => Ok((*a as f64)
+            .partial_cmp(b)
+            .unwrap_or(std::cmp::Ordering::Equal)),
+        (Value::Float(a), Value::Int(b)) => Ok(a
+            .partial_cmp(&(*b as f64))
+            .unwrap_or(std::cmp::Ordering::Equal)),
+        (Value::Str(a), Value::Str(b)) => Ok(a.as_ref().cmp(b.as_ref())),
+        (Value::Symbol(a), Value::Symbol(b)) => Ok(a.as_ref().cmp(b.as_ref())),
+        (Value::Keyword(a), Value::Keyword(b)) => Ok(a.as_ref().cmp(b.as_ref())),
+        (a, b) => Err(EvalError::type_mismatch(
+            "comparable values of the same kind",
+            std::boxed::Box::leak(
+                format!("{} vs {}", a.type_name(), b.type_name()).into_boxed_str(),
+            ),
+            sp,
+        )),
     }
 }
 

@@ -40,6 +40,11 @@ pub const PRIMITIVE_NAMES: &[&str] = &[
     "sin",
     "cos",
     "tan",
+    "asin",
+    "acos",
+    "atan",
+    "atan2",
+    "hypot",
     "log",
     "exp",
     // comparison
@@ -422,6 +427,60 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
         let n = as_number_either(&args[0], sp)?.to_float();
         Ok(Value::Float(n.tan()))
     });
+    // The inverses. `asin` and `acos` are defined only on [-1, 1]; outside it
+    // Rust answers NaN, which then compares false to everything and flows on
+    // as a number. A NaN angle is not an angle, so it is refused by name.
+    // A caller clamping a value that went slightly past 1 through rounding
+    // does so on purpose, where the reason is visible.
+    interp.register_fn("asin", Arity::Exact(1), |args: &[Value], _h: &mut H, sp| {
+        let n = as_number_either(&args[0], sp)?.to_float();
+        if !(-1.0..=1.0).contains(&n) {
+            return Err(EvalError::native_fn(
+                "asin",
+                format!("{n} is outside [-1, 1]"),
+                sp,
+            ));
+        }
+        Ok(Value::Float(n.asin()))
+    });
+    interp.register_fn("acos", Arity::Exact(1), |args: &[Value], _h: &mut H, sp| {
+        let n = as_number_either(&args[0], sp)?.to_float();
+        if !(-1.0..=1.0).contains(&n) {
+            return Err(EvalError::native_fn(
+                "acos",
+                format!("{n} is outside [-1, 1]"),
+                sp,
+            ));
+        }
+        Ok(Value::Float(n.acos()))
+    });
+    interp.register_fn("atan", Arity::Exact(1), |args: &[Value], _h: &mut H, sp| {
+        let n = as_number_either(&args[0], sp)?.to_float();
+        Ok(Value::Float(n.atan()))
+    });
+    // (atan2 y x): the angle of the point (x, y), in (-pi, pi]. The argument
+    // order is C's and every libm's, y first, so a formula copied from a
+    // reference reads the same here.
+    interp.register_fn(
+        "atan2",
+        Arity::Exact(2),
+        |args: &[Value], _h: &mut H, sp| {
+            let y = as_number_either(&args[0], sp)?.to_float();
+            let x = as_number_either(&args[1], sp)?.to_float();
+            Ok(Value::Float(y.atan2(x)))
+        },
+    );
+    // (hypot x y): sqrt(x^2 + y^2) without the overflow or underflow the
+    // squares would suffer.
+    interp.register_fn(
+        "hypot",
+        Arity::Exact(2),
+        |args: &[Value], _h: &mut H, sp| {
+            let x = as_number_either(&args[0], sp)?.to_float();
+            let y = as_number_either(&args[1], sp)?.to_float();
+            Ok(Value::Float(x.hypot(y)))
+        },
+    );
     interp.register_fn(
         "log",
         Arity::Range(1, 2),

@@ -946,8 +946,8 @@ fn primitive_return_type(name: &str) -> Option<StaticType> {
         // Int (currently we can't peek args here cheaply, so promote
         // to :number which conservatively conforms to both).
         "+" | "-" | "*" | "/" | "abs" | "min" | "max" | "modulo" | "expt" | "sqrt" | "floor"
-        | "ceiling" | "round" | "truncate" | "gcd" | "lcm" | "sin" | "cos" | "tan" | "log"
-        | "exp" | "inc" | "dec" => StaticType::Number,
+        | "ceiling" | "round" | "truncate" | "gcd" | "lcm" | "sin" | "cos" | "tan" | "asin"
+        | "acos" | "atan" | "atan2" | "hypot" | "log" | "exp" | "inc" | "dec" => StaticType::Number,
 
         // comparisons + predicates — bool.
         "=" | "<" | ">" | "<=" | ">=" | "not=" | "null?" | "pair?" | "list?" | "symbol?"

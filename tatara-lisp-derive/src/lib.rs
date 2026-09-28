@@ -146,7 +146,11 @@ pub fn derive_tatara_domain(input: TokenStream) -> TokenStream {
     let mut allowed_keys: Vec<String> = Vec::with_capacity(fields.len());
     for field in fields {
         let ident = field.ident.as_ref().expect("named field");
-        let kebab = snake_to_kebab(&ident.to_string());
+        // `unraw`: a field that has to be a raw identifier because its natural
+        // keyword is a Rust keyword (`r#fn`, `r#type`) is authored `:fn`, not
+        // `:r#fn`. Without it the kwarg gate demanded a spelling no author
+        // would write, while serde (the shikumi load path) accepted `fn`.
+        let kebab = snake_to_kebab(&syn::ext::IdentExt::unraw(ident).to_string());
         allowed_keys.push(kebab.clone());
         let has_default = has_serde_default(field);
         // Phase F: `#[tatara(domain)]` opts the field into the nested

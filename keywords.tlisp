@@ -8,13 +8,14 @@
 ;; still refuses a tree that adds another claimant.
 
 (defreservas
-  :medido-em "2026-08-06"
-  :arvore "~/code/github/pleme-io (the pleme-io org checkout)"
-  :denominador 213
+  :medido-em "2026-09-28"
+  :arvore "~/code/github/pleme-io"
+  :denominador 276
   :palavras ((
      :palavra "defabbr"
      :donos ("frost/crates/frost-lisp/src/abbr.rs"))
     (:palavra "defabbrev" :donos ("escriba/escriba-lisp/src/abbrev.rs"))
+    (:palavra "defaction" :donos ("saihai/saihai-spec/src/lib.rs"))
     (
       :palavra "defactivation-script-algorithm"
       :donos ("sui/sui-spec/src/activation_script.rs"))
@@ -35,10 +36,14 @@
     (
       :palavra "defamostra-sonda"
       :donos ("tatara-lisp/tatara-lisp/tests/phase_f_constructs.rs"))
+    (:palavra "defansi" :donos ("pente/pente-spec/src/lib.rs"))
     (
       :palavra "defarchetype"
       :donos ("repo-forge/repo-forge-archetype/src/archetype.rs"))
     (:palavra "defarnes" :donos ("arnes/arnes-config/src/lib.rs"))
+    (:palavra "defarnes-command" :donos ("arnes/arnes-config/src/lib.rs"))
+    (:palavra "defarnes-hook" :donos ("arnes/arnes-config/src/lib.rs"))
+    (:palavra "defarnes-tool" :donos ("arnes/arnes-config/src/lib.rs"))
     (:palavra "defassinatura" :donos ("acervo/acervo-lisp/src/lib.rs"))
     (:palavra "defast-graph" :donos ("sui/sui-spec/src/ast_graph.rs"))
     (:palavra "defast-graph-fixture" :donos ("sui/sui-spec/src/ast_graph.rs"))
@@ -46,15 +51,25 @@
     (:palavra "defast-node" :donos ("sui/sui-spec/src/ast_graph.rs"))
     (:palavra "defattest" :donos ("escriba/escriba-lisp/src/attest.rs"))
     (:palavra "defattrkey-forcesite" :donos ("sui/sui-spec/src/laziness.rs"))
-    (:palavra "defbancada" :donos ("banken/banken-spec/src/bancada.rs"))
+    (:palavra "defauthpolicy" :donos ("mukae/mukae-lisp/src/lib.rs"))
+    (:palavra "defbadge" :donos ("zukai/crates/zukai-model/src/lib.rs"))
+    (
+      :palavra "defbancada"
+      :donos ("banken/banken-spec/src/bancada.rs"
+        "saihai/saihai-spec/src/bancada.rs"))
+    (:palavra "defband" :donos ("zukai/crates/zukai-model/src/lib.rs"))
     (:palavra "defbanken" :donos ("banken/banken-config/src/lib.rs"))
     (:palavra "defbind" :donos ("frost/crates/frost-lisp/src/bind.rs"))
+    (:palavra "defblend" :donos ("pente/pente-spec/src/lib.rs"))
     (:palavra "defbpf-map" :donos ("tatara-lisp/tatara-ebpf/src/spec.rs"))
     (:palavra "defbpf-policy" :donos ("tatara-lisp/tatara-ebpf/src/spec.rs"))
     (:palavra "defbpf-program" :donos ("tatara-lisp/tatara-ebpf/src/spec.rs"))
+    (:palavra "defbrand" :donos ("pente/pente-spec/src/lib.rs"))
     (:palavra "defbufferline" :donos ("escriba/escriba-lisp/src/bufferline.rs"))
     (:palavra "defbuiltin" :donos ("frost/crates/frost-spec/src/builtin.rs"))
+    (:palavra "defbyte" :donos ("tatara/tatara-lisp/src/domain.rs"))
     (:palavra "defcaixa" :donos ("caixa/caixa-core/src/manifest.rs"))
+    (:palavra "defcanvas" :donos ("zukai/crates/zukai-model/src/lib.rs"))
     (:palavra "defci" :donos ("sui/sui-supercacheci/src/canteiro_spec.rs"))
     (
       :palavra "defciliumnetworkpolicy"
@@ -73,16 +88,20 @@
       :palavra "defcompletion"
       :donos ("frost/crates/frost-lisp/src/completion.rs"))
     (:palavra "defconfigfield" :donos ("go-tool-synthesizer/src/spec.rs"))
+    (:palavra "defconsole" :donos ("mukae/mukae-lisp/src/lib.rs"))
     (:palavra "defdap" :donos ("escriba/escriba-lisp/src/dap.rs"))
     (:palavra "defdarkside-lever" :donos ("sui/sui-spec/src/darkside.rs"))
     (:palavra "defderivation" :donos ("tatara/tatara-nix/src/derivation.rs"))
     (
       :palavra "defderivation-algorithm"
       :donos ("sui/sui-spec/src/derivation.rs"))
+    (:palavra "defderived" :donos ("pente/pente-spec/src/lib.rs"))
+    (:palavra "defdiagram" :donos ("zukai/crates/zukai-model/src/lib.rs"))
     (:palavra "defdiorama" :donos ("asobi/crates/asobi-spec/src/lib.rs"))
     (:palavra "defdockerfile-graph" :donos ("sui/sui-spec/src/dockerfile.rs"))
     (:palavra "defdrill" :donos ("banken/banken-spec/src/drill.rs"))
     (:palavra "defeager-class" :donos ("sui/sui-spec/src/eager_class.rs"))
+    (:palavra "defedge" :donos ("zukai/crates/zukai-model/src/lib.rs"))
     (
       :palavra "defeffect"
       :donos ("engawa/src/lisp.rs" "escriba/escriba-lisp/src/effect.rs"))
@@ -99,6 +118,8 @@
     (:palavra "defescriba" :donos ("escriba/escriba-config/src/lib.rs"))
     (:palavra "defescribaplugin" :donos ("escriba/escriba-lisp/src/catalog.rs"))
     (:palavra "defeval-cache-format" :donos ("sui/sui-spec/src/eval_cache.rs"))
+    (:palavra "defface" :donos ("mukae/mukae-lisp/src/catalog.rs"))
+    (:palavra "deffact" :donos ("mukae/mukae-lisp/src/catalog.rs"))
     (:palavra "deffetcher" :donos ("sui/sui-spec/src/fetcher.rs"))
     (
       :palavra "defflag"
@@ -121,10 +142,15 @@
     (:palavra "defgotool" :donos ("go-tool-synthesizer/src/spec.rs"))
     (:palavra "defgraph-hash" :donos ("sui/sui-spec/src/lockfile_graph.rs"))
     (:palavra "defguest" :donos ("tatara/tatara-vm/src/guest.rs"))
+    (:palavra "defhandoff" :donos ("mukae/mukae-lisp/src/catalog.rs"))
     (:palavra "defhash-algorithm" :donos ("sui/sui-spec/src/hash.rs"))
     (:palavra "defhash-encoding" :donos ("sui/sui-spec/src/hash.rs"))
+    (:palavra "defheader" :donos ("arnes/arnes-config/src/lib.rs"))
+    (:palavra "defhero" :donos ("zukai/crates/zukai-model/src/lib.rs"))
     (:palavra "defhighlight" :donos ("escriba/escriba-lisp/src/highlight.rs"))
     (:palavra "defhistory" :donos ("frost/crates/frost-lisp/src/history.rs"))
+    (:palavra "defholofote" :donos ("holofote/holofote/src/config.rs"))
+    (:palavra "defhonor" :donos ("mukae/mukae-lisp/src/catalog.rs"))
     (
       :palavra "defhook"
       :donos ("escriba/escriba-lisp/src/hook.rs"
@@ -189,6 +215,7 @@
         "tatara/tatara-lisp/src/domain.rs"))
     (:palavra "defmostrador" :donos ("vendaval/src/forge.rs"))
     (:palavra "defmount" :donos ("tatara/tatara-init/src/config.rs"))
+    (:palavra "defmukae" :donos ("mukae/mukae-lisp/src/lib.rs"))
     (:palavra "defnamed-edge" :donos ("sui/sui-spec/src/lockfile_graph.rs"))
     (:palavra "defnar-format" :donos ("sui/sui-spec/src/nar.rs"))
     (:palavra "defnarinfo-format" :donos ("sui/sui-spec/src/narinfo.rs"))
@@ -202,10 +229,12 @@
       :palavra "defnix-replacement-surface"
       :donos ("sui/sui-spec/src/nix_replacement_coverage.rs"))
     (:palavra "defnix-surface" :donos ("sui/sui-spec/src/nix_surface.rs"))
+    (:palavra "defnode" :donos ("zukai/crates/zukai-model/src/lib.rs"))
     (
       :palavra "defnotify"
       :donos ("frost/crates/frost-lisp/src/notify.rs"
         "tatara/tatara-domains/src/lib.rs"))
+    (:palavra "defobserved" :donos ("saihai/saihai-spec/src/lib.rs"))
     (:palavra "defopenai" :donos ("kura/kura-core/src/provider.rs"))
     (
       :palavra "defoption"
@@ -213,8 +242,13 @@
         "frost/crates/frost-spec/src/option.rs"))
     (:palavra "defoption-type" :donos ("sui/sui-spec/src/module_system.rs"))
     (:palavra "defopts" :donos ("frost/crates/frost-lisp/src/option.rs"))
+    (:palavra "defoptvecflags" :donos ("tatara/tatara-lisp/src/domain.rs"))
+    (:palavra "defoptvecports" :donos ("tatara/tatara-lisp/src/domain.rs"))
+    (:palavra "defoptvectags" :donos ("tatara/tatara-lisp/src/domain.rs"))
     (:palavra "defoverlay" :donos ("tatara/tatara-nix/src/overlay.rs"))
     (:palavra "defpalette" :donos ("escriba/escriba-lisp/src/palette.rs"))
+    (:palavra "defpam" :donos ("mukae/mukae-lisp/src/lib.rs"))
+    (:palavra "defparam" :donos ("saihai/saihai-spec/src/lib.rs"))
     (:palavra "defpath" :donos ("frost/crates/frost-lisp/src/path.rs"))
     (:palavra "defpathology" :donos ("banken/banken-spec/src/pathology.rs"))
     (:palavra "defpautaaction" :donos ("pauta/pauta-spec/src/lib.rs"))
@@ -229,40 +263,64 @@
     (
       :palavra "defpodmonitor"
       :donos ("tatara-lisp/tatara-prometheus-operator/src/lib.rs"))
-    (:palavra "defpoint" :donos ("tatara/tatara-process/src/crd.rs"))
+    (
+      :palavra "defpoint"
+      :donos ("tatara/tatara-process/src/crd.rs"
+        "zukai/crates/zukai-model/src/lib.rs"))
+    (:palavra "defpointer" :donos ("tatara/tatara-lisp/src/domain.rs"))
+    (:palavra "defport" :donos ("tatara/tatara-lisp/src/domain.rs"))
     (:palavra "defposit" :donos ("frost/crates/frost-lisp/src/compcomp.rs"))
     (:palavra "defpriority" :donos ("sui/sui-spec/src/module_system.rs"))
-    (:palavra "defprobe" :donos ("sui/sui-spec/src/probe.rs"))
+    (
+      :palavra "defprobe"
+      :donos ("mukae/mukae-lisp/tests/vec_of_strings.rs"
+        "sui/sui-spec/src/probe.rs"))
     (:palavra "defprofile-format" :donos ("sui/sui-spec/src/profile.rs"))
     (:palavra "defpromotionpolicy" :donos ("formigueiro/outorga/src/lib.rs"))
     (:palavra "defprompt" :donos ("frost/crates/frost-lisp/src/prompt.rs"))
     (:palavra "defprovider" :donos ("kura/kura-core/src/provider.rs"))
+    (:palavra "deframp" :donos ("pente/pente-spec/src/lib.rs"))
+    (
+      :palavra "defraw-probe"
+      :donos ("tatara-lisp/tatara-lisp/tests/raw_ident_fields.rs"))
     (
       :palavra "defrealisation-format"
       :donos ("sui/sui-spec/src/realisation.rs"))
     (:palavra "defrebuild-probe" :donos ("sui/sui-spec/src/rebuild.rs"))
+    (:palavra "defrect" :donos ("zukai/crates/zukai-model/src/lib.rs"))
     (:palavra "defreforco" :donos ("vendaval/src/forge.rs"))
+    (:palavra "defregion" :donos ("zukai/crates/zukai-model/src/lib.rs"))
     (:palavra "defregistry-format" :donos ("sui/sui-spec/src/registry.rs"))
+    (
+      :palavra "defreplica"
+      :donos ("blue/crates/blue-lang-runtime/tests/domain.rs"))
     (:palavra "defreserva" :donos ("tatara-lisp/tatara-keywords/src/lib.rs"))
     (:palavra "defreservas" :donos ("tatara-lisp/tatara-keywords/src/lib.rs"))
     (
       :palavra "defresolver-config"
       :donos ("caixa/caixa-resolver/src/lisp_config.rs"))
     (:palavra "defretencao" :donos ("acervo/acervo-lisp/src/lib.rs"))
+    (:palavra "defretry" :donos ("mukae/mukae-lisp/src/lib.rs"))
+    (:palavra "defroles" :donos ("pente/pente-spec/src/lib.rs"))
     (:palavra "defroundtrip" :donos ("tatara/tatara-lisp/src/domain.rs"))
+    (:palavra "defroute" :donos ("arnes/arnes-config/src/lib.rs"))
     (:palavra "defrouting" :donos ("tatara/tatara-process/src/routing.rs"))
     (:palavra "defruler" :donos ("escriba/escriba-lisp/src/ruler.rs"))
     (:palavra "defsandbox-spec" :donos ("sui/sui-spec/src/sandbox.rs"))
     (:palavra "defscene" :donos ("asobi/crates/asobi-spec/src/lib.rs"))
     (:palavra "defschedule" :donos ("escriba/escriba-lisp/src/schedule.rs"))
+    (:palavra "defseat" :donos ("mukae/mukae-lisp/src/lib.rs"))
     (
       :palavra "defsession"
       :donos ("escriba/escriba-lisp/src/session.rs"
         "kura/kura-core/src/session.rs"))
+    (:palavra "defsessions" :donos ("mukae/mukae-lisp/src/catalog.rs"))
     (:palavra "defshellpkg" :donos ("frost/crates/frost-lisp/src/pkg.rs"))
     (:palavra "defsnapzone" :donos ("mado/src/float/spec.rs"))
     (:palavra "defsnippet" :donos ("escriba/escriba-lisp/src/snippet.rs"))
     (:palavra "defsource" :donos ("frost/crates/frost-lisp/src/source.rs"))
+    (:palavra "defsplash" :donos ("escriba/escriba-lisp/src/splash.rs"))
+    (:palavra "defstartup" :donos ("mukae/mukae-lisp/src/lib.rs"))
     (:palavra "defstatusline" :donos ("escriba/escriba-lisp/src/statusline.rs"))
     (
       :palavra "defstore-inventory-profile"
@@ -285,18 +343,29 @@
         "tatara/tatara-os/src/config.rs"))
     (:palavra "deftask" :donos ("escriba/escriba-lisp/src/task.rs"))
     (:palavra "defterm" :donos ("escriba/escriba-lisp/src/term.rs"))
+    (:palavra "deftest1" :donos ("zukai/crates/zukai-model/src/lisp.rs"))
+    (:palavra "deftest2" :donos ("zukai/crates/zukai-model/src/lisp.rs"))
+    (:palavra "deftest3" :donos ("zukai/crates/zukai-model/src/lisp.rs"))
     (:palavra "deftextobject" :donos ("escriba/escriba-lisp/src/textobject.rs"))
     (
       :palavra "deftheme"
       :donos ("escriba/escriba-lisp/src/theme.rs"
         "frost/crates/frost-lisp/src/theme.rs"
+        "pente/pente-spec/src/lib.rs"
         "tatara/tatara-ui/src/theme.rs"))
     (:palavra "defthunk-discipline" :donos ("sui/sui-spec/src/laziness.rs"))
     (:palavra "deftool" :donos ("kura/kura-core/src/tool.rs"))
     (:palavra "deftrap" :donos ("frost/crates/frost-lisp/src/trap.rs"))
     (:palavra "deftrust-model" :donos ("sui/sui-spec/src/trust_model.rs"))
     (:palavra "defun" :donos ("frost/crates/frost-lisp/src/function.rs"))
+    (:palavra "defvecflags" :donos ("tatara/tatara-lisp/src/domain.rs"))
+    (:palavra "defvecports" :donos ("tatara/tatara-lisp/src/domain.rs"))
     (:palavra "defvm" :donos ("tatara/tatara-vm/src/config.rs"))
+    (:palavra "defwantbinding" :donos ("saihai/saihai-spec/src/bancada.rs"))
+    (:palavra "defwantinput" :donos ("saihai/saihai-spec/src/bancada.rs"))
+    (:palavra "defwantoutput" :donos ("saihai/saihai-spec/src/bancada.rs"))
+    (:palavra "defwantsession" :donos ("saihai/saihai-spec/src/bancada.rs"))
+    (:palavra "defwanttheme" :donos ("saihai/saihai-spec/src/bancada.rs"))
     (:palavra "defward" :donos ("banken/banken-spec/src/ward.rs"))
     (:palavra "defwidget" :donos ("hata/hata-forms/src/widget.rs"))
     (:palavra "defworker-opcode" :donos ("sui/sui-spec/src/worker_protocol.rs"))

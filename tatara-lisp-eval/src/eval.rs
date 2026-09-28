@@ -336,6 +336,21 @@ impl<H: 'static> Interpreter<H> {
     ///
     /// There is no way to remove it. An unbounded expander does not fail the
     /// compilation, it aborts the process.
+    /// Evaluate under the host's interrupt `flag`: once it is set (from any
+    /// thread), the next evaluation step of this program returns
+    /// [`EvalError::Halted`], which no `catch` intercepts, so the program
+    /// unwinds through its normal error path and its thread is released. A
+    /// host with a wall-clock budget sets the flag when the budget runs out.
+    pub fn set_interrupt(&mut self, flag: Arc<std::sync::atomic::AtomicBool>) {
+        self.registry.halt = flag;
+    }
+
+    /// The flag this interpreter halts on (see [`Self::set_interrupt`]).
+    #[must_use]
+    pub fn interrupt(&self) -> Arc<std::sync::atomic::AtomicBool> {
+        Arc::clone(&self.registry.halt)
+    }
+
     pub fn set_macro_expansion_limit(&mut self, limit: usize) {
         self.macro_expansion_limit = limit;
     }
@@ -1130,6 +1145,7 @@ pub(crate) fn eval_in<H: 'static>(
     form: &Spanned,
     host: &mut H,
 ) -> Result<Value> {
+    registry.check_halt()?;
     match &form.form {
         SpannedForm::Nil => Ok(Value::Nil),
         SpannedForm::Atom(a) => eval_atom(a, form.span, env),
@@ -1375,6 +1391,7 @@ fn eval_in_tail<H: 'static>(
     form: &Spanned,
     host: &mut H,
 ) -> Result<TailResult> {
+    registry.check_halt()?;
     match &form.form {
         SpannedForm::List(items) if !items.is_empty() => {
             // Special-form check first.
@@ -2366,6 +2383,8 @@ fn sf_try<H: 'static>(
             Ok(v) => {
                 last = v;
             }
+            // An interrupt is the host's, not the program's: no catch sees it.
+            Err(EvalError::Halted) => return Err(EvalError::Halted),
             Err(EvalError::User { value, .. }) => {
                 return run_catch_handler(
                     binding_name,
@@ -3422,6 +3441,27 @@ mod tests {
         // accidentally drop forms.
         let v = eval_ok("(+ 1 2 3)");
         assert!(matches!(v, Value::Int(6)));
+    }
+
+    #[test]
+    fn an_interrupt_halts_a_loop_from_another_thread_and_no_catch_sees_it() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let mut interp: Interpreter<NoHost> = Interpreter::new();
+        install_primitives(&mut interp);
+        let flag = Arc::new(AtomicBool::new(false));
+        interp.set_interrupt(Arc::clone(&flag));
+        assert!(!interp.interrupt().load(Ordering::Relaxed));
+        let setter = Arc::clone(&flag);
+        let t = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            setter.store(true, Ordering::Relaxed);
+        });
+        let src = "(define (spin n) (spin (+ n 1))) (try (spin 0) (catch (e) :caught))";
+        let forms = read_spanned(src).unwrap();
+        let r = interp.eval_program(&forms, &mut NoHost);
+        t.join().unwrap();
+        assert!(matches!(r, Err(EvalError::Halted)), "{r:?}");
+        assert!(matches!(eval_ok("(+ 1 2)"), Value::Int(3)));
     }
 
     #[test]

@@ -311,6 +311,10 @@ impl<H> FnImpl<H> {
 /// Registry of registered native functions for an `Interpreter<H>`.
 pub(crate) struct FnRegistry<H> {
     entries: Vec<FnEntry<H>>,
+    /// The host's interrupt: once set, the next evaluation step returns
+    /// [`crate::EvalError::Halted`]. Shared by clones, since a fork is the
+    /// same running program. See `Interpreter::set_interrupt`.
+    pub(crate) halt: Arc<std::sync::atomic::AtomicBool>,
 }
 
 pub(crate) struct FnEntry<H> {
@@ -341,6 +345,7 @@ impl<H> Clone for FnRegistry<H> {
     fn clone(&self) -> Self {
         Self {
             entries: self.entries.clone(),
+            halt: Arc::clone(&self.halt),
         }
     }
 }
@@ -349,11 +354,22 @@ impl<H> Default for FnRegistry<H> {
     fn default() -> Self {
         Self {
             entries: Vec::new(),
+            halt: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 }
 
 impl<H> FnRegistry<H> {
+    /// `Err(Halted)` once the host has interrupted this program.
+    #[inline]
+    pub(crate) fn check_halt(&self) -> crate::error::Result<()> {
+        if self.halt.load(std::sync::atomic::Ordering::Relaxed) {
+            Err(crate::EvalError::Halted)
+        } else {
+            Ok(())
+        }
+    }
+
     pub(crate) fn new() -> Self {
         Self::default()
     }

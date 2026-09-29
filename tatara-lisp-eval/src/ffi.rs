@@ -17,12 +17,14 @@
 //! host handles) can be wrapped in `Value::Foreign(Arc<dyn Any>)` and
 //! downcast in the native fn body.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use tatara_lisp::Span;
 
 use crate::error::{EvalError, Result};
 use crate::value::Value;
+use crate::vm::Budget;
 
 /// How many arguments a registered function accepts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -315,6 +317,68 @@ pub(crate) struct FnRegistry<H> {
     /// [`crate::EvalError::Halted`]. Shared by clones, since a fork is the
     /// same running program. See `Interpreter::set_interrupt`.
     pub(crate) halt: Arc<std::sync::atomic::AtomicBool>,
+    /// The tree-walker's execution budget and what this run has spent of it.
+    /// See [`Meter`].
+    pub(crate) meter: Meter,
+}
+
+/// A [`Budget`] and the two counters that spend it.
+///
+/// **Not shared by clones.** A fork is a new incarnation and gets the whole
+/// budget again, which is what a test runner giving each test a clean slate
+/// and a supervisor restarting a child both want. The interrupt flag, by
+/// contrast, IS shared: it is the host stopping the program, not the program
+/// running out.
+///
+/// The counters are atomics only so the registry stays `Sync`; one
+/// interpreter runs on one thread, so `Relaxed` load-then-store is exact and
+/// costs a plain load and store.
+pub(crate) struct Meter {
+    pub(crate) budget: Budget,
+    depth: AtomicUsize,
+    spent: AtomicUsize,
+}
+
+impl Meter {
+    pub(crate) fn new(budget: Budget) -> Self {
+        Self {
+            budget,
+            depth: AtomicUsize::new(0),
+            spent: AtomicUsize::new(0),
+        }
+    }
+
+    pub(crate) fn spent(&self) -> usize {
+        self.spent.load(Ordering::Relaxed)
+    }
+
+    /// Enter one non-tail closure call. The guard leaves it on drop, on every
+    /// exit path, `?` included.
+    pub(crate) fn enter(&self, at: Span) -> crate::error::Result<DepthGuard<'_>> {
+        let depth = self.depth.load(Ordering::Relaxed) + 1;
+        if let Some(limit) = self.budget.max_depth {
+            if depth > limit {
+                return Err(crate::EvalError::BudgetExceeded {
+                    dimension: crate::error::BudgetDimension::Depth,
+                    limit,
+                    function: None,
+                    at,
+                });
+            }
+        }
+        self.depth.store(depth, Ordering::Relaxed);
+        Ok(DepthGuard(&self.depth))
+    }
+}
+
+/// Leaves the call [`Meter::enter`] entered.
+pub(crate) struct DepthGuard<'a>(&'a AtomicUsize);
+
+impl Drop for DepthGuard<'_> {
+    fn drop(&mut self) {
+        self.0
+            .store(self.0.load(Ordering::Relaxed) - 1, Ordering::Relaxed);
+    }
 }
 
 pub(crate) struct FnEntry<H> {
@@ -346,6 +410,7 @@ impl<H> Clone for FnRegistry<H> {
         Self {
             entries: self.entries.clone(),
             halt: Arc::clone(&self.halt),
+            meter: Meter::new(self.meter.budget),
         }
     }
 }
@@ -355,18 +420,29 @@ impl<H> Default for FnRegistry<H> {
         Self {
             entries: Vec::new(),
             halt: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            meter: Meter::new(Budget::tree_walker_default()),
         }
     }
 }
 
 impl<H> FnRegistry<H> {
-    /// `Err(Halted)` once the host has interrupted this program.
+    /// One evaluation step: `Err(Halted)` once the host has interrupted this
+    /// program, `Err(BudgetExceeded)` once it has spent its fuel.
     #[inline]
-    pub(crate) fn check_halt(&self) -> crate::error::Result<()> {
-        if self.halt.load(std::sync::atomic::Ordering::Relaxed) {
-            Err(crate::EvalError::Halted)
-        } else {
-            Ok(())
+    pub(crate) fn step(&self, at: Span) -> crate::error::Result<()> {
+        if self.halt.load(Ordering::Relaxed) {
+            return Err(crate::EvalError::Halted);
+        }
+        let spent = self.meter.spent.load(Ordering::Relaxed) + 1;
+        self.meter.spent.store(spent, Ordering::Relaxed);
+        match self.meter.budget.fuel {
+            Some(limit) if spent > limit => Err(crate::EvalError::BudgetExceeded {
+                dimension: crate::error::BudgetDimension::Fuel,
+                limit,
+                function: None,
+                at,
+            }),
+            _ => Ok(()),
         }
     }
 

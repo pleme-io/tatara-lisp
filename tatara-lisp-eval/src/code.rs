@@ -246,6 +246,7 @@ mod tests {
             body: vec![],
             captured_env: Env::new(),
             source: Span::synthetic(),
+            name: None,
         };
         let v = Value::Closure(Arc::new(c));
         let r = value_to_spanned(&v, Span::synthetic());

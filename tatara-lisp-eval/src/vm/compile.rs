@@ -219,6 +219,7 @@ impl<'a> Compiler<'a> {
             spans: top.spans,
             source_span: Span::synthetic(),
             source_body: Vec::new(),
+            name: None,
         };
         Ok(())
     }
@@ -903,8 +904,7 @@ impl<'a> Compiler<'a> {
                     SpannedForm::List(head[1..].to_vec()),
                 ));
                 lambda_form.extend_from_slice(&items[2..]);
-                let lambda = Spanned::new(span, SpannedForm::List(lambda_form));
-                self.compile_form(&lambda, false)?;
+                self.compile_lambda_named(&lambda_form, span, Some(Arc::<str>::from(name)))?;
                 let name_idx = self.chunk.names.intern(name);
                 self.emit_op(Op::StoreGlobal(name_idx), span);
                 self.emit_op(Op::Nil, span);
@@ -975,6 +975,15 @@ impl<'a> Compiler<'a> {
     }
 
     fn compile_lambda(&mut self, items: &[Spanned], span: Span) -> Result<(), CompileError> {
+        self.compile_lambda_named(items, span, None)
+    }
+
+    fn compile_lambda_named(
+        &mut self,
+        items: &[Spanned],
+        span: Span,
+        name: Option<Arc<str>>,
+    ) -> Result<(), CompileError> {
         if items.len() < 3 {
             return Err(CompileError::bad(
                 span,
@@ -1059,6 +1068,7 @@ impl<'a> Compiler<'a> {
             // a Foreign(CompiledClosure) back to a tree-walker
             // Closure when it flows into a native HoF.
             source_body: body_forms.to_vec(),
+            name,
         };
         let fn_idx = self.chunk.fn_table.len();
         self.chunk.fn_table.push(compiled);

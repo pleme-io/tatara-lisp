@@ -14,6 +14,7 @@ use thiserror::Error;
 
 use super::chunk::{CaptureSource, Chunk, CompiledFn};
 use super::op::Op;
+use crate::error::EvalError;
 use crate::eval::Interpreter;
 use crate::value::Value;
 
@@ -49,8 +50,23 @@ pub enum VmError {
     /// IS the Rust call stack, so a counter cannot see it. The VM's frame
     /// stack is a heap `Vec`, which is why the bound is achievable here and
     /// only here.
+    ///
+    /// A `try` sees it as the tree-walker's `EvalError::BudgetExceeded` would
+    /// be seen — tag `depth-exceeded` or `fuel-exhausted` — so the two
+    /// executors agree on what a program can catch. Depth unwinds the frames
+    /// it counted, so its handler runs; fuel stays spent, so its handler's
+    /// first instruction refuses again and the error leaves the `try`. Only
+    /// an uncaught one reaches the embedder, still as this variant, which is
+    /// what a supervisor classifies as a runaway.
     #[error("execution budget exhausted: {what} (limit {limit})")]
-    BudgetExhausted { what: &'static str, limit: usize },
+    BudgetExhausted {
+        what: &'static str,
+        limit: usize,
+        dimension: crate::error::BudgetDimension,
+        /// The innermost named function running when it fired.
+        function: Option<Arc<str>>,
+        at: Span,
+    },
     /// A primitive parked, but this run has no scheduler — so nothing will
     /// ever deliver what it is waiting for.
     ///
@@ -149,17 +165,46 @@ pub enum Progress {
 #[derive(Debug)]
 pub struct Park;
 
+/// The call-depth bound both executors default to.
+///
+/// One constant for the VM's frame stack and the tree-walker's nested calls,
+/// so the two tiers refuse the same recursion at the same depth. The
+/// tree-walker can hold it because it grows its host stack on demand (see
+/// `eval::call_closure`) rather than overflowing the thread's fixed one.
+pub const DEFAULT_MAX_DEPTH: usize = 100_000;
+
+/// The fuel [`Budget::default`] allows: a runaway guard, not a quota.
+pub const DEFAULT_FUEL: usize = 50_000_000;
+
 impl Default for Budget {
     fn default() -> Self {
         Self {
-            fuel: Some(50_000_000),
-            max_depth: Some(100_000),
+            fuel: Some(DEFAULT_FUEL),
+            max_depth: Some(DEFAULT_MAX_DEPTH),
             quantum: None,
         }
     }
 }
 
 impl Budget {
+    /// What an [`crate::Interpreter`] runs under until its host says
+    /// otherwise: depth bounded at [`DEFAULT_MAX_DEPTH`], fuel unbounded.
+    ///
+    /// Fuel is unbounded here, unlike [`Budget::default`], because the
+    /// tree-walker's callers include long-lived embedders — a REPL, a daemon's
+    /// rule engine, a simulation measured in minutes — for which no
+    /// program-independent step count is honest. The VM's default is a
+    /// supervision quantum; this is a runaway guard on space only, and a host
+    /// that wants time bounded too says how much.
+    #[must_use]
+    pub const fn tree_walker_default() -> Self {
+        Self {
+            fuel: None,
+            max_depth: Some(DEFAULT_MAX_DEPTH),
+            quantum: None,
+        }
+    }
+
     /// No limits. For a caller that has its own supervision.
     pub fn unbounded() -> Self {
         Self {
@@ -300,24 +345,50 @@ impl Vm {
     /// Returns `false` when the scheduling slice is spent and the VM should
     /// park. That is the whole preemption mechanism: one counter, read as a
     /// total ceiling (`fuel`) and as a per-slice ceiling (`quantum`).
+    /// A budget refusal at the instruction about to run, naming the
+    /// innermost named function — the one the tree-walker names too.
+    #[cold]
+    fn exhausted(
+        &self,
+        what: &'static str,
+        dimension: crate::error::BudgetDimension,
+        limit: usize,
+    ) -> VmError {
+        let at = self
+            .frames
+            .last()
+            .and_then(|f| f.func.spans.get(f.ip).copied())
+            .unwrap_or_else(Span::synthetic);
+        let function = self.frames.iter().rev().find_map(|f| f.func.name.clone());
+        VmError::BudgetExhausted {
+            what,
+            limit,
+            dimension,
+            function,
+            at,
+        }
+    }
+
     #[inline]
     fn charge(&mut self) -> Result<bool, VmError> {
         self.burned += 1;
         self.slice += 1;
         if let Some(limit) = self.budget.fuel {
             if self.burned > limit {
-                return Err(VmError::BudgetExhausted {
-                    what: "fuel (instructions executed)",
+                return Err(self.exhausted(
+                    "fuel (instructions executed)",
+                    crate::error::BudgetDimension::Fuel,
                     limit,
-                });
+                ));
             }
         }
         if let Some(limit) = self.budget.max_depth {
             if self.frames.len() > limit {
-                return Err(VmError::BudgetExhausted {
-                    what: "call depth",
+                return Err(self.exhausted(
+                    "call depth",
+                    crate::error::BudgetDimension::Depth,
                     limit,
-                });
+                ));
             }
         }
         if let Some(q) = self.budget.quantum {
@@ -730,18 +801,18 @@ impl Vm {
                         return Err(VmError::Eval(eval_err));
                     }
                 }
-                // Budget exhaustion is a SUPERVISION concern, not a
-                // program-level error, so it propagates PAST every user
-                // handler straight to the embedder.
-                //
-                // A runaway must not be able to catch its own runaway:
-                // `try { loop() } catch { loop() }` would otherwise hand the
-                // handler back control. (The loop would still terminate,
-                // because `burned` does not reset and the next charge fails
-                // immediately — but "the crash is the supervisor's to see" is
-                // the semantics blue's let-it-crash story needs, not an
-                // accident of arithmetic.)
-                Err(e @ VmError::BudgetExhausted { .. }) => return Err(e),
+                // Catchable, as on the tree-walker. A runaway still cannot
+                // catch its own runaway: `burned` never resets, so a fuel
+                // handler's first instruction refuses again and each handler
+                // it reaches is spent in turn until the error leaves the
+                // program, still a `BudgetExhausted` for a supervisor to see.
+                // A depth refusal has popped the frames it counted by the
+                // time its handler runs, so that handler has room.
+                Err(e @ VmError::BudgetExhausted { .. }) => {
+                    if !self.unwind_to_handler(vm_runtime_err_to_value(&e)) {
+                        return Err(e);
+                    }
+                }
                 Err(other) => {
                     let err_value = vm_runtime_err_to_value(&other);
                     if !self.unwind_to_handler(err_value) {
@@ -1010,6 +1081,30 @@ fn vm_err_to_value(err: &crate::error::EvalError) -> Value {
 
 /// Convert a non-EvalError VM error (Underflow, BadLocal, Unbound,
 /// NotCallable, Arity) into a `Value::Error` for handler routing.
+impl VmError {
+    /// A budget refusal as the tree-walker reports it:
+    /// [`EvalError::BudgetExceeded`] with the same dimension, limit and
+    /// function. `None` for every other variant.
+    #[must_use]
+    pub fn budget_as_eval(&self) -> Option<EvalError> {
+        match self {
+            Self::BudgetExhausted {
+                limit,
+                dimension,
+                function,
+                at,
+                ..
+            } => Some(EvalError::BudgetExceeded {
+                dimension: *dimension,
+                limit: *limit,
+                function: function.clone(),
+                at: *at,
+            }),
+            _ => None,
+        }
+    }
+}
+
 fn vm_runtime_err_to_value(err: &VmError) -> Value {
     let (tag, message): (&str, String) = match err {
         VmError::Underflow { ip } => ("vm-underflow", format!("stack underflow at op {ip}")),
@@ -1022,14 +1117,16 @@ fn vm_runtime_err_to_value(err: &VmError) -> Value {
             "arity-mismatch",
             format!("expected {expected} args, got {got}"),
         ),
-        // Unreachable in practice: `run_with_handlers` returns this variant
-        // before ever reaching the converter, because budget exhaustion is
-        // not routable to a user handler. Kept total so adding a variant is
-        // a compile error rather than a silent fall-through.
-        VmError::BudgetExhausted { what, limit } => (
-            "budget-exhausted",
-            format!("execution budget exhausted: {what} (limit {limit})"),
-        ),
+        // The walker's tag and message, from the walker's own error, so a
+        // `catch` cannot tell which executor ran it.
+        VmError::BudgetExhausted { .. } => {
+            let e = err.budget_as_eval().expect("a budget refusal");
+            return Value::Error(Arc::new(crate::value::ErrorObj {
+                tag: Arc::from(e.tag()),
+                message: Arc::from(e.short_message()),
+                data: Vec::new(),
+            }));
+        }
         // Also unreachable: `Deadlocked` is produced by `run`, which sits
         // ABOVE the handler path, so it never reaches this converter. And it
         // should not be catchable if it did — a park with no scheduler cannot
@@ -1124,6 +1221,7 @@ impl CompiledClosure {
             body: self.body.source_body.clone(),
             captured_env,
             source: self.body.source_span,
+            name: None,
         })
     }
 }
@@ -1758,11 +1856,11 @@ mod tests {
         );
     }
 
-    /// **Budget exhaustion is NOT catchable by user code.** A runaway must
-    /// not be able to catch its own runaway — the crash belongs to the
-    /// supervisor.
+    /// **A runaway cannot catch its own runaway.** A `try` observes exhausted
+    /// fuel, but the handler's first instruction refuses again, so the error
+    /// leaves the program — still `BudgetExhausted`, for the supervisor.
     #[test]
-    fn a_user_handler_cannot_catch_budget_exhaustion() {
+    fn a_user_handler_cannot_spend_past_exhausted_fuel() {
         let budget = Budget {
             fuel: Some(10_000),
             max_depth: None,
@@ -1777,6 +1875,25 @@ mod tests {
             matches!(err, VmError::BudgetExhausted { .. }),
             "got {err:?}"
         );
+    }
+
+    /// A depth refusal IS caught, as on the tree-walker: the frames it
+    /// counted are unwound by the time the handler runs. Red run: with the
+    /// `BudgetExhausted` arm in `run_with_handlers` restored to
+    /// `return Err(e)`, this failed with the error escaping the `try`.
+    #[test]
+    fn a_user_handler_catches_a_depth_refusal() {
+        let budget = Budget {
+            fuel: None,
+            max_depth: Some(64),
+            quantum: None,
+        };
+        let v = run_with(
+            "(define (f n) (if (= n 0) 0 (+ 1 (f (- n 1))))) (try (f 1000) (catch (e) (error-tag e)))",
+            budget,
+        )
+        .expect("caught");
+        assert_eq!(format!("{v}"), ":depth-exceeded");
     }
 
     /// Anti-vacuity: an ORDINARY error must still be catchable. If the

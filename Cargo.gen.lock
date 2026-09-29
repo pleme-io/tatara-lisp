@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "cargo_lock_sha256": "7fdc994f1eca2998fa1f978340051b7e89c2f6f98991d463a846f5d6a8308ca6",
+  "cargo_lock_sha256": "e2ebe144018e06e9eabe04354a432b5b08716c1921d02ef68854193ada71d010",
   "manifest_sha256": {
     "Cargo.toml": "3940cbcfc076c72328dfc92edd94c7add3cc7bff48ab17beba9db7e3e518bf44",
     "kumihan/Cargo.toml": "a46d2ca6ac9adc86f076e72dd80bc2888f1294a04e52b2a7a7bf2ddec2db9f19",
@@ -16,7 +16,7 @@
     "tatara-kanmon/Cargo.toml": "0f4ac7cc4e78849b92f239945f2b312f69872f50563f267ec1de94e00a90c699",
     "tatara-keywords/Cargo.toml": "483f089c71edd4e41b18cfedc7d084b1191b6662545c0881def1415134f00e2b",
     "tatara-lisp-derive/Cargo.toml": "55d90013e98f76326bf31222368fc6ad38a7afabf36c74eaa7a102a414434720",
-    "tatara-lisp-eval/Cargo.toml": "7772659d161388f95d358bcb29d06b38f2a3fb74d50035530002866ae3c5e5ce",
+    "tatara-lisp-eval/Cargo.toml": "71eec07bff18eb1279207ea3261b0e8e54b8614e5877a6a8b95f2b3802962018",
     "tatara-lisp-lint/Cargo.toml": "670ccf870dceb37518532c98bf074d0f80146c2211a7b6f06221038b0e1db3f4",
     "tatara-lisp-script/Cargo.toml": "ec53617316b5ab3b74376cbbb1fdfb23979d99246299c1dfa99f2fad738b49bb",
     "tatara-lisp-source/Cargo.toml": "1b17ac6ae0b6f0be9ba40e1b3a3f4f10a387ac5c6240eff42d40913b8e90e3c0",
@@ -162,6 +162,25 @@
           "default",
           "std"
         ]
+      },
+      "ar_archive_writer-0.5.3": {
+        "runtime_dependencies": [
+          {
+            "name": "object",
+            "package_key": "object-0.39.1",
+            "kind": "normal",
+            "features": [
+              "read",
+              "std"
+            ],
+            "uses_default_features": false,
+            "optional": false,
+            "target": null,
+            "tree": "target"
+          }
+        ],
+        "build_dependencies": [],
+        "features": []
       },
       "arrayref-0.3.9": {
         "runtime_dependencies": [],
@@ -1864,6 +1883,32 @@
         "build_dependencies": [],
         "features": []
       },
+      "object-0.39.1": {
+        "runtime_dependencies": [
+          {
+            "name": "memchr",
+            "package_key": "memchr-2.8.3",
+            "kind": "normal",
+            "features": [],
+            "uses_default_features": false,
+            "optional": false,
+            "target": null,
+            "tree": "target"
+          }
+        ],
+        "build_dependencies": [],
+        "features": [
+          "archive",
+          "coff",
+          "elf",
+          "macho",
+          "pe",
+          "read",
+          "read_core",
+          "std",
+          "xcoff"
+        ]
+      },
       "okiba-0.2.1": {
         "runtime_dependencies": [],
         "build_dependencies": [],
@@ -1929,6 +1974,32 @@
           "default",
           "proc-macro"
         ]
+      },
+      "psm-0.1.32": {
+        "runtime_dependencies": [],
+        "build_dependencies": [
+          {
+            "name": "ar_archive_writer",
+            "package_key": "ar_archive_writer-0.5.3",
+            "kind": "build",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "host"
+          },
+          {
+            "name": "cc",
+            "package_key": "cc-1.4.0",
+            "kind": "build",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "host"
+          }
+        ],
+        "features": []
       },
       "quote-1.0.47": {
         "runtime_dependencies": [
@@ -2619,6 +2690,53 @@
       "stable_deref_trait-1.2.1": {
         "runtime_dependencies": [],
         "build_dependencies": [],
+        "features": []
+      },
+      "stacker-0.1.25": {
+        "runtime_dependencies": [
+          {
+            "name": "cfg_if",
+            "package_key": "cfg-if-1.0.4",
+            "kind": "normal",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "target"
+          },
+          {
+            "name": "libc",
+            "package_key": "libc-0.2.189",
+            "kind": "normal",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "target"
+          },
+          {
+            "name": "psm",
+            "package_key": "psm-0.1.32",
+            "kind": "normal",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "target"
+          }
+        ],
+        "build_dependencies": [
+          {
+            "name": "cc",
+            "package_key": "cc-1.4.0",
+            "kind": "build",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "host"
+          }
+        ],
         "features": []
       },
       "strsim-0.11.1": {
@@ -3460,6 +3578,16 @@
             "uses_default_features": true,
             "optional": false,
             "target": null,
+            "tree": "target"
+          },
+          {
+            "name": "stacker",
+            "package_key": "stacker-0.1.25",
+            "kind": "normal",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": "cfg(not(target_family = \"wasm\"))",
             "tree": "target"
           },
           {
@@ -6773,6 +6901,9 @@
       "edition": "2021",
       "build_script": "build.rs"
     },
+    "ar_archive_writer-0.5.3": {
+      "edition": "2024"
+    },
     "arrayref-0.3.9": {
       "edition": "2015"
     },
@@ -7027,6 +7158,10 @@
     "num-conv-0.2.2": {
       "edition": "2021"
     },
+    "object-0.39.1": {
+      "edition": "2018",
+      "build_script": "build.rs"
+    },
     "okiba-0.2.1": {
       "edition": "2024"
     },
@@ -7043,6 +7178,10 @@
       "edition": "2021"
     },
     "proc-macro2-1.0.107": {
+      "edition": "2021",
+      "build_script": "build.rs"
+    },
+    "psm-0.1.32": {
       "edition": "2021",
       "build_script": "build.rs"
     },
@@ -7127,6 +7266,10 @@
     },
     "stable_deref_trait-1.2.1": {
       "edition": "2015"
+    },
+    "stacker-0.1.25": {
+      "edition": "2021",
+      "build_script": "build.rs"
     },
     "strsim-0.11.1": {
       "edition": "2015"

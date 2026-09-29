@@ -27,3 +27,12 @@ tatara-lisp.workspace = true
 # nothing to any consumer's graph.
 tatara-closed-set.workspace = true
 thiserror = "2"
+
+# Host-stack growth for the tree-walker's nested closure calls — see
+# `eval::call_closure`. Switching stacks is irreducibly below safe Rust:
+# stacker's `psm` is a few hundred lines of per-architecture assembly, the
+# lowest layer there is and one seam, which is the shape CONTAIN THE C asks
+# for. Not on wasm, where psm has no target and the engine's stack is the
+# module's own; the depth bound is the only guard there.
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+stacker = "0.1"

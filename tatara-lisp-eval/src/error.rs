@@ -88,6 +88,29 @@ pub enum EvalError {
     #[error("halted (host-initiated interrupt)")]
     Halted,
 
+    /// A run exceeded one dimension of its [`crate::vm::Budget`].
+    ///
+    /// Before this existed, exceeding the depth the tree-walker could hold was
+    /// `fatal runtime error: stack overflow, aborting` — rc 134 at 4-6k frames,
+    /// with no `catch` able to see it because the OS process was already gone —
+    /// and a loop with no exit ran until something outside killed it.
+    ///
+    /// A `catch` observes it like any runtime error (tag `depth-exceeded` or
+    /// `fuel-exhausted`). The two differ in what that buys: a depth refusal has
+    /// unwound the frames it counted, so the handler runs with room to spare;
+    /// exhausted fuel stays exhausted, so the handler's own first step refuses
+    /// again and the error leaves the `try`. A budget cannot be spent past by
+    /// catching it.
+    #[error("{} budget of {limit} exceeded{} at {at}", dimension.noun(), in_function(function.as_deref()))]
+    BudgetExceeded {
+        dimension: BudgetDimension,
+        limit: usize,
+        /// The innermost named function running when the bound fired, when
+        /// one was.
+        function: Option<Arc<str>>,
+        at: Span,
+    },
+
     #[error("not yet implemented: {0} (Phase 2.3+)")]
     NotImplemented(&'static str),
 
@@ -102,7 +125,67 @@ pub enum EvalError {
     },
 }
 
+/// Which dimension of a [`crate::vm::Budget`] a run exceeded.
+///
+/// Fuel bounds TIME and depth bounds SPACE; neither implies the other, so a
+/// refusal names which one fired.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BudgetDimension {
+    /// Nested (non-tail) closure calls alive at once. Tail calls do not count:
+    /// the trampoline reuses the frame.
+    Depth,
+    /// Evaluation steps since the budget was last set.
+    Fuel,
+}
+
+impl BudgetDimension {
+    /// The `catch`-visible tag.
+    #[must_use]
+    pub const fn tag(self) -> &'static str {
+        match self {
+            Self::Depth => "depth-exceeded",
+            Self::Fuel => "fuel-exhausted",
+        }
+    }
+
+    /// What the budget bounds, as the error message names it.
+    #[must_use]
+    pub const fn noun(self) -> &'static str {
+        match self {
+            Self::Depth => "call depth",
+            Self::Fuel => "fuel",
+        }
+    }
+}
+
+fn in_function(function: Option<&str>) -> String {
+    function.map_or_else(String::new, |f| format!(" in `{f}`"))
+}
+
 impl EvalError {
+    /// Name the function a budget refusal fired in, unless an inner frame
+    /// already did. Every other error passes through untouched.
+    #[must_use]
+    pub(crate) fn in_function(self, name: Option<&Arc<str>>) -> Self {
+        match (self, name) {
+            (
+                Self::BudgetExceeded {
+                    dimension,
+                    limit,
+                    function: None,
+                    at,
+                },
+                Some(n),
+            ) => Self::BudgetExceeded {
+                dimension,
+                limit,
+                function: Some(Arc::clone(n)),
+                at,
+            },
+            (other, _) => other,
+        }
+    }
+
     pub fn unbound(name: impl Into<Arc<str>>, at: Span) -> Self {
         Self::UnboundSymbol {
             name: name.into(),
@@ -151,6 +234,7 @@ impl EvalError {
             Self::SetSealed { .. } => "set-sealed",
             Self::Reader(_) => "reader",
             Self::Halted => "halted",
+            Self::BudgetExceeded { dimension, .. } => dimension.tag(),
             Self::NotImplemented(_) => "not-implemented",
             Self::User { .. } => "user",
         }
@@ -168,6 +252,7 @@ impl EvalError {
             | Self::BadSpecialForm { at, .. }
             | Self::NativeFn { at, .. }
             | Self::SetSealed { at, .. }
+            | Self::BudgetExceeded { at, .. }
             | Self::User { at, .. } => Some(*at),
             Self::Reader(_) | Self::Halted | Self::NotImplemented(_) => None,
         }
@@ -263,6 +348,16 @@ impl EvalError {
             Self::NativeFn { name, reason, .. } => format!("in native `{name}`: {reason}"),
             Self::Reader(e) => format!("reader: {e}"),
             Self::Halted => "halted".into(),
+            Self::BudgetExceeded {
+                dimension,
+                limit,
+                function,
+                ..
+            } => format!(
+                "{} budget of {limit} exceeded{}",
+                dimension.noun(),
+                in_function(function.as_deref())
+            ),
             Self::NotImplemented(what) => format!("not yet implemented: {what}"),
             Self::User { value, .. } => format!("uncaught: {value}"),
         }

@@ -147,6 +147,9 @@ pub struct Closure {
     pub body: Vec<Spanned>,
     pub captured_env: Env,
     pub source: Span,
+    /// The name `(define (name …) …)` gave it; `None` for a bare `lambda`.
+    /// Read when a budget refusal names the function it fired in.
+    pub name: Option<Arc<str>>,
 }
 
 /// A host-registered Rust function exposed to Lisp code. The actual

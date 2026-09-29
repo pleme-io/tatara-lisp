@@ -355,6 +355,47 @@ impl<H: 'static> Interpreter<H> {
         self.macro_expansion_limit = limit;
     }
 
+    /// Run under `budget` from here on, with nothing spent.
+    ///
+    /// The tree-walker honours two of its three dimensions: `max_depth`
+    /// bounds nested (non-tail) closure calls and `fuel` bounds evaluation
+    /// steps, each refused as a catchable [`EvalError::BudgetExceeded`] naming
+    /// the limit and the innermost named function. Both are BOUNDS: raising
+    /// one changes no terminating program's value, only whether a runaway is
+    /// refused. `quantum` is the VM's scheduling slice, and the tree-walker
+    /// has no parked continuation to resume, so a budget carrying one is
+    /// refused rather than silently run without it.
+    ///
+    /// The default, [`Budget::tree_walker_default`], bounds depth only. A
+    /// [`Self::fork`] inherits the budget and starts with nothing spent.
+    /// [`Self::eval_program_vm`] runs under the same budget, and the VM
+    /// refuses with the same error and the same `catch` semantics, so one
+    /// program has one budget whichever executor runs it.
+    ///
+    /// [`Budget::tree_walker_default`]: crate::vm::Budget::tree_walker_default
+    pub fn set_budget(&mut self, budget: crate::vm::Budget) -> Result<()> {
+        if budget.quantum.is_some() {
+            return Err(EvalError::NotImplemented(
+                "a budget quantum on the tree-walker (it cannot park; use the VM)",
+            ));
+        }
+        self.registry.meter = crate::ffi::Meter::new(budget);
+        Ok(())
+    }
+
+    /// The budget this interpreter runs under.
+    #[must_use]
+    pub fn budget(&self) -> crate::vm::Budget {
+        self.registry.meter.budget
+    }
+
+    /// Evaluation steps spent since the budget was last set — counted whether
+    /// or not fuel is bounded, so a host can size a bound from a real run.
+    #[must_use]
+    pub fn steps_spent(&self) -> usize {
+        self.registry.meter.spent()
+    }
+
     /// Evaluate a single already-read spanned form in this interpreter's
     /// global environment. Macro expansion runs first if any macros are
     /// registered. Bare `eval_spanned` does NOT register top-level
@@ -1021,9 +1062,14 @@ impl<H: 'static> Interpreter<H> {
                 EvalError::bad_form(Arc::<str>::from("vm:compile"), message, at)
             }
         })?;
-        let mut vm = crate::vm::Vm::new();
+        // The interpreter's budget, not the VM's own default: one program has
+        // one budget whichever executor runs it (see `set_budget`).
+        let mut vm = crate::vm::Vm::with_budget(self.budget());
         vm.run(&chunk, self, host).map_err(|e| match e {
             crate::vm::VmError::Eval(inner) => inner,
+            budget @ crate::vm::VmError::BudgetExhausted { .. } => {
+                budget.budget_as_eval().expect("a budget refusal")
+            }
             other => EvalError::native_fn(
                 Arc::<str>::from("vm"),
                 format!("{other}"),
@@ -1145,7 +1191,7 @@ pub(crate) fn eval_in<H: 'static>(
     form: &Spanned,
     host: &mut H,
 ) -> Result<Value> {
-    registry.check_halt()?;
+    registry.step(form.span)?;
     match &form.form {
         SpannedForm::Nil => Ok(Value::Nil),
         SpannedForm::Atom(a) => eval_atom(a, form.span, env),
@@ -1391,7 +1437,7 @@ fn eval_in_tail<H: 'static>(
     form: &Spanned,
     host: &mut H,
 ) -> Result<TailResult> {
-    registry.check_halt()?;
+    registry.step(form.span)?;
     match &form.form {
         SpannedForm::List(items) if !items.is_empty() => {
             // Special-form check first.
@@ -1690,7 +1736,60 @@ fn bind_macro_args(
 /// form is a tail call to another closure, the trampoline reuses the
 /// stack frame instead of recursing. Self-recursion and mutual
 /// recursion both bottom out into a loop.
+/// How close to the end of the host stack a closure call may start before
+/// the stack is extended. Comfortably above what one closure call's worth of
+/// evaluator frames — `call_closure` down to the next `call_closure` — plus
+/// the native primitive it may call can consume.
+#[cfg(not(target_family = "wasm"))]
+const STACK_RED_ZONE: usize = 256 * 1024;
+
+/// How much stack one extension adds. Allocated lazily and freed on return,
+/// so a shallow program never pays it.
+#[cfg(not(target_family = "wasm"))]
+const STACK_SEGMENT: usize = 8 * 1024 * 1024;
+
+/// Invoke a closure: one non-tail call, counted against the budget's depth.
+///
+/// The tree-walker's recursion IS the host call stack, so before this a
+/// closure nested past what the thread's fixed stack holds (4-6k frames on an
+/// 8 MiB main thread) aborted the process. Two things now stand between a deep
+/// recursion and that abort, and they are different in kind:
+///
+/// - **the depth bound** is the budget's `max_depth`: a semantic limit the
+///   host chooses, refused as a catchable [`EvalError::BudgetExceeded`] naming
+///   the function;
+/// - **stack growth** makes the bound independent of the thread it runs on.
+///   When fewer than [`STACK_RED_ZONE`] bytes remain, the call continues on a
+///   fresh heap-allocated segment, so the thread's stack size stops being a
+///   constant the depth bound has to be tuned under.
+///
+/// Tail calls do not reach here twice: the trampoline below reuses the frame,
+/// which is why they neither count against the depth nor grow the stack.
 fn call_closure<H: 'static>(
+    closure: Arc<Closure>,
+    args: Vec<Value>,
+    call_span: Span,
+    registry: &FnRegistry<H>,
+    expander: &SpannedExpander,
+    host: &mut H,
+) -> Result<Value> {
+    let _depth = registry
+        .meter
+        .enter(call_span)
+        .map_err(|e| e.in_function(closure.name.as_ref()))?;
+    #[cfg(not(target_family = "wasm"))]
+    {
+        stacker::maybe_grow(STACK_RED_ZONE, STACK_SEGMENT, || {
+            call_closure_body(closure, args, call_span, registry, expander, host)
+        })
+    }
+    #[cfg(target_family = "wasm")]
+    {
+        call_closure_body(closure, args, call_span, registry, expander, host)
+    }
+}
+
+fn call_closure_body<H: 'static>(
     closure: Arc<Closure>,
     args: Vec<Value>,
     call_span: Span,
@@ -1740,10 +1839,13 @@ fn call_closure<H: 'static>(
         if body.is_empty() {
             return Ok(Value::Nil);
         }
+        let named = |e: EvalError| e.in_function(current.name.as_ref());
         for body_form in &body[..body.len() - 1] {
-            eval_in(&mut env, registry, expander, body_form, host)?;
+            eval_in(&mut env, registry, expander, body_form, host).map_err(named)?;
         }
-        match eval_in_tail(&mut env, registry, expander, body.last().unwrap(), host)? {
+        match eval_in_tail(&mut env, registry, expander, body.last().unwrap(), host)
+            .map_err(named)?
+        {
             TailResult::Done(v) => return Ok(v),
             TailResult::Resume(next, next_args, next_span) => {
                 // Tail call: replace state and loop. Drop env (frame
@@ -2118,6 +2220,7 @@ fn sf_lambda(items: &[Spanned], span: Span, env: &Env) -> Result<Value> {
         body,
         captured_env: env.clone(),
         source: span,
+        name: None,
     })))
 }
 
@@ -2195,6 +2298,7 @@ fn sf_define<H: 'static>(
                 body,
                 captured_env: env.clone(),
                 source: span,
+                name: Some(Arc::<str>::from(name)),
             });
             env.define(Arc::<str>::from(name), Value::Closure(closure));
             Ok(Value::Nil)
@@ -2490,6 +2594,7 @@ fn sf_delay(items: &[Spanned], call_span: Span, env: &Env) -> Result<Value> {
         body,
         captured_env: env.clone(),
         source: call_span,
+        name: None,
     });
     Ok(Value::Promise(Arc::new(std::sync::Mutex::new(
         crate::value::PromiseState::Pending(thunk),

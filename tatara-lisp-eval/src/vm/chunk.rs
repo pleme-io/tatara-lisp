@@ -52,6 +52,10 @@ pub struct CompiledFn {
     /// — the path native higher-order primitives take). Empty for the
     /// top-level CompiledFn (the program itself).
     pub source_body: Vec<tatara_lisp::Spanned>,
+    /// The name `(define (name …) …)` gave it; `None` for a bare `lambda`
+    /// and the top level. Read when a budget refusal names the function it
+    /// fired in, so the VM and the tree-walker name the same one.
+    pub name: Option<Arc<str>>,
 }
 
 impl Default for CompiledFn {
@@ -65,6 +69,7 @@ impl Default for CompiledFn {
             spans: Vec::new(),
             source_span: Span::synthetic(),
             source_body: Vec::new(),
+            name: None,
         }
     }
 }

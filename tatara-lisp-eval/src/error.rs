@@ -39,6 +39,17 @@ pub enum EvalError {
     #[error("division by zero at {at}")]
     DivisionByZero { at: Span },
 
+    /// An integer operation whose exact result does not fit `i64`.
+    ///
+    /// Before this existed the same operation wrapped in a release build
+    /// (`9223372036854775807 * 2` was `-2`) and panicked in a debug one, so
+    /// the answer depended on the build profile. Overflow is an error by
+    /// default; a program that wants two's-complement wrapping asks for it
+    /// by name (`wrapping-add`, `wrapping-sub`, `wrapping-mul`,
+    /// `wrapping-neg`).
+    #[error("integer overflow in `{op}` at {at}")]
+    IntegerOverflow { op: &'static str, at: Span },
+
     /// A macro rewrite chain exceeded its ceiling.
     ///
     /// Names the macro that was rewriting, because that is the one to look at.
@@ -227,6 +238,7 @@ impl EvalError {
             Self::ArityMismatch { .. } => "arity-mismatch",
             Self::TypeMismatch { .. } => "type-mismatch",
             Self::DivisionByZero { .. } => "division-by-zero",
+            Self::IntegerOverflow { .. } => "integer-overflow",
             Self::MacroExpansionLimit { .. } => "macro-expansion-limit",
             Self::NotCallable { .. } => "not-callable",
             Self::BadSpecialForm { .. } => "bad-special-form",
@@ -248,6 +260,7 @@ impl EvalError {
             | Self::TypeMismatch { at, .. }
             | Self::MacroExpansionLimit { at, .. }
             | Self::DivisionByZero { at }
+            | Self::IntegerOverflow { at, .. }
             | Self::NotCallable { at, .. }
             | Self::BadSpecialForm { at, .. }
             | Self::NativeFn { at, .. }
@@ -339,6 +352,7 @@ impl EvalError {
                 format!("type mismatch: expected {expected}, got {got}")
             }
             Self::DivisionByZero { .. } => "division by zero".into(),
+            Self::IntegerOverflow { op, .. } => format!("integer overflow in `{op}`"),
             Self::NotCallable { value_kind, .. } => {
                 format!("value of type {value_kind} is not callable")
             }

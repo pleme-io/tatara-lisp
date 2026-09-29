@@ -47,6 +47,10 @@ pub const PRIMITIVE_NAMES: &[&str] = &[
     "hypot",
     "log",
     "exp",
+    // explicit two's-complement arithmetic
+    "wrapping-add",
+    "wrapping-sub",
+    "wrapping-mul",
     // comparison
     "=",
     "<",
@@ -123,13 +127,55 @@ pub const PRIMITIVE_NAMES: &[&str] = &[
 /// Register the standard primitive set on `interp`.
 pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
     // ── Arithmetic ────────────────────────────────────────────────
+    // Integer arithmetic is CHECKED: a result that does not fit `i64` is
+    // `EvalError::IntegerOverflow`, never a wrapped value. It used to be `a + b`
+    // on `i64`, which wraps in a release build and panics in a debug one — the
+    // answer was a function of the build profile. Wrapping is still there,
+    // asked for by name: `wrapping-add`, `wrapping-sub`, `wrapping-mul`.
     interp.register_fn("+", Arity::AtLeast(0), |args: &[Value], _h: &mut H, sp| {
-        reduce_numeric(args, sp, 0, 0.0, |a, b| a + b, |a, b| a + b)
+        reduce_numeric(args, sp, "+", 0, 0.0, i64::checked_add, |a, b| a + b)
     });
     interp.register_fn("-", Arity::AtLeast(1), prim_sub::<H>);
     interp.register_fn("*", Arity::AtLeast(0), |args: &[Value], _h: &mut H, sp| {
-        reduce_numeric(args, sp, 1, 1.0, |a, b| a * b, |a, b| a * b)
+        reduce_numeric(args, sp, "*", 1, 1.0, i64::checked_mul, |a, b| a * b)
     });
+    interp.register_fn(
+        "wrapping-add",
+        Arity::AtLeast(0),
+        |args: &[Value], _h: &mut H, sp| {
+            let mut acc: i64 = 0;
+            for a in args {
+                acc = acc.wrapping_add(expect_int(a, sp)?);
+            }
+            Ok(Value::Int(acc))
+        },
+    );
+    interp.register_fn(
+        "wrapping-sub",
+        Arity::AtLeast(1),
+        |args: &[Value], _h: &mut H, sp| {
+            let first = expect_int(&args[0], sp)?;
+            if args.len() == 1 {
+                return Ok(Value::Int(first.wrapping_neg()));
+            }
+            let mut acc = first;
+            for a in &args[1..] {
+                acc = acc.wrapping_sub(expect_int(a, sp)?);
+            }
+            Ok(Value::Int(acc))
+        },
+    );
+    interp.register_fn(
+        "wrapping-mul",
+        Arity::AtLeast(0),
+        |args: &[Value], _h: &mut H, sp| {
+            let mut acc: i64 = 1;
+            for a in args {
+                acc = acc.wrapping_mul(expect_int(a, sp)?);
+            }
+            Ok(Value::Int(acc))
+        },
+    );
     interp.register_fn("/", Arity::AtLeast(1), prim_div::<H>);
     interp.register_fn(
         "modulo",
@@ -140,14 +186,22 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
             if b == 0 {
                 return Err(EvalError::DivisionByZero { at: sp });
             }
-            Ok(Value::Int(a.rem_euclid(b)))
+            a.checked_rem_euclid(b)
+                .map(Value::Int)
+                .ok_or(EvalError::IntegerOverflow {
+                    op: "modulo",
+                    at: sp,
+                })
         },
     );
     interp.register_fn(
         "abs",
         Arity::Exact(1),
         |args: &[Value], _h: &mut H, sp| match &args[0] {
-            Value::Int(n) => Ok(Value::Int(n.abs())),
+            Value::Int(n) => n
+                .checked_abs()
+                .map(Value::Int)
+                .ok_or(EvalError::IntegerOverflow { op: "abs", at: sp }),
             Value::Float(n) => Ok(Value::Float(n.abs())),
             other => Err(EvalError::type_mismatch("number", other.type_name(), sp)),
         },
@@ -156,14 +210,30 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
         "min",
         Arity::AtLeast(1),
         |args: &[Value], _h: &mut H, sp| {
-            reduce_numeric(args, sp, i64::MAX, f64::INFINITY, i64::min, f64::min)
+            reduce_numeric(
+                args,
+                sp,
+                "min",
+                i64::MAX,
+                f64::INFINITY,
+                |a, b| Some(a.min(b)),
+                f64::min,
+            )
         },
     );
     interp.register_fn(
         "max",
         Arity::AtLeast(1),
         |args: &[Value], _h: &mut H, sp| {
-            reduce_numeric(args, sp, i64::MIN, f64::NEG_INFINITY, i64::max, f64::max)
+            reduce_numeric(
+                args,
+                sp,
+                "max",
+                i64::MIN,
+                f64::NEG_INFINITY,
+                |a, b| Some(a.max(b)),
+                f64::max,
+            )
         },
     );
 
@@ -331,13 +401,14 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
         "expt",
         Arity::Exact(2),
         |args: &[Value], _h: &mut H, sp| match (&args[0], &args[1]) {
-            (Value::Int(b), Value::Int(e)) if *e >= 0 && *e < 64 => {
-                let mut acc: i64 = 1;
-                for _ in 0..*e {
-                    acc = acc.wrapping_mul(*b);
-                }
-                Ok(Value::Int(acc))
-            }
+            // An integer to a non-negative integer power is exact or refused.
+            // It used to wrap (`wrapping_mul`) below an exponent of 64 and
+            // turn into a float at 64 and above.
+            (Value::Int(b), Value::Int(e)) if *e >= 0 => u32::try_from(*e)
+                .ok()
+                .and_then(|e| b.checked_pow(e))
+                .map(Value::Int)
+                .ok_or(EvalError::IntegerOverflow { op: "expt", at: sp }),
             (a, b) => {
                 let af = as_number_either(a, sp)?.to_float();
                 let bf = as_number_either(b, sp)?.to_float();
@@ -354,7 +425,7 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
         Arity::Exact(1),
         |args: &[Value], _h: &mut H, sp| {
             let n = as_number_either(&args[0], sp)?.to_float();
-            Ok(Value::Int(n.floor() as i64))
+            float_to_int(n.floor(), "floor", sp)
         },
     );
     interp.register_fn(
@@ -362,7 +433,7 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
         Arity::Exact(1),
         |args: &[Value], _h: &mut H, sp| {
             let n = as_number_either(&args[0], sp)?.to_float();
-            Ok(Value::Int(n.ceil() as i64))
+            float_to_int(n.ceil(), "ceiling", sp)
         },
     );
     interp.register_fn(
@@ -370,7 +441,7 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
         Arity::Exact(1),
         |args: &[Value], _h: &mut H, sp| {
             let n = as_number_either(&args[0], sp)?.to_float();
-            Ok(Value::Int(n.round() as i64))
+            float_to_int(n.round(), "round", sp)
         },
     );
     interp.register_fn(
@@ -378,7 +449,7 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
         Arity::Exact(1),
         |args: &[Value], _h: &mut H, sp| {
             let n = as_number_either(&args[0], sp)?.to_float();
-            Ok(Value::Int(n.trunc() as i64))
+            float_to_int(n.trunc(), "truncate", sp)
         },
     );
     interp.register_fn(
@@ -388,9 +459,9 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
             if args.is_empty() {
                 return Ok(Value::Int(0));
             }
-            let mut g = expect_int(&args[0], sp)?.unsigned_abs() as i64;
+            let mut g = abs_int(expect_int(&args[0], sp)?, "gcd", sp)?;
             for a in &args[1..] {
-                let b = expect_int(a, sp)?.unsigned_abs() as i64;
+                let b = abs_int(expect_int(a, sp)?, "gcd", sp)?;
                 g = gcd(g, b);
             }
             Ok(Value::Int(g))
@@ -403,13 +474,15 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
             if args.is_empty() {
                 return Ok(Value::Int(1));
             }
-            let mut l = expect_int(&args[0], sp)?.unsigned_abs() as i64;
+            let mut l = abs_int(expect_int(&args[0], sp)?, "lcm", sp)?;
             for a in &args[1..] {
-                let b = expect_int(a, sp)?.unsigned_abs() as i64;
+                let b = abs_int(expect_int(a, sp)?, "lcm", sp)?;
                 if l == 0 || b == 0 {
                     l = 0;
                 } else {
-                    l = l / gcd(l, b) * b;
+                    l = (l / gcd(l, b))
+                        .checked_mul(b)
+                        .ok_or(EvalError::IntegerOverflow { op: "lcm", at: sp })?;
                 }
             }
             Ok(Value::Int(l))
@@ -906,6 +979,26 @@ fn plist_to_pairs(v: &Value, sp: Span) -> Result<Vec<(Value, Value)>> {
     Ok(out)
 }
 
+/// `|n|`, refused for `i64::MIN`, whose magnitude does not fit.
+fn abs_int(n: i64, op: &'static str, at: Span) -> Result<i64> {
+    n.checked_abs().ok_or(EvalError::IntegerOverflow { op, at })
+}
+
+/// A float already rounded to an integral value, as an `Int` — or refused when
+/// it is not finite or does not fit. `as i64` saturated instead, so
+/// `(floor 1e300)` answered `9223372036854775807` and `(round nan)` answered 0.
+fn float_to_int(f: f64, op: &'static str, at: Span) -> Result<Value> {
+    // 2^63 is exactly representable; every finite float below it and at or
+    // above -2^63 converts exactly (the argument is already integral).
+    const LIMIT: f64 = 9_223_372_036_854_775_808.0;
+    if f.is_finite() && (-LIMIT..LIMIT).contains(&f) {
+        #[allow(clippy::cast_possible_truncation)]
+        Ok(Value::Int(f as i64))
+    } else {
+        Err(EvalError::IntegerOverflow { op, at })
+    }
+}
+
 fn gcd(a: i64, b: i64) -> i64 {
     if b == 0 {
         a
@@ -997,9 +1090,10 @@ impl NumVal {
 fn reduce_numeric(
     args: &[Value],
     sp: Span,
+    op: &'static str,
     int_init: i64,
     float_init: f64,
-    fi: impl Fn(i64, i64) -> i64,
+    fi: impl Fn(i64, i64) -> Option<i64>,
     ff: impl Fn(f64, f64) -> f64,
 ) -> Result<Value> {
     // All-int fast path. Promote to float on first Float encountered.
@@ -1012,7 +1106,7 @@ fn reduce_numeric(
                 if saw_float {
                     acc_f = ff(acc_f, n as f64);
                 } else {
-                    acc_i = fi(acc_i, n);
+                    acc_i = fi(acc_i, n).ok_or(EvalError::IntegerOverflow { op, at: sp })?;
                 }
             }
             NumVal::F(n) => {
@@ -1035,7 +1129,10 @@ fn reduce_numeric(
 fn prim_sub<H: 'static>(args: &[Value], _h: &mut H, sp: Span) -> Result<Value> {
     if args.len() == 1 {
         return match as_number_either(&args[0], sp)? {
-            NumVal::I(n) => Ok(Value::Int(-n)),
+            NumVal::I(n) => n
+                .checked_neg()
+                .map(Value::Int)
+                .ok_or(EvalError::IntegerOverflow { op: "-", at: sp }),
             NumVal::F(n) => Ok(Value::Float(-n)),
         };
     }
@@ -1049,7 +1146,9 @@ fn prim_sub<H: 'static>(args: &[Value], _h: &mut H, sp: Span) -> Result<Value> {
                 if saw_float {
                     acc_f -= n as f64;
                 } else {
-                    acc_i -= n;
+                    acc_i = acc_i
+                        .checked_sub(n)
+                        .ok_or(EvalError::IntegerOverflow { op: "-", at: sp })?;
                 }
             }
             NumVal::F(n) => {
@@ -1102,8 +1201,13 @@ fn prim_div<H: 'static>(args: &[Value], _h: &mut H, sp: Span) -> Result<Value> {
             NumVal::I(n) => {
                 if saw_float {
                     acc_f /= n as f64;
-                } else if acc_i % n == 0 {
-                    acc_i /= n;
+                } else if acc_i.checked_rem(n) == Some(0) {
+                    acc_i = acc_i
+                        .checked_div(n)
+                        .ok_or(EvalError::IntegerOverflow { op: "/", at: sp })?;
+                } else if acc_i.checked_rem(n).is_none() {
+                    // i64::MIN / -1: the one quotient that does not fit.
+                    return Err(EvalError::IntegerOverflow { op: "/", at: sp });
                 } else {
                     acc_f = acc_i as f64 / n as f64;
                     saw_float = true;

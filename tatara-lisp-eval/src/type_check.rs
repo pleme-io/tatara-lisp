@@ -405,6 +405,7 @@ fn matches_type(value: &Value, ty: &Value) -> Result<bool> {
                     ));
                 }
             };
+            let items = &items.to_vec()[..];
             match head {
                 "list-of" => match_list_of(value, items),
                 "map-of" => match_map_of(value, items),
@@ -474,10 +475,10 @@ fn match_list_of(value: &Value, items: &[Value]) -> Result<bool> {
     let element_ty = &items[1];
     let xs = match value {
         Value::Nil => return Ok(true),
-        Value::List(xs) => xs.as_ref(),
+        Value::List(xs) => xs,
         _ => return Ok(false),
     };
-    for x in xs {
+    for x in xs.iter() {
         if !matches_type(x, element_ty)? {
             return Ok(false);
         }

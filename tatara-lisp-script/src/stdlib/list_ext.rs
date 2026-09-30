@@ -156,10 +156,10 @@ fn list_arg(
     v: &Value,
     fname: &'static str,
     sp: tatara_lisp::Span,
-) -> Result<Arc<Vec<Value>>, EvalError> {
+) -> Result<Arc<tatara_lisp_eval::List>, EvalError> {
     match v {
         Value::List(xs) => Ok(xs.clone()),
-        Value::Nil => Ok(Arc::new(Vec::new())),
+        Value::Nil => Ok(Arc::default()),
         other => Err(EvalError::native_fn(
             fname,
             format!("expected list, got {}", other.type_name()),

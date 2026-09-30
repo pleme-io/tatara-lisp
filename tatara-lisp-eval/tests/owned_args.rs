@@ -102,7 +102,7 @@ fn sample_map(n: usize) -> Value {
         let k = i64::try_from(k).expect("fixture size fits i64");
         m.insert(MapKey::Int(k), Value::Int(k));
     }
-    Value::Map(Arc::new(m))
+    Value::Map(Arc::new(m.into()))
 }
 
 fn native(name: &str, arity: Arity) -> Value {
@@ -123,8 +123,9 @@ fn len_of(v: &Value) -> usize {
 
 /// Both halves of the in-place claim, on independent evidence.
 ///
-/// Green, 2026-08-13:
-/// `hash-map-set on n=4096: unique 168 bytes / 2 allocs, shared 598256 bytes /
+/// Green, 2026-09-29, on the persistent map:
+/// `hash-map-set on n=4096: unique 168 bytes / 2 allocs, shared 6720 bytes /
+/// 6 allocs`. Before it (2026-08-13, `HashMap`): `shared 598256 bytes /
 /// 4 allocs` — 3561× fewer bytes, and the two allocations left are the `Arc`
 /// for the returned `Value` and one `Vec` for the argument list.
 ///
@@ -204,20 +205,23 @@ fn unaliased_updates_in_place_and_shared_ones_do_not() {
          shared {shared_bytes} bytes / {shared_allocs} allocs"
     );
 
-    // An n=4096 `HashMap<MapKey, Value>` table is tens of KB. In place costs
-    // nothing like that; the bound is loose so the gate tracks the branch
-    // taken rather than an allocator's exact sizing.
+    // In place costs nothing like a table; the bound is loose so the gate
+    // tracks the branch taken rather than an allocator's exact sizing.
     assert!(
         uniq_bytes < 4096,
         "an unaliased {N}-entry set must not copy the table \
          (got {uniq_bytes} bytes in {uniq_allocs} allocations)"
     );
+    // Since the map became a persistent HAMT (2026-09-29) the shared arm
+    // copies the PATH to the updated entry, not the table: measured 6720 bytes
+    // against 598256 for the `HashMap` copy it replaces. The old table size
+    // (tens of KB at this n) is the ceiling a path copy must stay under.
     assert!(
-        shared_bytes > 32_768,
-        "a shared {N}-entry set must copy the table (got {shared_bytes} bytes)"
+        shared_bytes < 32_768,
+        "a shared {N}-entry set must copy a path, not the table (got {shared_bytes} bytes)"
     );
     assert!(
-        shared_bytes > uniq_bytes * 8,
+        shared_bytes > uniq_bytes,
         "shared {shared_bytes} vs unique {uniq_bytes} — the two arms are not \
          distinguishable, so one of them is not being taken"
     );
@@ -288,23 +292,14 @@ fn a_threaded_update_chain_cost_does_not_grow_with_its_length() {
     let short = chain(SHORT);
     let long = chain(LONG);
 
-    // One table copy at this size, for scale.
-    let one_copy = {
-        let m = sample_map(N);
-        let _kept = m.clone();
-        let mut i = interp();
-        let set = native("hash-map-set", Arity::Exact(3));
-        let (b, _, _) = measure(|| {
-            i.apply_external_value(
-                &set,
-                vec![m, Value::keyword("x"), Value::Int(0)],
-                &mut NoHost,
-                Span::synthetic(),
-            )
-            .unwrap()
-        });
-        b
-    };
+    // One flat table copy at this size, for scale: what the pre-persistent
+    // `HashMap` representation copied on every shared set. Stated from the
+    // entry size rather than measured, because since 2026-09-29 a shared set
+    // copies only a HAMT path (measured 10744 B here) and so no longer
+    // produces a table copy to measure. Per-step copying of the old kind
+    // would cost this much per extra set; the gate stays an eighth of it.
+    let one_copy =
+        N * (std::mem::size_of::<tatara_lisp_eval::MapKey>() + std::mem::size_of::<Value>());
 
     for engine in ["tree-walker", "vm"] {
         let run = |i: &mut Interpreter<NoHost>, forms: &[tatara_lisp_eval::Spanned]| {

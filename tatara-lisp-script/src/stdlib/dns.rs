@@ -1144,7 +1144,7 @@ fn map_value(fields: &[(&str, Value)]) -> Value {
     for (k, v) in fields {
         m.insert(MapKey::Keyword(Arc::from(*k)), v.clone());
     }
-    Value::Map(Arc::new(m))
+    Value::Map(Arc::new(m.into()))
 }
 
 // ─────────────────────────────────────────────────────────────────────

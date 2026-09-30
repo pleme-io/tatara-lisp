@@ -101,7 +101,7 @@ pub fn install_hof<H: 'static>(interp: &mut Interpreter<H>) {
             let mid = &args[1..args.len() - 1];
             let tail = match &args[args.len() - 1] {
                 Value::Nil => Vec::new(),
-                Value::List(xs) => xs.as_ref().clone(),
+                Value::List(xs) => xs.to_vec(),
                 other => {
                     return Err(EvalError::type_mismatch(
                         "list (last arg of apply)",
@@ -423,14 +423,10 @@ pub fn install_hof<H: 'static>(interp: &mut Interpreter<H>) {
                 }
                 groups.get_mut(&k).unwrap().push(x.clone());
             }
-            let out = order
-                .into_iter()
-                .map(|k| {
-                    let items = groups.remove(&k).unwrap();
-                    Value::list(vec![Value::Str(k), Value::list(items)])
-                })
-                .collect();
-            Ok(Value::List(Arc::new(out)))
+            Ok(Value::list(order.into_iter().map(|k| {
+                let items = groups.remove(&k).unwrap();
+                Value::list(vec![Value::Str(k), Value::list(items)])
+            })))
         },
     );
 
@@ -596,7 +592,7 @@ pub fn sort_keyed_values(mut keyed: Vec<(Value, Value)>, sp: Span) -> Result<Vec
 fn expect_list(v: &Value, sp: Span) -> Result<Vec<Value>> {
     match v {
         Value::Nil => Ok(Vec::new()),
-        Value::List(xs) => Ok(xs.as_ref().clone()),
+        Value::List(xs) => Ok(xs.to_vec()),
         other => Err(EvalError::type_mismatch("list", other.type_name(), sp)),
     }
 }

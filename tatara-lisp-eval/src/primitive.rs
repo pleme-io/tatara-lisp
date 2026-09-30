@@ -15,6 +15,7 @@ use tatara_lisp::{Sexp, Span};
 use crate::error::{EvalError, Result};
 use crate::eval::Interpreter;
 use crate::ffi::Arity;
+use crate::persist::List;
 use crate::value::Value;
 
 /// Names of primitive procedures registered by `install_primitives`.
@@ -339,11 +340,7 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
         Arity::Exact(1),
         |args: &[Value], _h: &mut H, sp| match &args[0] {
             Value::Nil => Ok(Value::Nil),
-            Value::List(xs) => {
-                let mut v = xs.as_ref().clone();
-                v.reverse();
-                Ok(Value::List(Arc::new(v)))
-            }
+            Value::List(xs) => Ok(Value::list(xs.iter().rev().cloned())),
             other => Err(EvalError::type_mismatch("list", other.type_name(), sp)),
         },
     );
@@ -575,24 +572,26 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
     // ── More list ops ─────────────────────────────────────────────
     interp.register_fn("take", Arity::Exact(2), |args: &[Value], _h: &mut H, sp| {
         let n = expect_int(&args[0], sp)?.max(0) as usize;
-        let xs = list_view(&args[1], sp)?;
-        let take_n = n.min(xs.len());
-        Ok(Value::list(xs[..take_n].to_vec()))
+        Ok(match list_view(&args[1], sp)? {
+            Some(xs) if n > 0 => Value::List(Arc::new(xs.take(n))),
+            _ => Value::list([]),
+        })
     });
     interp.register_fn("drop", Arity::Exact(2), |args: &[Value], _h: &mut H, sp| {
         let n = expect_int(&args[0], sp)?.max(0) as usize;
-        let xs = list_view(&args[1], sp)?;
-        let drop_n = n.min(xs.len());
-        Ok(Value::list(xs[drop_n..].to_vec()))
+        Ok(match list_view(&args[1], sp)? {
+            Some(xs) => Value::List(Arc::new(xs.skip(n))),
+            None => Value::list([]),
+        })
     });
     interp.register_fn("nth", Arity::Exact(2), |args: &[Value], _h: &mut H, sp| {
         let n = expect_int(&args[0], sp)?;
         let xs = list_view(&args[1], sp)?;
-        if n < 0 || (n as usize) >= xs.len() {
-            Ok(Value::Nil)
-        } else {
-            Ok(xs[n as usize].clone())
-        }
+        Ok(usize::try_from(n)
+            .ok()
+            .and_then(|i| xs.and_then(|xs| xs.get(i)))
+            .cloned()
+            .unwrap_or(Value::Nil))
     });
     interp.register_fn("not=", Arity::Exact(2), |a: &[Value], _h: &mut H, _sp| {
         Ok(Value::Bool(!value_eq_deep(&a[0], &a[1])))
@@ -1045,12 +1044,12 @@ fn cmp_to_int(o: std::cmp::Ordering) -> i64 {
     }
 }
 
-/// Borrow a list-shaped Value as a slice. `Nil` is treated as an empty
-/// list. Used by primitives that don't care about ownership.
-fn list_view(v: &Value, sp: Span) -> Result<&[Value]> {
+/// Borrow a list-shaped Value. `Nil` is the empty list, answered as `None`.
+/// Used by primitives that don't care about ownership.
+fn list_view(v: &Value, sp: Span) -> Result<Option<&List>> {
     match v {
-        Value::Nil => Ok(&[]),
-        Value::List(xs) => Ok(xs.as_ref()),
+        Value::Nil => Ok(None),
+        Value::List(xs) => Ok(Some(xs)),
         other => Err(EvalError::type_mismatch("list", other.type_name(), sp)),
     }
 }
@@ -1266,7 +1265,7 @@ fn prim_cdr<H: 'static>(args: &[Value], _h: &mut H, sp: Span) -> Result<Value> {
             if xs.len() == 1 {
                 Ok(Value::Nil)
             } else {
-                Ok(Value::List(Arc::new(xs[1..].to_vec())))
+                Ok(Value::List(Arc::new(xs.skip(1))))
             }
         }
         Value::Nil | Value::List(_) => Err(EvalError::native_fn(
@@ -1280,23 +1279,28 @@ fn prim_cdr<H: 'static>(args: &[Value], _h: &mut H, sp: Span) -> Result<Value> {
 
 fn prim_cons<H: 'static>(args: &[Value], _h: &mut H, _sp: Span) -> Result<Value> {
     let head = args[0].clone();
-    let tail = &args[1];
-    let mut v = Vec::new();
-    v.push(head);
-    match tail {
-        Value::Nil => {}
-        Value::List(xs) => v.extend(xs.iter().cloned()),
-        other => v.push(other.clone()),
-    }
+    // The tail is shared, not copied: `push_front` on the persistent list
+    // touches O(1) nodes, where the old `Vec` rebuild copied every element.
+    let v = match &args[1] {
+        Value::Nil => List::from(vec![head]),
+        Value::List(xs) => {
+            let mut v = List::clone(xs);
+            v.push_front(head);
+            v
+        }
+        other => List::from(vec![head, other.clone()]),
+    };
     Ok(Value::List(Arc::new(v)))
 }
 
 fn prim_append<H: 'static>(args: &[Value], _h: &mut H, sp: Span) -> Result<Value> {
-    let mut out = Vec::new();
+    // Concatenation of persistent lists: each operand's structure is shared,
+    // so `(append acc (list x))` costs O(log n) rather than a copy of `acc`.
+    let mut out = List::new();
     for a in args {
         match a {
             Value::Nil => {}
-            Value::List(xs) => out.extend(xs.iter().cloned()),
+            Value::List(xs) => out.append(List::clone(xs)),
             other => return Err(EvalError::type_mismatch("list", other.type_name(), sp)),
         }
     }
@@ -1316,7 +1320,7 @@ fn value_eq_shallow(a: &Value, b: &Value) -> bool {
         (Value::Str(a), Value::Str(b)) => Arc::ptr_eq(a, b) || a == b,
         (Value::Symbol(a), Value::Symbol(b)) => a == b,
         (Value::Keyword(a), Value::Keyword(b)) => a == b,
-        (Value::List(a), Value::List(b)) => Arc::ptr_eq(a, b),
+        (Value::List(a), Value::List(b)) => Arc::ptr_eq(a, b) || a.ptr_eq(b),
         (Value::NativeFn(a), Value::NativeFn(b)) => a.name == b.name,
         (Value::Closure(a), Value::Closure(b)) => Arc::ptr_eq(a, b),
         _ => false,

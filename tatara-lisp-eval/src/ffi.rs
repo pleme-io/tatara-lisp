@@ -535,7 +535,7 @@ impl FromValue for Vec<Value> {
     fn from_value(v: &Value, at: Span) -> Result<Self> {
         match v {
             Value::Nil => Ok(Vec::new()),
-            Value::List(xs) => Ok(xs.as_ref().clone()),
+            Value::List(xs) => Ok(xs.to_vec()),
             other => Err(EvalError::type_mismatch("list", other.type_name(), at)),
         }
     }

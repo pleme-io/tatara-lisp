@@ -5,7 +5,6 @@
 //!   (alist-get ALIST KEY) → value at KEY, or nil
 //!   (alist-get ALIST KEY DEFAULT) → value at KEY, or DEFAULT
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde_json::Value as JsonValue;
@@ -95,7 +94,7 @@ pub fn json_to_value(j: &JsonValue) -> Value {
         // idiom) is written against, and changing it is a separate, much
         // larger move — see the KNOWN REMAINING AMBIGUITY note on
         // `value_to_json`.
-        JsonValue::Object(m) if m.is_empty() => Value::Map(Arc::new(HashMap::new())),
+        JsonValue::Object(m) if m.is_empty() => Value::map([]),
         JsonValue::Object(m) => Value::list(
             m.iter()
                 .map(|(k, v)| {
@@ -292,18 +291,18 @@ mod tests {
 
     #[test]
     fn map_serializes_as_object_not_null() {
-        let mut m = HashMap::new();
+        let mut m = std::collections::HashMap::new();
         m.insert(MapKey::Str(Arc::from("k")), Value::Int(7));
-        let out = value_to_json(&Value::Map(Arc::new(m)));
+        let out = value_to_json(&Value::Map(Arc::new(m.into())));
         assert_eq!(out, serde_json::json!({"k": 7}));
     }
 
     #[test]
     fn map_with_non_string_keys_keeps_every_entry() {
-        let mut m = HashMap::new();
+        let mut m = std::collections::HashMap::new();
         m.insert(MapKey::Int(1), Value::Str(Arc::from("one")));
         m.insert(MapKey::Bool(true), Value::Str(Arc::from("yes")));
-        let out = value_to_json(&Value::Map(Arc::new(m)));
+        let out = value_to_json(&Value::Map(Arc::new(m.into())));
         assert_eq!(out, serde_json::json!({"1": "one", "true": "yes"}));
     }
 }

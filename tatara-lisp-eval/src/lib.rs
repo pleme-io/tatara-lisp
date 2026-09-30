@@ -28,6 +28,7 @@ pub mod interner;
 pub mod lisp_stdlib;
 pub mod map;
 pub mod module;
+pub mod persist;
 pub mod primitive;
 pub mod repl;
 pub mod special;
@@ -49,6 +50,7 @@ pub use module::{
     DenyingLoader, FilesystemLoader, Loader, MapLoader, Module, ModuleError, ModuleRegistry,
     NoLoader,
 };
+pub use persist::{List, Map};
 pub use primitive::install_primitives;
 pub use repl::ReplSession;
 pub use strictness::{evidence_of_span, reading_of, TataraFactor, TATARA_LADDER};

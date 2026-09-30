@@ -63,7 +63,7 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
             let sep = str_arg(&args[0], "string-join", sp)?;
             let xs = match &args[1] {
                 Value::List(xs) => xs.clone(),
-                Value::Nil => Arc::new(Vec::new()),
+                Value::Nil => Arc::default(),
                 other => {
                     return Err(EvalError::native_fn(
                         "string-join",

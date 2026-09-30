@@ -25,7 +25,6 @@
 //!   (hash-map-update m k fn)   → set k to (fn current-or-nil)
 //! ```
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use tatara_lisp::Span;
@@ -33,6 +32,7 @@ use tatara_lisp::Span;
 use crate::error::{EvalError, Result};
 use crate::eval::Interpreter;
 use crate::ffi::{Arity, Caller};
+use crate::persist::Map;
 use crate::value::{MapKey, Value};
 
 /// Names registered. Kept sorted for the self-test.
@@ -65,7 +65,7 @@ pub fn install_map<H: 'static>(interp: &mut Interpreter<H>) {
                     sp,
                 ));
             }
-            let mut m = HashMap::with_capacity(args.len() / 2);
+            let mut m = Map::new();
             let mut i = 0;
             while i < args.len() {
                 let k = key_or_err(&args[i], sp)?;
@@ -238,7 +238,7 @@ pub fn install_map<H: 'static>(interp: &mut Interpreter<H>) {
             let f = &args[2];
             let current = m.get(&k).cloned().unwrap_or(Value::Nil);
             let new_v = caller.call1(f, current, host, sp)?;
-            let mut copy = m.as_ref().clone();
+            let mut copy = Map::clone(&m);
             copy.insert(k, new_v);
             Ok(Value::Map(Arc::new(copy)))
         },
@@ -265,7 +265,7 @@ pub fn install_map<H: 'static>(interp: &mut Interpreter<H>) {
 /// the only reachable one.
 fn map_cow<F>(v: Value, sp: Span, f: F) -> Result<Value>
 where
-    F: FnOnce(&mut HashMap<MapKey, Value>),
+    F: FnOnce(&mut Map),
 {
     match v {
         Value::Map(mut arc) => {
@@ -273,7 +273,9 @@ where
                 f(map);
                 Ok(Value::Map(arc))
             } else {
-                let mut copy = HashMap::clone(&arc);
+                // O(1): the persistent map shares every node with `arc`,
+                // and the update below copies only the path it touches.
+                let mut copy = Map::clone(&arc);
                 drop(arc);
                 f(&mut copy);
                 Ok(Value::Map(Arc::new(copy)))
@@ -300,7 +302,7 @@ fn owned_args<const N: usize>(who: &'static str, args: Vec<Value>, sp: Span) -> 
     })
 }
 
-fn expect_map(v: &Value, sp: Span) -> Result<Arc<HashMap<MapKey, Value>>> {
+fn expect_map(v: &Value, sp: Span) -> Result<Arc<Map>> {
     match v {
         Value::Map(m) => Ok(m.clone()),
         other => Err(EvalError::type_mismatch("map", other.type_name(), sp)),
@@ -448,12 +450,12 @@ mod tests {
     // a correctness bug, not an optimisation.
 
     fn sample_map(n: usize) -> Value {
-        let mut m = HashMap::with_capacity(n);
+        let mut m = std::collections::HashMap::with_capacity(n);
         for k in 0..n {
             let k = i64::try_from(k).expect("fixture size fits i64");
             m.insert(MapKey::Int(k), Value::Int(k));
         }
-        Value::Map(Arc::new(m))
+        Value::Map(Arc::new(m.into()))
     }
 
     /// Dispatch through the shipped call path rather than hand-calling the

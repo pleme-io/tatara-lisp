@@ -27,6 +27,9 @@ tatara-lisp.workspace = true
 # nothing to any consumer's graph.
 tatara-closed-set.workspace = true
 thiserror = "2"
+# The persistent vector and HAMT behind `Value::List` / `Value::Map`, wrapped by
+# `src/persist.rs` so no consumer names it. Pure Rust.
+imbl = "7"
 
 # Host-stack growth for the tree-walker's nested closure calls — see
 # `eval::call_closure`. Switching stacks is irreducibly below safe Rust:

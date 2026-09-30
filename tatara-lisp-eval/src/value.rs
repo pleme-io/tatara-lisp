@@ -6,7 +6,6 @@
 //! have no surface syntax.
 
 use std::any::Any;
-use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
@@ -14,6 +13,7 @@ use tatara_lisp::{Sexp, Span, Spanned};
 
 use crate::env::Env;
 use crate::ffi::Arity;
+use crate::persist::{List, Map};
 
 /// An evaluated runtime value.
 #[derive(Clone)]
@@ -25,11 +25,11 @@ pub enum Value {
     Str(Arc<str>),
     Symbol(Arc<str>),
     Keyword(Arc<str>),
-    List(Arc<Vec<Value>>),
+    List(Arc<List>),
     /// Persistent hash map keyed by a hashable subset of `Value`
     /// (`Bool`, `Int`, `Float`, `Str`, `Symbol`, `Keyword`, `Nil`).
     /// Inserting / removing yields a new Map (copy-on-write via `Arc`).
-    Map(Arc<HashMap<MapKey, Value>>),
+    Map(Arc<Map>),
     Closure(Arc<Closure>),
     NativeFn(Arc<NativeFn>),
     /// A delayed (lazy) computation. First force triggers evaluation
@@ -179,6 +179,11 @@ impl Value {
 
     pub fn list<I: IntoIterator<Item = Value>>(xs: I) -> Self {
         Self::List(Arc::new(xs.into_iter().collect()))
+    }
+
+    /// A map value from its entries.
+    pub fn map<I: IntoIterator<Item = (MapKey, Value)>>(entries: I) -> Self {
+        Self::Map(Arc::new(entries.into_iter().collect()))
     }
 
     pub fn is_truthy(&self) -> bool {

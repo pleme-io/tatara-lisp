@@ -644,7 +644,7 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "kumihan"
-version = "0.4.0"
+version = "0.4.1"
 
 [[package]]
 name = "lazy_static"
@@ -733,7 +733,7 @@ dependencies = [
 
 [[package]]
 name = "monosashi"
-version = "0.4.0"
+version = "0.4.1"
 
 [[package]]
 name = "num-conv"
@@ -1128,7 +1128,7 @@ dependencies = [
 
 [[package]]
 name = "tatara"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "blake3",
@@ -1139,7 +1139,7 @@ dependencies = [
  "tatara-domain-forge",
  "tatara-ebpf",
  "tatara-gateway-api",
- "tatara-lisp 0.4.0",
+ "tatara-lisp 0.4.1",
  "tatara-lisp-eval",
  "tatara-lisp-source",
  "tatara-platform-checks",
@@ -1148,12 +1148,12 @@ dependencies = [
 
 [[package]]
 name = "tatara-cilium"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "serde",
  "serde_json",
- "tatara-lisp 0.4.0",
- "tatara-lisp-derive 0.4.0",
+ "tatara-lisp 0.4.1",
+ "tatara-lisp-derive 0.4.1",
 ]
 
 [[package]]
@@ -1167,9 +1167,9 @@ dependencies = [
 
 [[package]]
 name = "tatara-closed-set"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
- "tatara-closed-set-derive 0.4.0",
+ "tatara-closed-set-derive 0.4.1",
  "thiserror 2.0.19",
 ]
 
@@ -1186,7 +1186,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-closed-set-derive"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1195,17 +1195,17 @@ dependencies = [
 
 [[package]]
 name = "tatara-doc"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "serde_json",
  "tatara-ebpf",
  "tatara-gateway-api",
- "tatara-lisp 0.4.0",
+ "tatara-lisp 0.4.1",
 ]
 
 [[package]]
 name = "tatara-domain-forge"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "clap",
  "indexmap",
@@ -1218,53 +1218,53 @@ dependencies = [
 
 [[package]]
 name = "tatara-ebpf"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "indexmap",
  "serde",
  "serde_json",
- "tatara-lisp 0.4.0",
- "tatara-lisp-derive 0.4.0",
+ "tatara-lisp 0.4.1",
+ "tatara-lisp-derive 0.4.1",
  "thiserror 2.0.19",
 ]
 
 [[package]]
 name = "tatara-env"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "indexmap",
  "serde",
  "serde_json",
  "tatara-ebpf",
  "tatara-gateway-api",
- "tatara-lisp 0.4.0",
- "tatara-lisp-derive 0.4.0",
+ "tatara-lisp 0.4.1",
+ "tatara-lisp-derive 0.4.1",
  "thiserror 2.0.19",
 ]
 
 [[package]]
 name = "tatara-gateway-api"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "serde",
  "serde_json",
- "tatara-lisp 0.4.0",
- "tatara-lisp-derive 0.4.0",
+ "tatara-lisp 0.4.1",
+ "tatara-lisp-derive 0.4.1",
 ]
 
 [[package]]
 name = "tatara-kanmon"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "caixa-fmt",
 ]
 
 [[package]]
 name = "tatara-keywords"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "serde",
- "tatara-lisp 0.4.0",
+ "tatara-lisp 0.4.1",
 ]
 
 [[package]]
@@ -1283,13 +1283,13 @@ dependencies = [
 
 [[package]]
 name = "tatara-lisp"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "blake3",
  "serde",
  "serde_json",
- "tatara-closed-set 0.4.0",
- "tatara-lisp-derive 0.4.0",
+ "tatara-closed-set 0.4.1",
+ "tatara-lisp-derive 0.4.1",
  "thiserror 2.0.19",
 ]
 
@@ -1306,7 +1306,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-lisp-derive"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1315,26 +1315,26 @@ dependencies = [
 
 [[package]]
 name = "tatara-lisp-eval"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "imbl",
  "monosashi",
  "stacker",
- "tatara-closed-set 0.4.0",
- "tatara-lisp 0.4.0",
+ "tatara-closed-set 0.4.1",
+ "tatara-lisp 0.4.1",
  "thiserror 2.0.19",
 ]
 
 [[package]]
 name = "tatara-lisp-lint"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
- "tatara-lisp 0.4.0",
+ "tatara-lisp 0.4.1",
 ]
 
 [[package]]
 name = "tatara-lisp-script"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "base64",
@@ -1348,7 +1348,7 @@ dependencies = [
  "serde_yaml",
  "sha1",
  "sha2",
- "tatara-lisp 0.4.0",
+ "tatara-lisp 0.4.1",
  "tatara-lisp-eval",
  "tatara-lisp-lint",
  "tatara-lisp-source",
@@ -1361,7 +1361,7 @@ dependencies = [
 
 [[package]]
 name = "tatara-lisp-source"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "blake3",
  "log",
@@ -1373,29 +1373,29 @@ dependencies = [
 
 [[package]]
 name = "tatara-platform-checks"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "serde_json",
  "tatara-cilium",
  "tatara-ebpf",
  "tatara-gateway-api",
- "tatara-lisp 0.4.0",
+ "tatara-lisp 0.4.1",
  "tatara-prometheus-operator",
 ]
 
 [[package]]
 name = "tatara-prometheus-operator"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "serde",
  "serde_json",
- "tatara-lisp 0.4.0",
- "tatara-lisp-derive 0.4.0",
+ "tatara-lisp 0.4.1",
+ "tatara-lisp-derive 0.4.1",
 ]
 
 [[package]]
 name = "tatara-render"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "indexmap",
  "serde",
@@ -1404,13 +1404,13 @@ dependencies = [
  "tatara-ebpf",
  "tatara-env",
  "tatara-gateway-api",
- "tatara-lisp 0.4.0",
+ "tatara-lisp 0.4.1",
  "thiserror 2.0.19",
 ]
 
 [[package]]
 name = "tatara-rollout"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "blake3",
  "indexmap",
@@ -1419,7 +1419,7 @@ dependencies = [
  "tatara-ebpf",
  "tatara-env",
  "tatara-gateway-api",
- "tatara-lisp 0.4.0",
+ "tatara-lisp 0.4.1",
  "thiserror 2.0.19",
 ]
 

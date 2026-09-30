@@ -144,8 +144,18 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
             // `take()` so the pipe is dropped before we wait — a tool reading
             // stdin to EOF deadlocks otherwise.
             if let Some(mut sink) = child.stdin.take() {
-                sink.write_all(payload.as_bytes())
-                    .map_err(|e| EvalError::native_fn("exec-with-stdin", e.to_string(), sp))?;
+                // A child that exits or closes stdin without reading all of it
+                // (`true`, a tool that ignores stdin) makes this write fail with
+                // EPIPE. That is the child's choice, not our error: its exit
+                // status and output below are the answer. Treating it as an
+                // error made `neither_sink_puts_the_value_in_argv` fail whenever
+                // the child won the race (auto-release run 36634926576).
+                match sink.write_all(payload.as_bytes()) {
+                    Err(e) if e.kind() != std::io::ErrorKind::BrokenPipe => {
+                        return Err(EvalError::native_fn("exec-with-stdin", e.to_string(), sp));
+                    }
+                    _ => {}
+                }
             }
             let out = child
                 .wait_with_output()

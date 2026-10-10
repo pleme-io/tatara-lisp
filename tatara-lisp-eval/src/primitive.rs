@@ -14,7 +14,7 @@ use tatara_lisp::{Sexp, Span};
 
 use crate::error::{EvalError, Result};
 use crate::eval::Interpreter;
-use crate::ffi::Arity;
+use crate::ffi::{owned_args, Arity};
 use crate::persist::List;
 use crate::value::Value;
 
@@ -322,7 +322,7 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
     // ── Lists ─────────────────────────────────────────────────────
     interp.register_fn("car", Arity::Exact(1), prim_car::<H>);
     interp.register_fn("cdr", Arity::Exact(1), prim_cdr::<H>);
-    interp.register_fn("cons", Arity::Exact(2), prim_cons::<H>);
+    interp.register_owned_fn("cons", Arity::Exact(2), prim_cons::<H>);
     interp.register_fn("list", Arity::Any, |args: &[Value], _h: &mut H, _sp| {
         Ok(Value::list(args.iter().cloned()))
     });
@@ -344,7 +344,7 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
             other => Err(EvalError::type_mismatch("list", other.type_name(), sp)),
         },
     );
-    interp.register_fn("append", Arity::Any, prim_append::<H>);
+    interp.register_owned_fn("append", Arity::Any, prim_append::<H>);
 
     // ── Equality ──────────────────────────────────────────────────
     interp.register_fn("eq?", Arity::Exact(2), |a: &[Value], _h: &mut H, _sp| {
@@ -1277,37 +1277,51 @@ fn prim_cdr<H: 'static>(args: &[Value], _h: &mut H, sp: Span) -> Result<Value> {
     }
 }
 
-fn prim_cons<H: 'static>(args: &[Value], _h: &mut H, _sp: Span) -> Result<Value> {
-    let head = args[0].clone();
+// `cons` and `append` take their arguments BY VALUE (`register_owned_fn`), so
+// a list the caller holds alone is extended in its own allocation:
+// `Arc::make_mut` updates in place when the count is 1 and copies once
+// otherwise, which is the same decision `map::map_cow` makes for maps.
+
+fn prim_cons<H: 'static>(args: Vec<Value>, _h: &mut H, sp: Span) -> Result<Value> {
+    let [head, tail] = owned_args::<2>("cons", args, sp)?;
     // The tail is shared, not copied: `push_front` on the persistent list
     // touches O(1) nodes, where the old `Vec` rebuild copied every element.
-    let v = match &args[1] {
-        Value::Nil => List::from(vec![head]),
-        Value::List(xs) => {
-            let mut v = List::clone(xs);
-            v.push_front(head);
-            v
+    Ok(match tail {
+        Value::Nil => Value::List(Arc::new(List::from(vec![head]))),
+        Value::List(mut xs) => {
+            Arc::make_mut(&mut xs).push_front(head);
+            Value::List(xs)
         }
-        other => List::from(vec![head, other.clone()]),
-    };
-    Ok(Value::List(Arc::new(v)))
+        other => Value::List(Arc::new(List::from(vec![head, other]))),
+    })
 }
 
-fn prim_append<H: 'static>(args: &[Value], _h: &mut H, sp: Span) -> Result<Value> {
-    // Concatenation of persistent lists: each operand's structure is shared,
-    // so `(append acc (list x))` costs O(log n) rather than a copy of `acc`.
-    let mut out = List::new();
+fn prim_append<H: 'static>(args: Vec<Value>, _h: &mut H, sp: Span) -> Result<Value> {
+    // Every operand is checked before the first is touched, so a bad one
+    // further along cannot leave the accumulator half-extended.
+    let mut lists = Vec::with_capacity(args.len());
     for a in args {
         match a {
             Value::Nil => {}
-            Value::List(xs) => out.append(List::clone(xs)),
+            Value::List(xs) => lists.push(xs),
             other => return Err(EvalError::type_mismatch("list", other.type_name(), sp)),
         }
+    }
+    let mut lists = lists.into_iter();
+    let Some(mut out) = lists.next() else {
+        return Ok(Value::Nil);
+    };
+    // Concatenation of persistent lists: each operand's structure is shared,
+    // so `(append acc (list x))` costs O(log n) rather than a copy of `acc`,
+    // and nothing at all beyond the new element when `acc` is held once.
+    let acc = Arc::make_mut(&mut out);
+    for xs in lists {
+        acc.append(Arc::try_unwrap(xs).unwrap_or_else(|shared| List::clone(&shared)));
     }
     if out.is_empty() {
         Ok(Value::Nil)
     } else {
-        Ok(Value::List(Arc::new(out)))
+        Ok(Value::List(out))
     }
 }
 

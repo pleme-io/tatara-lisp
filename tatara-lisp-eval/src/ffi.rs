@@ -125,6 +125,28 @@ where
     }
 }
 
+/// Move a fixed-arity argument list out of the `Vec` an [`OwnedCallable`] is
+/// handed.
+///
+/// `apply` has already checked the arity against the registration, so the
+/// error arm is unreachable through the interpreter — but it is a typed error
+/// rather than a panic, because "unreachable" is a claim about a call path and
+/// this function is reachable from anywhere in the crate.
+pub(crate) fn owned_args<const N: usize>(
+    who: &'static str,
+    args: Vec<Value>,
+    sp: Span,
+) -> Result<[Value; N]> {
+    let got = args.len();
+    args.try_into().map_err(|_| {
+        EvalError::native_fn(
+            Arc::<str>::from(who),
+            format!("expected exactly {N} args, got {got}"),
+            sp,
+        )
+    })
+}
+
 /// A higher-order Rust primitive — receives a `Caller` so it can invoke
 /// `Value::Closure` / `Value::NativeFn` arguments back into the eval loop.
 /// Used by `map`, `filter`, `fold`, `for-each`, and friends.

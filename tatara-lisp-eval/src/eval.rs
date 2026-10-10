@@ -15,7 +15,7 @@ use crate::env::{Env, Seal};
 use crate::error::{EvalError, Result};
 use crate::ffi::{
     Arity, Caller, FnEntry, FnImpl, FnRegistry, FromValue, HigherOrderCallable, IntoValue,
-    NativeCallable,
+    NativeCallable, OwnedCallable,
 };
 use crate::module::{Loader, Module, ModuleError, ModuleRegistry, NoLoader};
 use crate::special::SpecialForm;
@@ -1336,6 +1336,64 @@ fn eval_application<H: 'static>(
     apply(&head_val, args, call_span, registry, expander, host)
 }
 
+/// The registry entry behind a native function value, after the arity check.
+fn native_entry<'r, H>(
+    nfn: &NativeFn,
+    argc: usize,
+    call_span: Span,
+    registry: &'r FnRegistry<H>,
+) -> Result<&'r FnEntry<H>> {
+    if nfn.arity.check(argc).is_err() {
+        return Err(EvalError::ArityMismatch {
+            fn_name: nfn.name.clone(),
+            expected: nfn.arity,
+            got: argc,
+            at: call_span,
+        });
+    }
+    registry.lookup(&nfn.name).ok_or_else(|| {
+        EvalError::native_fn(
+            nfn.name.clone(),
+            format!("native fn {} is not registered", nfn.name),
+            call_span,
+        )
+    })
+}
+
+/// Call a native function's registry entry.
+fn call_native<H: 'static>(
+    entry: &FnEntry<H>,
+    args: Vec<Value>,
+    call_span: Span,
+    registry: &FnRegistry<H>,
+    expander: &SpannedExpander,
+    host: &mut H,
+) -> Result<Value> {
+    match &entry.callable {
+        FnImpl::Native(f) => f.call(&args, host, call_span),
+        // The one place `args` is *moved* rather than lent. Nothing
+        // downstream of here holds a second reference to any of them,
+        // which is what lets an owned primitive read an honest
+        // refcount and update an unaliased payload in place.
+        FnImpl::Owned(f) => f.call(args, host, call_span),
+        FnImpl::Higher(f) => {
+            let caller = Caller { registry, expander };
+            f.call(&args, host, &caller, call_span)
+        }
+        // The readiness check happens HERE, with `host` reborrowed
+        // immutably, which is what makes the no-consume guarantee
+        // structural: `f.ready` cannot touch the host mutably even
+        // if its author wanted to.
+        FnImpl::Awaitable(f) => {
+            if f.ready(&args, host) {
+                f.call(&args, host, call_span)
+            } else {
+                Ok(crate::vm::Vm::park())
+            }
+        }
+    }
+}
+
 fn apply<H: 'static>(
     callee: &Value,
     args: Vec<Value>,
@@ -1346,44 +1404,8 @@ fn apply<H: 'static>(
 ) -> Result<Value> {
     match callee {
         Value::NativeFn(nfn) => {
-            if nfn.arity.check(args.len()).is_err() {
-                return Err(EvalError::ArityMismatch {
-                    fn_name: nfn.name.clone(),
-                    expected: nfn.arity,
-                    got: args.len(),
-                    at: call_span,
-                });
-            }
-            let entry = registry.lookup(&nfn.name).ok_or_else(|| {
-                EvalError::native_fn(
-                    nfn.name.clone(),
-                    format!("native fn {} is not registered", nfn.name),
-                    call_span,
-                )
-            })?;
-            match &entry.callable {
-                FnImpl::Native(f) => f.call(&args, host, call_span),
-                // The one place `args` is *moved* rather than lent. Nothing
-                // downstream of here holds a second reference to any of them,
-                // which is what lets an owned primitive read an honest
-                // refcount and update an unaliased payload in place.
-                FnImpl::Owned(f) => f.call(args, host, call_span),
-                FnImpl::Higher(f) => {
-                    let caller = Caller { registry, expander };
-                    f.call(&args, host, &caller, call_span)
-                }
-                // The readiness check happens HERE, with `host` reborrowed
-                // immutably, which is what makes the no-consume guarantee
-                // structural: `f.ready` cannot touch the host mutably even
-                // if its author wanted to.
-                FnImpl::Awaitable(f) => {
-                    if f.ready(&args, host) {
-                        f.call(&args, host, call_span)
-                    } else {
-                        Ok(crate::vm::Vm::park())
-                    }
-                }
-            }
+            let entry = native_entry(nfn, args.len(), call_span, registry)?;
+            call_native(entry, args, call_span, registry, expander, host)
         }
         Value::Closure(c) => call_closure(c.clone(), args, call_span, registry, expander, host),
         // VM-compiled closure flowing into a tree-walker apply path
@@ -1433,7 +1455,7 @@ fn apply<H: 'static>(
 // rebinds and loops without consuming a stack frame.
 
 /// Result of tail-position evaluation.
-enum TailResult {
+enum TailResult<H> {
     /// Evaluation completed; here is the value.
     Done(Value),
     /// A tail call to a closure that the trampoline should re-enter
@@ -1441,6 +1463,21 @@ enum TailResult {
     /// the already-evaluated arguments, and the call site span for
     /// arity-error attribution.
     Resume(Arc<Closure>, Vec<Value>, Span),
+    /// A tail call to a primitive that takes its arguments by value
+    /// (`register_owned_fn`), handed back so it runs AFTER the calling
+    /// activation's frames are released (see `activate`).
+    ///
+    /// A tail call is the last thing its frame does, so releasing the frame
+    /// first changes nothing a program can observe — and it drops the frame's
+    /// own reference to every argument it passes. That is the difference
+    /// between `(hash-map-set m k v)` copying `m` and updating it in place:
+    /// the binding `m` is the second reference `Arc::get_mut` refuses on. A
+    /// frame something captured keeps its bindings (the release is guarded),
+    /// and then the primitive copies, as it always did.
+    ///
+    /// Carries the callable already looked up, so the registry scan is not
+    /// paid twice.
+    Apply(Arc<dyn OwnedCallable<H>>, Vec<Value>, Span),
 }
 
 /// Tail-position evaluation. Same semantics as `eval_in` for forms
@@ -1452,7 +1489,7 @@ fn eval_in_tail<H: 'static>(
     expander: &SpannedExpander,
     form: &Spanned,
     host: &mut H,
-) -> Result<TailResult> {
+) -> Result<TailResult<H>> {
     registry.step(form.span)?;
     match &form.form {
         SpannedForm::List(items) if !items.is_empty() => {
@@ -1471,6 +1508,14 @@ fn eval_in_tail<H: 'static>(
             }
             match head_val {
                 Value::Closure(c) => Ok(TailResult::Resume(c, args, form.span)),
+                Value::NativeFn(nfn) => {
+                    let entry = native_entry(&nfn, args.len(), form.span, registry)?;
+                    match &entry.callable {
+                        FnImpl::Owned(f) => Ok(TailResult::Apply(Arc::clone(f), args, form.span)),
+                        _ => call_native(entry, args, form.span, registry, expander, host)
+                            .map(TailResult::Done),
+                    }
+                }
                 _ => apply(&head_val, args, form.span, registry, expander, host)
                     .map(TailResult::Done),
             }
@@ -1488,7 +1533,7 @@ fn eval_special_tail<H: 'static>(
     registry: &FnRegistry<H>,
     expander: &SpannedExpander,
     host: &mut H,
-) -> Result<TailResult> {
+) -> Result<TailResult<H>> {
     match sf {
         SpecialForm::If => {
             if items.len() < 3 || items.len() > 4 {
@@ -1632,7 +1677,7 @@ fn eval_let_family_tail<H: 'static>(
     registry: &FnRegistry<H>,
     expander: &SpannedExpander,
     host: &mut H,
-) -> Result<TailResult> {
+) -> Result<TailResult<H>> {
     if items.len() < 3 {
         return Err(EvalError::bad_form(
             match sf {
@@ -1853,13 +1898,16 @@ fn call_closure_body<H: 'static>(
                 break Ok(v);
             }
         }
-        let step = activate(&current, &current_args, registry, expander, host);
-        match step {
-            Ok(TailResult::Done(v)) => {
-                if let Some(observer) = &registry.observer {
-                    observer.leave(&call, crate::observe::Exit::Returned(&v));
-                }
-                break Ok(v);
+        let args = std::mem::take(&mut current_args);
+        match activate(&current, args, registry, expander, host) {
+            Ok(TailResult::Done(v)) => break leave(registry, &call, Ok(v)),
+            // The frame is already released, so the arguments this primitive
+            // receives are held by nothing else the activation owned.
+            Ok(TailResult::Apply(owned, args, at)) => {
+                let result = owned
+                    .call(args, host, at)
+                    .map_err(|e| e.in_function(current.name.as_ref()));
+                break leave(registry, &call, result);
             }
             Ok(TailResult::Resume(next, next_args, next_span)) => {
                 if let Some(observer) = &registry.observer {
@@ -1870,41 +1918,63 @@ fn call_closure_body<H: 'static>(
                 current_args = next_args;
                 current_span = next_span;
             }
-            Err(e) => {
-                if let Some(observer) = &registry.observer {
-                    observer.leave(&call, crate::observe::Exit::Raised(&e));
-                }
-                registry.unwind.push(&call);
-                break Err(e);
-            }
+            Err(e) => break leave(registry, &call, Err(e)),
         }
     };
     Env::drop_releasing_defining_frame(current);
     outcome
 }
 
+/// Report how an activation ended to the observer, record a raise in the
+/// unwind trace, and pass the result through.
+fn leave<H>(
+    registry: &FnRegistry<H>,
+    call: &crate::observe::Call<'_>,
+    result: Result<Value>,
+) -> Result<Value> {
+    match &result {
+        Ok(v) => {
+            if let Some(observer) = &registry.observer {
+                observer.leave(call, crate::observe::Exit::Returned(v));
+            }
+        }
+        Err(e) => {
+            if let Some(observer) = &registry.observer {
+                observer.leave(call, crate::observe::Exit::Raised(e));
+            }
+            registry.unwind.push(call);
+        }
+    }
+    result
+}
+
 /// Bind one activation's parameters and run its body, the last form in tail
 /// position so a tail call can be trampolined by the caller.
+///
+/// The arguments are moved into the frame rather than cloned out of a vector
+/// that is dropped right after: one reference-count round trip per argument
+/// saved. It is not what makes in-place updates reach a program — that is the
+/// frame release before `TailResult::Apply` — and `tests/tail_reuse.rs` stays
+/// green with the clone put back.
 #[inline]
 fn activate<H: 'static>(
     current: &Arc<Closure>,
-    current_args: &[Value],
+    args: Vec<Value>,
     registry: &FnRegistry<H>,
     expander: &SpannedExpander,
     host: &mut H,
-) -> Result<TailResult> {
+) -> Result<TailResult<H>> {
     // Build the body env: capture closure's lexical scope, push frame,
     // bind params + rest.
-    let required = current.params.len();
     let captured = current.captured_env.frame_depth();
     let mut env = current.captured_env.clone();
     env.push();
-    for (param, arg) in current.params.iter().zip(current_args.iter()) {
-        env.define(param.clone(), arg.clone());
+    let mut args = args.into_iter();
+    for (param, arg) in current.params.iter().zip(args.by_ref()) {
+        env.define(param.clone(), arg);
     }
     if let Some(rest_name) = &current.rest {
-        let rest_args: Vec<Value> = current_args.iter().skip(required).cloned().collect();
-        env.define(rest_name.clone(), Value::list(rest_args));
+        env.define(rest_name.clone(), Value::list(args));
     }
 
     let step = eval_closure_body(&mut env, current, registry, expander, host);
@@ -1924,7 +1994,7 @@ fn eval_closure_body<H: 'static>(
     registry: &FnRegistry<H>,
     expander: &SpannedExpander,
     host: &mut H,
-) -> Result<TailResult> {
+) -> Result<TailResult<H>> {
     let body = &current.body;
     let Some((last, init)) = body.split_last() else {
         return Ok(TailResult::Done(Value::Nil));

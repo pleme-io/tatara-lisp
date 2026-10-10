@@ -48,7 +48,7 @@
 //! premise it was nearly shipped on — "a frame above the write floor is
 //! private to the fork that pushed it" — is true only at the moment the fork
 //! is made. With the exclusivity check (`frame_is_exclusively_ours` then,
-//! `release_if_closed` since 0.4.2) short-circuited to `true`, same
+//! `release_if_closed` now) short-circuited to `true`, same
 //! tree, the two soundness arms below go red and the two leak arms go green:
 //!
 //! ```text

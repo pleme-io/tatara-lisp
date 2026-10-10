@@ -31,7 +31,7 @@ use tatara_lisp::Span;
 
 use crate::error::{EvalError, Result};
 use crate::eval::Interpreter;
-use crate::ffi::{Arity, Caller};
+use crate::ffi::{owned_args, Arity, Caller};
 use crate::persist::Map;
 use crate::value::{MapKey, Value};
 
@@ -283,23 +283,6 @@ where
         }
         other => Err(EvalError::type_mismatch("map", other.type_name(), sp)),
     }
-}
-
-/// Move a fixed-arity argument list out of the `Vec` the runtime handed us.
-///
-/// `apply` has already checked the arity against the registration, so the
-/// error arm is unreachable through the interpreter — but it is a typed error
-/// rather than a panic, because "unreachable" is a claim about a call path and
-/// this function is reachable from anywhere in the crate.
-fn owned_args<const N: usize>(who: &'static str, args: Vec<Value>, sp: Span) -> Result<[Value; N]> {
-    let got = args.len();
-    args.try_into().map_err(|_| {
-        EvalError::native_fn(
-            Arc::<str>::from(who),
-            format!("expected exactly {N} args, got {got}"),
-            sp,
-        )
-    })
 }
 
 fn expect_map(v: &Value, sp: Span) -> Result<Arc<Map>> {

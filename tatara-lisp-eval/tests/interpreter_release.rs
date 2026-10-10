@@ -47,7 +47,8 @@
 //! `Env::release_own_frames` is guarded by an exclusivity proof, and the
 //! premise it was nearly shipped on — "a frame above the write floor is
 //! private to the fork that pushed it" — is true only at the moment the fork
-//! is made. With `frame_is_exclusively_ours` short-circuited to `true`, same
+//! is made. With the exclusivity check (`frame_is_exclusively_ours` then,
+//! `release_if_closed` since 0.4.2) short-circuited to `true`, same
 //! tree, the two soundness arms below go red and the two leak arms go green:
 //!
 //! ```text

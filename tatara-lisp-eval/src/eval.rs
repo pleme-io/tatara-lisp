@@ -1692,13 +1692,13 @@ fn eval_let_family_tail<H: 'static>(
     } else {
         for form in &body[..body.len() - 1] {
             if let Err(e) = eval_in(env, registry, expander, form, host) {
-                env.pop();
+                env.pop_scope();
                 return Err(e);
             }
         }
         eval_in_tail(env, registry, expander, body.last().unwrap(), host)
     };
-    env.pop();
+    env.pop_scope();
     result
 }
 
@@ -1816,13 +1816,15 @@ fn call_closure_body<H: 'static>(
     let mut current = closure;
     let mut current_args = args;
     let mut current_span = call_span;
-    loop {
+    // Every exit leaves through the bottom, so the closure the trampoline ends
+    // holding is let go of in one place (`Env::drop_releasing_defining_frame`).
+    let outcome = loop {
         // Arity check. A refusal here is the caller's error: the callee never
         // entered, so neither arm of `observe` sees it.
         let required = current.params.len();
         let has_rest = current.rest.is_some();
         if !has_rest && current_args.len() != required {
-            return Err(EvalError::ArityMismatch {
+            break Err(EvalError::ArityMismatch {
                 fn_name: Arc::from("<closure>"),
                 expected: Arity::Exact(required),
                 got: current_args.len(),
@@ -1830,7 +1832,7 @@ fn call_closure_body<H: 'static>(
             });
         }
         if has_rest && current_args.len() < required {
-            return Err(EvalError::ArityMismatch {
+            break Err(EvalError::ArityMismatch {
                 fn_name: Arc::from("<closure>"),
                 expected: Arity::AtLeast(required),
                 got: current_args.len(),
@@ -1848,24 +1850,23 @@ fn call_closure_body<H: 'static>(
         if let Some(observer) = &registry.observer {
             if let Some(v) = observer.enter(&call, &current_args) {
                 observer.leave(&call, crate::observe::Exit::Supplied(&v));
-                return Ok(v);
+                break Ok(v);
             }
         }
-        let outcome = activate(&current, &current_args, registry, expander, host);
-        match outcome {
+        let step = activate(&current, &current_args, registry, expander, host);
+        match step {
             Ok(TailResult::Done(v)) => {
                 if let Some(observer) = &registry.observer {
                     observer.leave(&call, crate::observe::Exit::Returned(&v));
                 }
-                return Ok(v);
+                break Ok(v);
             }
             Ok(TailResult::Resume(next, next_args, next_span)) => {
                 if let Some(observer) = &registry.observer {
                     observer.leave(&call, crate::observe::Exit::TailCalled);
                 }
-                // Tail call: replace state and loop. Drop env (frame
-                // popped on next iteration's fresh env).
-                current = next;
+                let finished = std::mem::replace(&mut current, next);
+                Env::drop_releasing_defining_frame(finished);
                 current_args = next_args;
                 current_span = next_span;
             }
@@ -1874,10 +1875,12 @@ fn call_closure_body<H: 'static>(
                     observer.leave(&call, crate::observe::Exit::Raised(&e));
                 }
                 registry.unwind.push(&call);
-                return Err(e);
+                break Err(e);
             }
         }
-    }
+    };
+    Env::drop_releasing_defining_frame(current);
+    outcome
 }
 
 /// Bind one activation's parameters and run its body, the last form in tail
@@ -1893,6 +1896,7 @@ fn activate<H: 'static>(
     // Build the body env: capture closure's lexical scope, push frame,
     // bind params + rest.
     let required = current.params.len();
+    let captured = current.captured_env.frame_depth();
     let mut env = current.captured_env.clone();
     env.push();
     for (param, arg) in current.params.iter().zip(current_args.iter()) {
@@ -1903,15 +1907,33 @@ fn activate<H: 'static>(
         env.define(rest_name.clone(), Value::list(rest_args));
     }
 
+    let step = eval_closure_body(&mut env, current, registry, expander, host);
+    // The call's frames die with `env`. Release them while `step` — the
+    // result, the tail callee, or the error — is still alive, so anything that
+    // outlives the call is counted as holding what it holds.
+    env.release_scope_frames(captured);
+    step
+}
+
+/// The body of one activation in `env`: all but the last form for effect and
+/// the last in tail position, so a tail call comes back as
+/// [`TailResult::Resume`] for the trampoline.
+fn eval_closure_body<H: 'static>(
+    env: &mut Env,
+    current: &Closure,
+    registry: &FnRegistry<H>,
+    expander: &SpannedExpander,
+    host: &mut H,
+) -> Result<TailResult> {
     let body = &current.body;
     let Some((last, init)) = body.split_last() else {
         return Ok(TailResult::Done(Value::Nil));
     };
     let named = |e: EvalError| e.in_function(current.name.as_ref());
     for body_form in init {
-        eval_in(&mut env, registry, expander, body_form, host).map_err(named)?;
+        eval_in(env, registry, expander, body_form, host).map_err(named)?;
     }
-    eval_in_tail(&mut env, registry, expander, last, host).map_err(named)
+    eval_in_tail(env, registry, expander, last, host).map_err(named)
 }
 
 // ── Special forms ─────────────────────────────────────────────────────
@@ -2172,7 +2194,7 @@ fn sf_let<H: 'static>(
         env.define(name, val);
     }
     let result = eval_body(&items[2..], env, registry, expander, host);
-    env.pop();
+    env.pop_scope();
     result
 }
 
@@ -2198,7 +2220,7 @@ fn sf_let_star<H: 'static>(
         env.define(name, v);
     }
     let result = eval_body(&items[2..], env, registry, expander, host);
-    env.pop();
+    env.pop_scope();
     result
 }
 
@@ -2229,7 +2251,7 @@ fn sf_letrec<H: 'static>(
         env.define(name.clone(), v);
     }
     let result = eval_body(&items[2..], env, registry, expander, host);
-    env.pop();
+    env.pop_scope();
     result
 }
 
@@ -2594,12 +2616,12 @@ fn run_catch_handler<H: 'static>(
         match eval_in(env, registry, expander, form, host) {
             Ok(v) => last = v,
             Err(e) => {
-                env.pop();
+                env.pop_scope();
                 return Err(e);
             }
         }
     }
-    env.pop();
+    env.pop_scope();
     Ok(last)
 }
 
@@ -2742,7 +2764,9 @@ fn expand_one_macro_call<H: 'static>(
     let mut macro_env = parent_env.clone();
     macro_env.push();
     bind_macro_args(&mut macro_env, &def.name, &def.params, args, call_span)?;
-    let result = eval_in(&mut macro_env, registry, expander, &body_expanded, host)?;
+    let result = eval_in(&mut macro_env, registry, expander, &body_expanded, host);
+    macro_env.release_scope();
+    let result = result?;
 
     crate::code::value_to_spanned(&result, call_span).map_err(|reason| {
         EvalError::native_fn(

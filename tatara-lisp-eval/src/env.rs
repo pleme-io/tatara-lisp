@@ -13,9 +13,10 @@
 //! cooperative tasks.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use crate::value::{PromiseState, Value};
+use crate::value::{Closure, PromiseState, Value};
 
 /// How deep [`handles_to_frame`] will walk a value graph before giving up.
 ///
@@ -67,9 +68,27 @@ impl Seal {
     }
 }
 
-#[derive(Default)]
 pub struct Frame {
     bindings: Mutex<HashMap<Arc<str>, Value>>,
+    /// The scope that pushed this frame has not ended yet.
+    ///
+    /// Set at creation, cleared by [`Env::release_scope_frames`] when the
+    /// scope ends. While it is set, the scope's own exit is still coming and
+    /// will run the release check itself, so
+    /// [`Env::drop_releasing_defining_frame`] skips the frame instead of
+    /// walking it on every call of a block defined inside a running function.
+    /// Skipping only ever declines a release, so the flag cannot make one
+    /// wrong.
+    scope_open: AtomicBool,
+}
+
+impl Default for Frame {
+    fn default() -> Self {
+        Self {
+            bindings: Mutex::default(),
+            scope_open: AtomicBool::new(true),
+        }
+    }
 }
 
 impl Frame {
@@ -278,7 +297,7 @@ impl Env {
     /// Neither is a memory-safety problem — `Arc` keeps the allocation alive
     /// whatever we do — but clearing the map would silently unbind names
     /// something live is still reading, which is worse than the leak. So a
-    /// frame is released only when [`Env::frame_is_exclusively_ours`] can
+    /// frame is released only when [`release_if_closed`] can
     /// *prove* nothing outside this environment and its own self-referential
     /// bindings can reach it; when the proof fails the frame is left exactly
     /// as it is today. That trades completeness for soundness, never the other
@@ -289,55 +308,94 @@ impl Env {
     pub fn release_own_frames(&mut self) -> usize {
         let mut released = 0;
         for frame in &self.frames[self.write_floor..] {
-            if Self::frame_is_exclusively_ours(frame) {
-                // Take the map out from under the lock, then drop it with the
-                // guard already gone. The values being dropped own `Env`s that
-                // own `Arc<Frame>`s, and releasing the last handle to a frame
-                // drops ITS map in turn — an unbounded drop chain that has no
-                // business running inside this critical section.
-                let drained = {
-                    let mut bindings = frame.bindings.lock().unwrap();
-                    std::mem::take(&mut *bindings)
-                };
-                drop(drained);
+            if release_if_closed(frame, frames_pointing_at(self, frame)) {
                 released += 1;
             }
         }
         released
     }
 
-    /// Is `frame` reachable from anywhere but this `Env` and the bindings
-    /// `frame` itself holds?
+    /// Release the frames a scope pushed onto this environment, now that the
+    /// scope is ending: every frame above the first `keep`, innermost first.
+    /// Returns how many were released.
     ///
-    /// One equation decides it:
+    /// [`Env::release_own_frames`] breaks the define-a-lambda ring once, when
+    /// an interpreter dies. That ring is not a top-level phenomenon: a
+    /// function body that binds a local lambda — `(define add (lambda …))`,
+    /// a `let*` or `letrec` whose right-hand side is a lambda — builds the
+    /// same Frame → Closure → Env → Frame ring in its own scope frame, once
+    /// per call, and the call's `Env` going out of scope only drops one of the
+    /// frame's handles. Measured in blue at about 1 KB per call, without
+    /// bound, in a loop that otherwise holds nothing.
     ///
-    /// ```text
-    /// Arc::strong_count(frame) == 1 (this Env) + handles held inside frame
-    /// ```
+    /// So the evaluator calls this wherever a scope's frames die — a closure
+    /// call returning, a `let` family form or a `catch` handler ending, a
+    /// macro body finishing — with every value that outlives the scope (its
+    /// result, a tail call's callee, a raised error) still alive. The same
+    /// exclusivity equation as [`Env::release_own_frames`] then guards each
+    /// frame, so a frame something outside still reaches is left as it is.
     ///
-    /// It is sound because the right-hand side can only ever be an
-    /// *under*-count, and an under-count fails the equation, which refuses the
-    /// release. Every handle counted sits behind an `Arc` whose strong count
-    /// is exactly 1, so there is precisely one path to it and it cannot be
-    /// counted twice. Anything [`handles_to_frame`] cannot see through — a
-    /// `Value::Foreign` the host defined, a capture cell something else also
-    /// holds — contributes zero to the right-hand side while still
-    /// contributing to `strong_count`, so it makes the equation fail rather
-    /// than pass.
-    fn frame_is_exclusively_ours(frame: &Arc<Frame>) -> bool {
-        // A poisoned frame is one whose contents cannot be trusted to be
-        // walked; refuse rather than guess.
-        let Ok(bindings) = frame.bindings.lock() else {
-            return false;
-        };
-        let mut internal = 0usize;
-        for value in bindings.values() {
-            let Some(n) = handles_to_frame(frame, value, MAX_VALUE_DEPTH) else {
-                return false;
-            };
-            internal += n;
+    /// Innermost first because releasing an inner frame drops the closures it
+    /// bound, and those may be the very handles that held an outer one.
+    /// Frames at or below the write floor, and the root frame, are never a
+    /// scope's: they are the interpreter's globals and are released only when
+    /// the interpreter dies.
+    pub fn release_scope_frames(&self, keep: usize) -> usize {
+        let floor = keep.max(self.write_floor + 1);
+        let mut released = 0;
+        for frame in self.frames.iter().skip(floor).rev() {
+            frame.scope_open.store(false, Ordering::Release);
+            if release_if_closed(frame, frames_pointing_at(self, frame)) {
+                released += 1;
+            }
         }
-        Arc::strong_count(frame) == 1 + internal
+        released
+    }
+
+    /// Release the innermost frame, for a scope that pushed exactly one.
+    /// See [`Env::release_scope_frames`].
+    pub fn release_scope(&self) -> bool {
+        self.release_scope_frames(self.frames.len().saturating_sub(1)) == 1
+    }
+
+    /// End a scope opened with [`Env::push`]: release its frame if nothing
+    /// outside can reach it, then pop it. Call it with every value that
+    /// outlives the scope still alive.
+    pub fn pop_scope(&mut self) {
+        self.release_scope();
+        self.pop();
+    }
+
+    /// Drop `closure`, then release the frame it was defined in if this drop
+    /// left that frame reachable only through its own bindings.
+    ///
+    /// The case [`Env::release_scope_frames`] cannot see: the scope ended
+    /// while one of its own closures was still in flight, so its frame was
+    /// correctly kept. A `letrec` loop in tail position does exactly this —
+    /// it hands its own closure to the trampoline as the next call — and the
+    /// frame stays held by that closure until the trampoline lets go of it,
+    /// which is here.
+    ///
+    /// Only a closure held at most twice is looked at: by the caller and,
+    /// possibly, by one binding inside the frame. One held more widely is
+    /// still reachable after this drop whatever its frame holds, so the walk
+    /// would be refused anyway.
+    pub fn drop_releasing_defining_frame(closure: Arc<Closure>) {
+        if Arc::strong_count(&closure) > 2 {
+            return;
+        }
+        let env = &closure.captured_env;
+        if env.frames.len() <= env.write_floor + 1 {
+            return;
+        }
+        let Some(frame) = env.frames.last().map(Arc::clone) else {
+            return;
+        };
+        if frame.scope_open.load(Ordering::Acquire) {
+            return;
+        }
+        drop(closure);
+        release_if_closed(&frame, 1);
     }
 
     /// Iterate every binding in the OUTERMOST (root) frame as
@@ -362,32 +420,92 @@ impl Env {
 ///
 /// A count rather than a bool because the same `Env` may legitimately hold
 /// several distinct handles to one frame, and the exclusivity equation in
-/// [`Env::frame_is_exclusively_ours`] balances handles, not environments.
+/// [`release_if_closed`] balances handles, not environments.
 fn frames_pointing_at(env: &Env, frame: &Arc<Frame>) -> usize {
     env.frames.iter().filter(|f| Arc::ptr_eq(f, frame)).count()
 }
 
-/// How many `Arc<Frame>` handles to `frame` live inside `value` — or `None`
-/// when `value`'s graph holds something this function cannot account for.
+/// Clear `frame`'s bindings if nothing but the caller's `held` handles and
+/// the frame's own contents can reach it. Returns whether it did.
 ///
-/// `None` means "do not release": the caller treats it as a refusal. That is
-/// the whole safety argument, so read the arms with one question in mind —
-/// *can this ever return MORE handles than really exist?* It cannot, because
-/// there are only three shapes of arm and none of them can over-count:
+/// One equation decides it:
+///
+/// ```text
+/// Arc::strong_count(frame) == held + handles held inside frame
+/// ```
+///
+/// It is sound because the right-hand side can only ever be an
+/// *under*-count, and an under-count fails the equation, which refuses the
+/// release. Every handle counted sits behind an `Arc` whose strong count is
+/// exactly 1, so there is precisely one path to it and it cannot be counted
+/// twice. Anything [`handles_to_frame`] cannot see through — a
+/// `Value::Foreign` the host defined, a value something else also holds, a
+/// persistent list — contributes zero to the right-hand side while still
+/// contributing to `strong_count`, so it makes the equation fail rather than
+/// pass.
+///
+/// When the count is already `held`, nothing inside the frame can hold a
+/// handle either (it would be counted), so the equation holds with no walk.
+/// That is the common case — a call that bound no closure — and it costs one
+/// lock and the map drop the frame's own drop would have paid.
+fn release_if_closed(frame: &Arc<Frame>, held: usize) -> bool {
+    let strong = Arc::strong_count(frame);
+    // A poisoned frame is one whose contents cannot be trusted to be walked;
+    // refuse rather than guess.
+    let Ok(bindings) = frame.bindings.lock() else {
+        return false;
+    };
+    if strong != held {
+        let internal: usize = bindings
+            .values()
+            .map(|value| handles_to_frame(frame, value, MAX_VALUE_DEPTH))
+            .sum();
+        if strong != held + internal {
+            return false;
+        }
+    }
+    // Take the map out from under the lock, then drop it with the guard
+    // already gone. The values being dropped own `Env`s that own
+    // `Arc<Frame>`s, and releasing the last handle to a frame drops ITS map in
+    // turn — an unbounded drop chain that has no business running inside this
+    // critical section.
+    let mut bindings = bindings;
+    let drained = std::mem::take(&mut *bindings);
+    drop(bindings);
+    drop(drained);
+    true
+}
+
+/// How many `Arc<Frame>` handles to `frame` live inside `value`, counting
+/// only what can be proven to sit on exactly one path from the frame.
+///
+/// Read the arms with one question in mind — *can this ever return MORE
+/// handles than really exist?* It cannot, because there are only two shapes
+/// of arm and neither can over-count:
 ///
 /// - **descend** — permitted only through an `Arc` whose strong count is 1, so
 ///   the value has exactly one owner, lies on exactly one path, and cannot be
 ///   reached and counted a second time;
-/// - **refuse** (`None`) — an aliased value, a poisoned lock, or the depth
-///   bound: no count is produced at all;
-/// - **zero** — a variant that carries no `Env`, or a `Foreign` payload this
-///   crate cannot see inside. If such a payload *does* hold a handle, zero
-///   under-counts, the equation fails, and the release is declined.
-fn handles_to_frame(frame: &Arc<Frame>, value: &Value, depth: usize) -> Option<usize> {
-    // The depth bound, spelled as a refusal: at zero this returns `None`, which
-    // the caller reads as "cannot prove exclusivity" and declines to release.
-    let next = depth.checked_sub(1)?;
-    Some(match value {
+/// - **zero** — a variant that carries no `Env`, a value something else also
+///   holds, a payload this crate cannot see inside, a poisoned lock, or the
+///   depth bound. If such a value *does* hold a handle, zero under-counts,
+///   the equation fails, and the release is declined.
+///
+/// An aliased value counts zero rather than refusing the whole frame: a
+/// parameter bound to a global function is aliased by the global and holds no
+/// handle to this frame, and refusing on it would leave every frame that has
+/// one in a ring.
+///
+/// Lists and maps are never descended. They are persistent: two lists built
+/// one from the other share their nodes, so an element is reachable from both
+/// while the element's own `Arc` count stays 1. Counting through them counted
+/// one closure twice and released a frame a live closure was still reading
+/// (`tests/scope_release.rs`).
+fn handles_to_frame(frame: &Arc<Frame>, value: &Value, depth: usize) -> usize {
+    let Some(next) = depth.checked_sub(1) else {
+        return 0;
+    };
+    match value {
         // The cycle `sf_define` builds, and the one this whole operation is
         // for: the frame owns the closure, the closure owns an env, that env
         // owns the frame.
@@ -397,37 +515,22 @@ fn handles_to_frame(frame: &Arc<Frame>, value: &Value, depth: usize) -> Option<u
         // The same ring through `sf_delay`: a pending promise's thunk is a
         // closure over the env the promise is bound in.
         Value::Promise(p) if Arc::strong_count(p) == 1 => {
-            let state = p.lock().ok()?;
+            let Ok(state) = p.lock() else {
+                return 0;
+            };
             match &*state {
                 PromiseState::Pending(thunk) if Arc::strong_count(thunk) == 1 => {
                     frames_pointing_at(&thunk.captured_env, frame)
                 }
-                PromiseState::Pending(_) => return None,
-                PromiseState::Forced(v) => handles_to_frame(frame, v, next)?,
+                PromiseState::Pending(_) => 0,
+                PromiseState::Forced(v) => handles_to_frame(frame, v, next),
             }
         }
-        Value::List(xs) if Arc::strong_count(xs) == 1 => {
-            let mut n = 0;
-            for x in xs.as_ref() {
-                n += handles_to_frame(frame, x, next)?;
-            }
-            n
-        }
-        Value::Map(m) if Arc::strong_count(m) == 1 => {
-            let mut n = 0;
-            for v in m.values() {
-                n += handles_to_frame(frame, v, next)?;
-            }
-            n
-        }
-        Value::Error(e) if Arc::strong_count(e) == 1 => {
-            let mut n = 0;
-            for (k, v) in &e.data {
-                n += handles_to_frame(frame, k, next)?;
-                n += handles_to_frame(frame, v, next)?;
-            }
-            n
-        }
+        Value::Error(e) if Arc::strong_count(e) == 1 => e
+            .data
+            .iter()
+            .map(|(k, v)| handles_to_frame(frame, k, next) + handles_to_frame(frame, v, next))
+            .sum(),
         // The VM's callable is a `Value::Foreign`, not a `Value::Closure` —
         // `CompiledClosure` carries a snapshot of the globals env, so a
         // VM-defined function closes the identical ring through a variant that
@@ -437,11 +540,11 @@ fn handles_to_frame(frame: &Arc<Frame>, value: &Value, depth: usize) -> Option<u
             Some(cc) if Arc::strong_count(any) == 1 => {
                 let mut n = frames_pointing_at(&cc.globals, frame);
                 for cell in &cc.captures {
-                    if Arc::strong_count(cell) != 1 {
-                        return None;
+                    if Arc::strong_count(cell) == 1 {
+                        if let Ok(captured) = cell.lock() {
+                            n += handles_to_frame(frame, &captured, next);
+                        }
                     }
-                    let captured = cell.lock().ok()?;
-                    n += handles_to_frame(frame, &captured, next)?;
                 }
                 n
             }
@@ -454,15 +557,16 @@ fn handles_to_frame(frame: &Arc<Frame>, value: &Value, depth: usize) -> Option<u
             // the frame it happens to be bound in.
             _ => 0,
         },
-        // Aliased, so on more than one path and not provably ours.
+        // Aliased, so on more than one path; persistent, so possibly on more
+        // than one path whatever its own count says; or carrying no `Env` by
+        // construction (a scalar, an interned name, a registry key, source
+        // text). All three count zero.
         Value::Closure(_)
         | Value::Promise(_)
         | Value::List(_)
         | Value::Map(_)
-        | Value::Error(_) => return None,
-        // Carries no `Env`, by construction: every remaining variant is a
-        // scalar, an interned name, a registry key, or source text.
-        Value::Nil
+        | Value::Error(_)
+        | Value::Nil
         | Value::Bool(_)
         | Value::Int(_)
         | Value::Float(_)
@@ -471,7 +575,7 @@ fn handles_to_frame(frame: &Arc<Frame>, value: &Value, depth: usize) -> Option<u
         | Value::Keyword(_)
         | Value::NativeFn(_)
         | Value::Sexp(..) => 0,
-    })
+    }
 }
 
 #[cfg(test)]

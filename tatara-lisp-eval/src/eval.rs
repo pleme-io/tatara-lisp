@@ -396,11 +396,26 @@ impl<H: 'static> Interpreter<H> {
         self.registry.meter.spent()
     }
 
+    /// Watch every closure activation from here on, or stop with `None`.
+    /// A [`Self::fork`] taken afterwards is watched by the same observer.
+    /// See [`crate::observe`].
+    pub fn set_call_observer(&mut self, observer: Option<Arc<dyn crate::observe::CallObserver>>) {
+        self.registry.observer = observer;
+    }
+
+    /// The activations the last uncaught error unwound through, innermost
+    /// first, and nothing after it is taken. Each top-level form starts with
+    /// an empty trace, and a `try` that catches an error empties it.
+    pub fn take_trace(&self) -> crate::observe::Trace {
+        self.registry.unwind.take()
+    }
+
     /// Evaluate a single already-read spanned form in this interpreter's
     /// global environment. Macro expansion runs first if any macros are
     /// registered. Bare `eval_spanned` does NOT register top-level
     /// `defmacro` — `eval_top_form` is the entry point for that.
     pub fn eval_spanned(&mut self, form: &Spanned, host: &mut H) -> Result<Value> {
+        self.registry.unwind.clear();
         let expanded = self.fully_expand(form, host)?;
         eval_in(
             &mut self.globals,
@@ -436,6 +451,7 @@ impl<H: 'static> Interpreter<H> {
     /// (REPL, hot-reload watchers) can preserve top-level semantics
     /// without re-implementing the registration handshake.
     pub fn eval_top_form(&mut self, form: &Spanned, host: &mut H) -> Result<Value> {
+        self.registry.unwind.clear();
         if self.expander.try_register_macro(form)? {
             return Ok(Value::Nil);
         }
@@ -1801,7 +1817,8 @@ fn call_closure_body<H: 'static>(
     let mut current_args = args;
     let mut current_span = call_span;
     loop {
-        // Arity check.
+        // Arity check. A refusal here is the caller's error: the callee never
+        // entered, so neither arm of `observe` sees it.
         let required = current.params.len();
         let has_rest = current.rest.is_some();
         if !has_rest && current_args.len() != required {
@@ -1821,41 +1838,80 @@ fn call_closure_body<H: 'static>(
             });
         }
 
-        // Build the body env: capture closure's lexical scope, push frame,
-        // bind params + rest.
-        let mut env = current.captured_env.clone();
-        env.push();
-        for (param, arg) in current.params.iter().zip(current_args.iter()) {
-            env.define(param.clone(), arg.clone());
+        // One activation, between the two arms of `observe`: every way out of
+        // `activate` passes the `match` below exactly once.
+        let call = crate::observe::Call {
+            name: current.name.as_ref(),
+            source: current.source,
+            at: current_span,
+        };
+        if let Some(observer) = &registry.observer {
+            if let Some(v) = observer.enter(&call, &current_args) {
+                observer.leave(&call, crate::observe::Exit::Supplied(&v));
+                return Ok(v);
+            }
         }
-        if let Some(rest_name) = &current.rest {
-            let rest_args: Vec<Value> = current_args.iter().skip(required).cloned().collect();
-            env.define(rest_name.clone(), Value::list(rest_args));
-        }
-
-        // Body: evaluate all but the last normally, then the last in
-        // tail position so a tail call can be trampolined.
-        let body = &current.body;
-        if body.is_empty() {
-            return Ok(Value::Nil);
-        }
-        let named = |e: EvalError| e.in_function(current.name.as_ref());
-        for body_form in &body[..body.len() - 1] {
-            eval_in(&mut env, registry, expander, body_form, host).map_err(named)?;
-        }
-        match eval_in_tail(&mut env, registry, expander, body.last().unwrap(), host)
-            .map_err(named)?
-        {
-            TailResult::Done(v) => return Ok(v),
-            TailResult::Resume(next, next_args, next_span) => {
+        let outcome = activate(&current, &current_args, registry, expander, host);
+        match outcome {
+            Ok(TailResult::Done(v)) => {
+                if let Some(observer) = &registry.observer {
+                    observer.leave(&call, crate::observe::Exit::Returned(&v));
+                }
+                return Ok(v);
+            }
+            Ok(TailResult::Resume(next, next_args, next_span)) => {
+                if let Some(observer) = &registry.observer {
+                    observer.leave(&call, crate::observe::Exit::TailCalled);
+                }
                 // Tail call: replace state and loop. Drop env (frame
                 // popped on next iteration's fresh env).
                 current = next;
                 current_args = next_args;
                 current_span = next_span;
             }
+            Err(e) => {
+                if let Some(observer) = &registry.observer {
+                    observer.leave(&call, crate::observe::Exit::Raised(&e));
+                }
+                registry.unwind.push(&call);
+                return Err(e);
+            }
         }
     }
+}
+
+/// Bind one activation's parameters and run its body, the last form in tail
+/// position so a tail call can be trampolined by the caller.
+#[inline]
+fn activate<H: 'static>(
+    current: &Arc<Closure>,
+    current_args: &[Value],
+    registry: &FnRegistry<H>,
+    expander: &SpannedExpander,
+    host: &mut H,
+) -> Result<TailResult> {
+    // Build the body env: capture closure's lexical scope, push frame,
+    // bind params + rest.
+    let required = current.params.len();
+    let mut env = current.captured_env.clone();
+    env.push();
+    for (param, arg) in current.params.iter().zip(current_args.iter()) {
+        env.define(param.clone(), arg.clone());
+    }
+    if let Some(rest_name) = &current.rest {
+        let rest_args: Vec<Value> = current_args.iter().skip(required).cloned().collect();
+        env.define(rest_name.clone(), Value::list(rest_args));
+    }
+
+    let body = &current.body;
+    let Some((last, init)) = body.split_last() else {
+        return Ok(TailResult::Done(Value::Nil));
+    };
+    let named = |e: EvalError| e.in_function(current.name.as_ref());
+    for body_form in init {
+        eval_in(&mut env, registry, expander, body_form, host).map_err(named)?;
+    }
+    eval_in_tail(&mut env, registry, expander, last, host).map_err(named)
 }
 
 // ── Special forms ─────────────────────────────────────────────────────
@@ -2490,6 +2546,7 @@ fn sf_try<H: 'static>(
             // An interrupt is the host's, not the program's: no catch sees it.
             Err(EvalError::Halted) => return Err(EvalError::Halted),
             Err(EvalError::User { value, .. }) => {
+                registry.unwind.clear();
                 return run_catch_handler(
                     binding_name,
                     value,
@@ -2505,6 +2562,7 @@ fn sf_try<H: 'static>(
                 // so catch can still observe it. Tag :runtime
                 // distinguishes from user-thrown errors.
                 let value = rust_err_to_value_error(&other);
+                registry.unwind.clear();
                 return run_catch_handler(
                     binding_name,
                     value,

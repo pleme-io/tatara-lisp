@@ -28,6 +28,7 @@ pub mod interner;
 pub mod lisp_stdlib;
 pub mod map;
 pub mod module;
+pub mod observe;
 pub mod persist;
 pub mod primitive;
 pub mod repl;

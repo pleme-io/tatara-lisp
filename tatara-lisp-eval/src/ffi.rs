@@ -320,6 +320,11 @@ pub(crate) struct FnRegistry<H> {
     /// The tree-walker's execution budget and what this run has spent of it.
     /// See [`Meter`].
     pub(crate) meter: Meter,
+    /// The host's call observer, if any. Shared by clones: a fork is watched
+    /// by whoever watched its parent. See [`crate::observe`].
+    pub(crate) observer: Option<Arc<dyn crate::observe::CallObserver>>,
+    /// The frames the last error unwound through. Not shared by clones.
+    pub(crate) unwind: crate::observe::Unwind,
 }
 
 /// A [`Budget`] and the two counters that spend it.
@@ -411,6 +416,8 @@ impl<H> Clone for FnRegistry<H> {
             entries: self.entries.clone(),
             halt: Arc::clone(&self.halt),
             meter: Meter::new(self.meter.budget),
+            observer: self.observer.clone(),
+            unwind: crate::observe::Unwind::default(),
         }
     }
 }
@@ -421,6 +428,8 @@ impl<H> Default for FnRegistry<H> {
             entries: Vec::new(),
             halt: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             meter: Meter::new(Budget::tree_walker_default()),
+            observer: None,
+            unwind: crate::observe::Unwind::default(),
         }
     }
 }

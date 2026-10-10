@@ -253,6 +253,13 @@ struct HandlerRecord {
 struct Frame {
     /// The function being executed.
     func: Arc<CompiledFn>,
+    /// The chunk `func` was compiled into: its constants, global names and
+    /// nested functions are this chunk's tables, indexed by `func`'s
+    /// operands. Not the chunk the run started from — a closure made by an
+    /// earlier program (a REPL line, a definition swapped in at run time) is
+    /// called from a later one, and reading the caller's tables with the
+    /// callee's indices is a wrong constant or an out-of-bounds panic.
+    chunk: Arc<Chunk>,
     /// IP within `func.ops`.
     ip: usize,
     /// First local-slot index in the shared value stack — locals
@@ -449,6 +456,7 @@ impl Vm {
         let top_locals = top_func.locals;
         let top_frame = Frame {
             func: top_func.clone(),
+            chunk: Arc::clone(&chunk),
             ip: 0,
             locals_base: 0,
             stack_base: top_locals,
@@ -496,6 +504,7 @@ impl Vm {
             let top_locals = top_func.locals;
             self.frames.push(Frame {
                 func: top_func,
+                chunk: Arc::clone(&chunk),
                 ip: 0,
                 locals_base: 0,
                 stack_base: top_locals,
@@ -567,7 +576,7 @@ impl Vm {
                 Op::False => self.stack.push(Value::Bool(false)),
                 Op::Int(n) => self.stack.push(Value::Int(n)),
                 Op::Const(idx) => {
-                    let v = chunk.consts.get(idx).clone();
+                    let v = self.frames[frame_idx].chunk.consts.get(idx).clone();
                     self.stack.push(v);
                 }
 
@@ -627,7 +636,7 @@ impl Vm {
                 }
 
                 Op::LoadGlobal(name_idx) => {
-                    let name = chunk.names.get(name_idx).clone();
+                    let name = self.frames[frame_idx].chunk.names.get(name_idx).clone();
                     let v = self
                         .lookup_global(interp, &name)
                         .ok_or_else(|| VmError::Unbound {
@@ -637,7 +646,7 @@ impl Vm {
                     self.stack.push(v);
                 }
                 Op::StoreGlobal(name_idx) => {
-                    let name = chunk.names.get(name_idx).clone();
+                    let name = self.frames[frame_idx].chunk.names.get(name_idx).clone();
                     let v = self.stack.pop().ok_or(VmError::Underflow { ip: 0 })?;
                     interp.define_global(name, v);
                 }
@@ -659,7 +668,7 @@ impl Vm {
                 }
 
                 Op::MakeClosure(fn_idx) => {
-                    let body = chunk.fn_table[fn_idx].clone();
+                    let body = self.frames[frame_idx].chunk.fn_table[fn_idx].clone();
                     // Build the captures array for the new closure.
                     // For each capture descriptor: pull the cell
                     // from the appropriate slot in the CURRENT frame.
@@ -703,7 +712,7 @@ impl Vm {
                     let compiled = CompiledClosure {
                         body: Arc::new(body),
                         captures: closure_captures,
-                        chunk: Arc::clone(chunk),
+                        chunk: Arc::clone(&self.frames[frame_idx].chunk),
                         globals: interp.globals_snapshot().clone(),
                     };
                     self.stack.push(Value::Foreign(Arc::new(compiled)));
@@ -748,7 +757,7 @@ impl Vm {
                     // a `Value::Sexp(Sexp, Span)` (set up by the
                     // compiler's emit_eval_sexp). Lift back to a
                     // Spanned and call into the host interpreter.
-                    let v = chunk.consts.get(idx).clone();
+                    let v = self.frames[frame_idx].chunk.consts.get(idx).clone();
                     let (sexp, sp) = match v {
                         Value::Sexp(s, sp) => (s, sp),
                         _ => {
@@ -1029,6 +1038,7 @@ impl Vm {
                 self.stack.push(v);
             }
             f.func = body.clone();
+            f.chunk = Arc::clone(&cc.chunk);
             f.ip = 0;
             f.captures = cc.captures.clone();
             f.local_cells.clear();
@@ -1044,6 +1054,7 @@ impl Vm {
             let stack_base = self.stack.len();
             self.frames.push(Frame {
                 func: body.clone(),
+                chunk: Arc::clone(&cc.chunk),
                 ip: 0,
                 locals_base,
                 stack_base,

@@ -1133,7 +1133,10 @@
     (else (list `(equal? ,val-sym (quote ,qp)) (list)))))
 
 (define (unquote-splice-form? x)
-  (and (list? x) (= (length x) 2) (equal? (car x) (quote unquote-splice))))
+  (and
+    (list? x)
+    (= (length x) 2)
+    (equal? (car x) (quote unquote-splice))))
 
 ;; A list quasipattern: the fixed elements by index, then a final ,@p
 ;; against what is left, so the length test is a floor instead of exact.
@@ -1145,16 +1148,26 @@
       (k (length fixed))
       (subs
         (map
-          (lambda (i+p) (compile-quasi-pattern `(nth ,(car i+p) ,val-sym) (second i+p)))
+          (lambda (i+p)
+            (compile-quasi-pattern `(nth ,(car i+p) ,val-sym) (second i+p)))
           (zip (range k) fixed)))
       (tail
         (if spliced
-          (list (compile-match-pattern `(drop ,k ,val-sym) (second (nth (- n 1) qp))))
+          (list
+            (compile-match-pattern
+              `(drop ,k ,val-sym)
+              (second (nth (- n 1) qp))))
           (list)))
       (parts (append subs tail))
-      (length-test (if spliced `(>= (length ,val-sym) ,k) `(= (length ,val-sym) ,k))))
+      (length-test
+        (if spliced
+          `(>= (length ,val-sym) ,k)
+          `(= (length ,val-sym) ,k))))
     (list
-      `(and (list? ,val-sym) ,length-test ,@(map car parts))
+      `(and
+        (list? ,val-sym)
+        ,length-test
+        ,@(map car parts))
       (apply append (map second parts)))))
 
 ;; List pattern: emit a test that checks list-ness, length, and each

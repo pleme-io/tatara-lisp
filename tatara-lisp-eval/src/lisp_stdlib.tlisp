@@ -1053,6 +1053,15 @@
 ;;   (? pred? name)         predicate-with-bind: matches if (pred? val)
 ;;                          is truthy; binds name to val
 ;;   (? pred?)              predicate without bind
+;;   `(f ,x 1 ,@rest)       quasipattern: the shape written as the quasiquote
+;;                          that would build it. Outside an unquote every
+;;                          symbol, number, string and keyword matches itself
+;;                          and a list matches element by element; ,p is any
+;;                          pattern above; a final ,@p matches the remaining
+;;                          elements as a list (zero or more). Racket's match
+;;                          quasipatterns, so a pattern over code reads as the
+;;                          code: `(retsu/first ,xs) is a call to retsu/first
+;;                          with one argument, bound to xs
 ;;   else                   final catch-all clause
 ;;
 ;; Patterns compile to nested if/let at expansion time — no runtime
@@ -1103,8 +1112,50 @@
           (if (null? bind-name)
             (list)
             (list (list bind-name val-sym))))))
+    ((and
+       (list? pattern)
+       (= (length pattern) 2)
+       (equal? (car pattern) (quote quasiquote)))
+      (compile-quasi-pattern val-sym (second pattern)))
     ((list? pattern) (compile-list-pattern val-sym pattern))
     (else (error :match "unsupported pattern shape"))))
+
+;; Quasipattern: ,p is an ordinary pattern, a list matches structurally,
+;; anything else matches itself by equal?.
+(define (compile-quasi-pattern val-sym qp)
+  (cond
+    ((and
+       (list? qp)
+       (= (length qp) 2)
+       (equal? (car qp) (quote unquote)))
+      (compile-match-pattern val-sym (second qp)))
+    ((list? qp) (compile-quasi-list val-sym qp))
+    (else (list `(equal? ,val-sym (quote ,qp)) (list)))))
+
+(define (unquote-splice-form? x)
+  (and (list? x) (= (length x) 2) (equal? (car x) (quote unquote-splice))))
+
+;; A list quasipattern: the fixed elements by index, then a final ,@p
+;; against what is left, so the length test is a floor instead of exact.
+(define (compile-quasi-list val-sym qp)
+  (let*
+    ((n (length qp))
+      (spliced (and (> n 0) (unquote-splice-form? (nth (- n 1) qp))))
+      (fixed (if spliced (take (- n 1) qp) qp))
+      (k (length fixed))
+      (subs
+        (map
+          (lambda (i+p) (compile-quasi-pattern `(nth ,(car i+p) ,val-sym) (second i+p)))
+          (zip (range k) fixed)))
+      (tail
+        (if spliced
+          (list (compile-match-pattern `(drop ,k ,val-sym) (second (nth (- n 1) qp))))
+          (list)))
+      (parts (append subs tail))
+      (length-test (if spliced `(>= (length ,val-sym) ,k) `(= (length ,val-sym) ,k))))
+    (list
+      `(and (list? ,val-sym) ,length-test ,@(map car parts))
+      (apply append (map second parts)))))
 
 ;; List pattern: emit a test that checks list-ness, length, and each
 ;; element. Bindings concatenate.
@@ -1135,7 +1186,8 @@
         (let*
           ((compiled (compile-match-pattern val-sym pattern))
             (test (car compiled))
-            (binds (second compiled)))
+            ;; appending only empty binding lists yields nil, which let refuses
+            (binds (if (null? (second compiled)) (list) (second compiled))))
           `(if ,test
             (let ,binds ,@body)
             ,(compile-match-clauses val-sym (cdr clauses))))))))

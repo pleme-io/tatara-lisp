@@ -1005,6 +1005,51 @@ mod tests {
         assert_eq!(format!("{v}"), "(:round 25 42 :unknown)");
     }
 
+    #[test]
+    fn a_list_pattern_that_binds_nothing_still_matches() {
+        let v = run("(match (list 1 2) ((1 2) :both) (else :no))");
+        assert!(matches!(v, Value::Keyword(s) if &*s == "both"));
+    }
+
+    #[test]
+    fn a_quasipattern_matches_symbols_as_themselves_and_binds_unquotes() {
+        let v = run("(define (args-of form)
+               (match form
+                 (`(first ,xs) xs)
+                 (else :no)))
+             (list (args-of (quote (first ys)))
+                   (args-of (quote (last ys)))
+                   (args-of (quote (first ys zs)))
+                   (args-of (quote first)))");
+        assert_eq!(format!("{v}"), "(ys :no :no :no)");
+    }
+
+    #[test]
+    fn a_final_unquote_splice_binds_the_remaining_elements() {
+        let v = run("(define (body-of form)
+               (match form
+                 (`(define (,name ,@params) ,@body) (list name params body))
+                 (else :no)))
+             (list (body-of (quote (define (f a b) (g a) b)))
+                   (body-of (quote (define (h)))))");
+        assert_eq!(format!("{v}"), "((f (a b) ((g a) b)) (h () ()))");
+    }
+
+    #[test]
+    fn a_quasipattern_nests_and_takes_literals_and_predicates() {
+        let v = run("(define (shape form)
+               (match form
+                 (`(+ ,(? number? n) (* 2 ,_)) n)
+                 (`(:k \"s\" ,@_) :keyed)
+                 (else :no)))
+             (list (shape (quote (+ 1 (* 2 x))))
+                   (shape (quote (+ y (* 2 x))))
+                   (shape (quote (+ 1 (* 3 x))))
+                   (shape (list :k \"s\" 1 2))
+                   (shape (list :k \"t\")))");
+        assert_eq!(format!("{v}"), "(1 :no :no :keyed :no)");
+    }
+
     // ── eval / read-string / metaprogramming ──────────────────────
 
     #[test]

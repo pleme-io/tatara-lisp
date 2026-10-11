@@ -26,6 +26,7 @@ use std::cmp::Ordering;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex};
 
 use crate::ast::Sexp;
@@ -3695,6 +3696,52 @@ impl MacroParams {
     }
 }
 
+/// How many macro applications each expansion layer answered (memo, bytecode,
+/// substitute), read through [`Expander::expansion_counts`].
+///
+/// A count of work, not a timing: which layer ran is a deterministic fact of
+/// the strategy and the workload, so a test can assert the fast path is wired
+/// without measuring the machine it runs on.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ExpansionCounts {
+    /// Applications answered from the memo table.
+    pub cache_hits: u64,
+    /// Applications run through the compiled template bytecode.
+    pub compiled: u64,
+    /// Applications run through the name-keyed substitute walker.
+    pub substituted: u64,
+}
+
+/// The live counters behind [`ExpansionCounts`]. Atomic because `apply`
+/// takes `&self`; a clone starts from the source's current values.
+#[derive(Default)]
+struct ApplyCounters {
+    cache_hits: AtomicU64,
+    compiled: AtomicU64,
+    substituted: AtomicU64,
+}
+
+impl ApplyCounters {
+    fn snapshot(&self) -> ExpansionCounts {
+        ExpansionCounts {
+            cache_hits: self.cache_hits.load(AtomicOrdering::Relaxed),
+            compiled: self.compiled.load(AtomicOrdering::Relaxed),
+            substituted: self.substituted.load(AtomicOrdering::Relaxed),
+        }
+    }
+}
+
+impl Clone for ApplyCounters {
+    fn clone(&self) -> Self {
+        let c = self.snapshot();
+        Self {
+            cache_hits: AtomicU64::new(c.cache_hits),
+            compiled: AtomicU64::new(c.compiled),
+            substituted: AtomicU64::new(c.substituted),
+        }
+    }
+}
+
 /// Macro environment. Collects `defmacro` forms and rewrites callers.
 ///
 /// Expansion strategy is tunable per-expander:
@@ -3744,6 +3791,8 @@ pub struct Expander {
     /// projection is a `Copy usize` load — same shape as reading a bare
     /// field, no `Deref`, no `Arc`, no lock.
     limits: ResourceLimits,
+    /// Per-layer application counts, read through [`Self::expansion_counts`].
+    counters: ApplyCounters,
 }
 
 impl Expander {
@@ -3810,6 +3859,7 @@ impl Expander {
             cache: Arc::new(Mutex::new(HashMap::new())),
             cache_enabled: true,
             limits,
+            counters: ApplyCounters::default(),
         }
     }
 
@@ -3850,6 +3900,12 @@ impl Expander {
     /// How many entries are currently cached.
     pub fn cache_size(&self) -> usize {
         self.cache.lock().unwrap().len()
+    }
+
+    /// How many macro applications each expansion layer has answered since
+    /// this expander was built.
+    pub fn expansion_counts(&self) -> ExpansionCounts {
+        self.counters.snapshot()
     }
 
     /// Clear the expansion cache (e.g., after redefining a macro).
@@ -5394,14 +5450,21 @@ impl Expander {
         };
         if let Some(ref key) = cache_key {
             if let Some(cached) = self.cache.lock().unwrap().get(key) {
+                self.counters
+                    .cache_hits
+                    .fetch_add(1, AtomicOrdering::Relaxed);
                 return Ok(cached.clone());
             }
         }
 
         // Layer 2: compiled bytecode.
         let result = if let Some(tmpl) = self.templates.get(&def.name) {
+            self.counters.compiled.fetch_add(1, AtomicOrdering::Relaxed);
             apply_compiled(&def.name, &def.params, tmpl, args)?
         } else {
+            self.counters
+                .substituted
+                .fetch_add(1, AtomicOrdering::Relaxed);
             // Layer 3: substitute fallback. Walk the body's substitution
             // projection — the inner of the outer quasi-quote when present,
             // the body verbatim otherwise — through the shared
@@ -7347,106 +7410,100 @@ mod tests {
         );
     }
 
-    /// **The expansion strategies, measured.**
+    /// **The expansion strategies, counted.**
     ///
-    /// A wall-clock measurement, and therefore fragile in a way the agreement
-    /// test above is not. Two changes keep it honest rather than merely quiet:
+    /// Each strategy answers every macro application from exactly one layer of
+    /// `Expander::apply`, so the work each one does is a count, and the count
+    /// is a fact of the code and the workload rather than of the machine.
     ///
-    /// - **Best-of-N, not a single sample.** The minimum over several runs is
-    ///   the least contaminated statistic when 1900 sibling tests compete for
-    ///   the same cores; a single sample measures contention as much as code.
-    /// - **Margins that match measurement.** The previous version compared
-    ///   with a bare `<` while its own comment claimed "a 1.5× threshold so
-    ///   the test is stable across hosts". The threshold was never in the
-    ///   code, and the bare comparison flaked in the full suite.
+    /// # Why this is not a wall-clock comparison any more
     ///
-    /// # A finding, recorded so it is not re-derived
+    /// It was one, best-of-5 with a 1.25× gate against substitution and a
+    /// non-regression bound against bytecode. On shared GitHub runners the
+    /// substitution ratio measured 0.97× against 1.57× locally on the same
+    /// commit, and the test blocked a release twice with no code change behind
+    /// it. Wall time on this path is dominated by reading, walking and
+    /// allocating the output tree (the memo saves ~1.17× over bytecode in
+    /// release, ~1.04× in debug), so the margin the gate needed was never
+    /// larger than the runner's noise.
     ///
-    /// Putting a real threshold on it surfaced something the old assertion hid.
-    /// On a workload with a **99.9% cache hit rate**, the memo beats
-    /// bytecode-no-cache by only **~1.17× in release and ~1.04× in debug** —
-    /// not the "real, visible speedup" the original docstring asserted. The
-    /// bare `<` had been reporting a 4% difference on one noisy sample as a
-    /// win.
-    ///
-    /// The reading: expansion was never the expensive part of this path.
-    /// Reading, walking and allocating the output tree dominate, so removing
-    /// essentially *all* expansion work moves the total by a fifth. That is
-    /// still worth having and it is not what the memo was sold as. The bytecode
-    /// strategy is where the real gain is (~1.4× over substitution), and it is
-    /// there with or without the cache.
-    ///
-    /// So the margins differ per axis, deliberately: a real one against
-    /// substitution, and a non-regression bound against bytecode, because
-    /// asserting 1.5× there would assert something untrue.
+    /// What the gate was for is catching the fast path being disabled or
+    /// wired wrong, and the counts say that exactly: a cache that never hits,
+    /// a bytecode dispatch that falls back to substitution, or a cache that
+    /// stores but is never consulted each move a count by thousands. The
+    /// timings are still printed for a reader on a quiet machine.
     #[test]
-    fn the_expansion_cache_beats_both_uncached_strategies() {
-        use std::time::{Duration, Instant};
+    fn the_expansion_cache_answers_repeat_calls_without_expanding() {
+        use std::time::Instant;
 
-        /// Against substitution the gain is structural — bytecode plus a memo
-        /// against a naive tree walk. Measured at 1.44–1.54×; gated well below
-        /// that, since the purpose is to catch the fast path being *disabled*,
-        /// not to track a ratio.
-        const MARGIN_VS_SUBSTITUTE: f64 = 1.25;
-        /// Against bytecode-no-cache the memo is a modest win, and "modest" is
-        /// the problem: the two paths differ by a few ms on a 10k workload, so
-        /// on shared CI the comparison measures the runner, not the cache.
-        /// Measured 1.03× locally (debug) and 0.90× on a GitHub runner in the
-        /// same commit — a 13-point spread with no code change between them.
-        ///
-        /// The bound is therefore stated as what this test can actually prove:
-        /// the memo must not be *catastrophically* worse, which catches it
-        /// being wired up wrong (a cache that never hits pays lookup + insert
-        /// on every call and lands far below this). Holding a tighter ratio
-        /// would need a benchmark harness with a quiet machine — nextest on a
-        /// shared runner is not that, and a gate that fails on hardware noise
-        /// teaches people to re-run rather than to read it.
-        const MAX_OVERHEAD_VS_BYTECODE: f64 = 1.30;
-        const SAMPLES: usize = 5;
+        const CALLS: u64 = 10_000;
+        let forms = read(&cache_friendly_workload(usize::try_from(CALLS).unwrap())).unwrap();
 
-        let forms = read(&cache_friendly_workload(10_000)).unwrap();
-
-        let best = |mut make: Box<dyn FnMut() -> Expander>| -> Duration {
-            (0..SAMPLES)
-                .map(|_| {
-                    let mut e = make();
-                    let f = forms.clone();
-                    let t = Instant::now();
-                    let out = e.expand_program(f).unwrap();
-                    let d = t.elapsed();
-                    std::hint::black_box(out);
-                    d
-                })
-                .min()
-                .expect("SAMPLES > 0")
+        let run = |mut e: Expander| -> (ExpansionCounts, usize, std::time::Duration) {
+            let t = Instant::now();
+            let out = e.expand_program(forms.clone()).unwrap();
+            let d = t.elapsed();
+            std::hint::black_box(out);
+            (e.expansion_counts(), e.cache_size(), d)
         };
 
-        let t_subst = best(Box::new(Expander::new_substitute_only));
-        let t_byte = best(Box::new(Expander::new_bytecode_no_cache));
-        let t_cached = best(Box::new(Expander::new));
-
-        let vs_subst = t_subst.as_secs_f64() / t_cached.as_secs_f64();
-        let vs_byte = t_byte.as_secs_f64() / t_cached.as_secs_f64();
+        let (subst, _, t_subst) = run(Expander::new_substitute_only());
+        let (byte, _, t_byte) = run(Expander::new_bytecode_no_cache());
+        let (cached, entries, t_cached) = run(Expander::new());
         eprintln!(
-            "\n=== macroexpand: 10k calls × 10 unique (macro, args) pairs, \
-             best of {SAMPLES} ===\n\
-             substitute only   : {t_subst:?}\n\
-             bytecode no cache : {t_byte:?}\n\
-             bytecode + cache  : {t_cached:?}\n\
-             speedup           : {vs_subst:.2}× vs substitute, {vs_byte:.2}× vs bytecode\n"
+            "\n=== macroexpand: {CALLS} calls × 10 unique (macro, args) pairs ===\n\
+             substitute only   : {subst:?} in {t_subst:?}\n\
+             bytecode no cache : {byte:?} in {t_byte:?}\n\
+             bytecode + cache  : {cached:?} in {t_cached:?}\n"
         );
 
+        let applications = |c: &ExpansionCounts| c.cache_hits + c.compiled + c.substituted;
+        let total = applications(&subst);
         assert!(
-            vs_subst >= MARGIN_VS_SUBSTITUTE,
-            "the bytecode+cache path should beat substitution by \
-             {MARGIN_VS_SUBSTITUTE}×, got {vs_subst:.2}× \
-             ({t_cached:?} vs {t_subst:?})"
+            total >= CALLS,
+            "every top-level call is at least one application, got {total}"
+        );
+        assert_eq!(
+            applications(&byte),
+            total,
+            "strategies apply the same calls"
+        );
+        assert_eq!(
+            applications(&cached),
+            total,
+            "strategies apply the same calls"
+        );
+
+        assert_eq!(
+            subst,
+            ExpansionCounts {
+                substituted: total,
+                ..Default::default()
+            },
+            "substitute-only must never touch the bytecode or the memo"
+        );
+        assert_eq!(
+            byte,
+            ExpansionCounts {
+                compiled: total,
+                ..Default::default()
+            },
+            "bytecode-no-cache must run every application through the bytecode"
+        );
+        assert_eq!(
+            cached.substituted, 0,
+            "a compiled macro fell back to substitution"
         );
         assert!(
-            vs_byte >= 1.0 / MAX_OVERHEAD_VS_BYTECODE,
-            "the memo must not cost more than it saves: {vs_byte:.2}× vs \
-             bytecode-no-cache ({t_cached:?} vs {t_byte:?}). A ratio below 1 \
-             means maintaining the cache is now pure overhead on this workload."
+            cached.compiled <= 50,
+            "the memo should leave only the ~10 unique pairs (plus inner expansions) \
+             to the bytecode, got {} of {total}",
+            cached.compiled
+        );
+        assert_eq!(
+            cached.compiled,
+            u64::try_from(entries).unwrap(),
+            "every bytecode run on a fresh memo is a miss that fills one entry"
         );
     }
 

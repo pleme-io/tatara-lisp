@@ -70,8 +70,8 @@ pub use error::{
     UnknownUnquoteForm, UnquoteForm,
 };
 pub use macro_expand::{
-    Expander, MacroArgCarrier, MacroDef, MacroParams, OptionalParam, ResourceLimits,
-    DEFAULT_RESOURCE_LIMITS, UNBOUNDED_RESOURCE_LIMITS,
+    Expander, ExpansionCounts, MacroArgCarrier, MacroDef, MacroParams, OptionalParam,
+    ResourceLimits, DEFAULT_RESOURCE_LIMITS, UNBOUNDED_RESOURCE_LIMITS,
 };
 pub use reader::{read, read_spanned};
 pub use span::Span;

@@ -456,10 +456,21 @@ fn release_if_closed(frame: &Arc<Frame>, held: usize) -> bool {
         return false;
     };
     if strong != held {
-        let internal: usize = bindings
+        let mut aliased: HashMap<*const Closure, (usize, &Arc<Closure>)> = HashMap::new();
+        let mut internal = 0usize;
+        for value in bindings.values() {
+            match value {
+                Value::Closure(c) if Arc::strong_count(c) > 1 => {
+                    aliased.entry(Arc::as_ptr(c)).or_insert((0, c)).0 += 1;
+                }
+                other => internal += handles_to_frame(frame, other, MAX_VALUE_DEPTH),
+            }
+        }
+        internal += aliased
             .values()
-            .map(|value| handles_to_frame(frame, value, MAX_VALUE_DEPTH))
-            .sum();
+            .filter(|(slots, c)| Arc::strong_count(c) == *slots)
+            .map(|(_, c)| frames_pointing_at(&c.captured_env, frame))
+            .sum::<usize>();
         if strong != held + internal {
             return false;
         }

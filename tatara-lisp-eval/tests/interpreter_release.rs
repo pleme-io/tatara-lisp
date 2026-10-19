@@ -283,3 +283,56 @@ fn release_own_frames_reports_what_it_released() {
         "and the shared frames below the floor are untouched"
     );
 }
+
+#[test]
+fn a_closure_bound_under_two_names_does_not_pin_the_frame() {
+    let freed = run_then_kill("(define (f n) n) (define g f)");
+    assert!(
+        freed.load(Ordering::SeqCst),
+        "an alias makes the closure's count 2, both held by this frame; the frame must still be freed"
+    );
+}
+
+#[test]
+fn a_dead_root_interpreter_frees_the_stdlib_it_evaluated() {
+    let freed = Arc::new(AtomicBool::new(false));
+    let mut interp = prototype();
+    interp.define_global(
+        "sentinel",
+        Value::Foreign(Arc::new(Sentinel(freed.clone()))),
+    );
+    drop(interp);
+    assert!(
+        freed.load(Ordering::SeqCst),
+        "the stdlib aliases (next = rest, nil? = null?) left the root frame in a ring, \
+         so every interpreter an embedder built and dropped stayed resident"
+    );
+}
+
+#[test]
+fn an_alias_the_embedder_also_holds_keeps_the_frame_it_needs() {
+    let mut host = ();
+    let mut outer = prototype();
+
+    let escaped = {
+        let mut child = outer.fork();
+        eval(
+            &mut child,
+            "(define (countdown n) (if (= n 0) 0 (countdown (- n 1)))) (define again countdown) again",
+        )
+        .expect("define, alias and return it")
+    };
+
+    let got = outer
+        .apply_external_value(
+            &escaped,
+            vec![Value::Int(5)],
+            &mut host,
+            tatara_lisp_eval::Span::synthetic(),
+        )
+        .expect("an aliased closure that outlived its interpreter is still callable");
+    assert!(
+        matches!(got, Value::Int(0)),
+        "the aliased closure is held outside the frame too, so its frame must survive; got {got:?}"
+    );
+}

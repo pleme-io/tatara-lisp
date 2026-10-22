@@ -540,10 +540,7 @@ impl FromValue for bool {
 
 impl FromValue for String {
     fn from_value(v: &Value, at: Span) -> Result<Self> {
-        match v {
-            Value::Str(s) => Ok(s.to_string()),
-            other => Err(EvalError::type_mismatch("string", other.type_name(), at)),
-        }
+        <Arc<str> as FromValue>::from_value(v, at).map(|s| s.to_string())
     }
 }
 
@@ -744,6 +741,20 @@ mod tests {
         assert!(u8::from_value(&Value::Int(256), sp).is_err());
         assert!(i32::from_value(&Value::Str(Arc::from("7")), sp).is_err());
         assert!(matches!(7u8.into_value(), Value::Int(7)));
+    }
+
+    #[test]
+    fn string_reads_what_arc_str_reads() {
+        let sp = Span::synthetic();
+        for v in [
+            Value::Str(Arc::from("warn")),
+            Value::Keyword(Arc::from("warn")),
+            Value::Symbol(Arc::from("warn")),
+        ] {
+            assert_eq!(String::from_value(&v, sp).unwrap(), "warn");
+            assert_eq!(&*<Arc<str>>::from_value(&v, sp).unwrap(), "warn");
+        }
+        assert!(String::from_value(&Value::Int(1), sp).is_err());
     }
 
     #[test]

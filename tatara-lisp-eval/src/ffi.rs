@@ -562,11 +562,36 @@ impl FromValue for Arc<str> {
     }
 }
 
-impl FromValue for Vec<Value> {
+macro_rules! from_value_narrowed_int {
+    ($($t:ty => $expected:literal),* $(,)?) => {$(
+        impl FromValue for $t {
+            fn from_value(v: &Value, at: Span) -> Result<Self> {
+                match v {
+                    Value::Int(n) => <$t>::try_from(*n)
+                        .map_err(|_| EvalError::type_mismatch($expected, "an integer out of range", at)),
+                    other => Err(EvalError::type_mismatch($expected, other.type_name(), at)),
+                }
+            }
+        }
+    )*};
+}
+
+from_value_narrowed_int! {
+    u64 => "non-negative integer",
+    usize => "non-negative integer",
+    u32 => "non-negative integer",
+    u16 => "non-negative integer",
+    u8 => "non-negative integer",
+    i32 => "32-bit integer",
+    i16 => "16-bit integer",
+    i8 => "8-bit integer",
+}
+
+impl<T: FromValue> FromValue for Vec<T> {
     fn from_value(v: &Value, at: Span) -> Result<Self> {
         match v {
             Value::Nil => Ok(Vec::new()),
-            Value::List(xs) => Ok(xs.to_vec()),
+            Value::List(xs) => xs.iter().map(|x| T::from_value(x, at)).collect(),
             other => Err(EvalError::type_mismatch("list", other.type_name(), at)),
         }
     }
@@ -612,6 +637,18 @@ impl IntoValue for i64 {
         Value::Int(self)
     }
 }
+
+macro_rules! into_value_widened_int {
+    ($($t:ty),* $(,)?) => {$(
+        impl IntoValue for $t {
+            fn into_value(self) -> Value {
+                Value::Int(i64::from(self))
+            }
+        }
+    )*};
+}
+
+into_value_widened_int!(u32, u16, u8, i32, i16, i8);
 
 impl IntoValue for f64 {
     fn into_value(self) -> Value {
@@ -697,6 +734,26 @@ mod tests {
             <Option<i64> as FromValue>::from_value(&Value::Int(7), sp).unwrap(),
             Some(7)
         );
+    }
+
+    #[test]
+    fn narrowed_ints_refuse_out_of_range() {
+        let sp = Span::synthetic();
+        assert_eq!(u64::from_value(&Value::Int(7), sp).unwrap(), 7);
+        assert!(u64::from_value(&Value::Int(-1), sp).is_err());
+        assert!(u8::from_value(&Value::Int(256), sp).is_err());
+        assert!(i32::from_value(&Value::Str(Arc::from("7")), sp).is_err());
+        assert!(matches!(7u8.into_value(), Value::Int(7)));
+    }
+
+    #[test]
+    fn vec_converts_each_element() {
+        let sp = Span::synthetic();
+        let xs = Value::list([Value::Int(1), Value::Int(2)]);
+        assert_eq!(Vec::<i64>::from_value(&xs, sp).unwrap(), vec![1, 2]);
+        assert_eq!(Vec::<Value>::from_value(&xs, sp).unwrap().len(), 2);
+        let mixed = Value::list([Value::Int(1), Value::Str(Arc::from("x"))]);
+        assert!(Vec::<i64>::from_value(&mixed, sp).is_err());
     }
 
     #[test]

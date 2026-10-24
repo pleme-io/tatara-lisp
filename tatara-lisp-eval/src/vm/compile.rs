@@ -99,10 +99,31 @@ const VM_FALLBACK_FORMS: &[&str] = &[
     "macroexpand-1",
 ];
 
+fn collect_body_defines<'f>(body: &'f [Spanned], out: &mut Vec<&'f str>) {
+    for form in body {
+        let Some(items) = form.as_list() else {
+            continue;
+        };
+        match items.first().and_then(Spanned::as_symbol) {
+            Some("begin") => collect_body_defines(&items[1..], out),
+            Some("define") if items.len() >= 3 => {
+                let name = match &items[1].form {
+                    SpannedForm::Atom(Atom::Symbol(name)) => Some(name.as_str()),
+                    SpannedForm::List(head) => head.first().and_then(Spanned::as_symbol),
+                    _ => None,
+                };
+                out.extend(name);
+            }
+            _ => {}
+        }
+    }
+}
+
 /// One lexical scope (a `let` body or a function's param list).
 #[derive(Debug, Default, Clone)]
 struct Scope {
     bindings: Vec<(Arc<str>, usize)>,
+    pending: Vec<(Arc<str>, usize)>,
 }
 
 /// Per-function compiler state. The outer `Compiler` owns a stack of
@@ -144,6 +165,21 @@ impl FnCompiler {
                 if &**n == name {
                     return Some(*idx);
                 }
+            }
+        }
+        None
+    }
+
+    fn resolve_for_capture(&self, name: &str) -> Option<usize> {
+        for scope in self.scopes.iter().rev() {
+            let found = scope
+                .bindings
+                .iter()
+                .rev()
+                .chain(scope.pending.iter())
+                .find(|(n, _)| &**n == name);
+            if let Some((_, idx)) = found {
+                return Some(*idx);
             }
         }
         None
@@ -438,7 +474,7 @@ impl<'a> Compiler<'a> {
         let depth = self.fn_stack.len();
         if depth >= 2 {
             for outer_idx in (0..depth - 1).rev() {
-                if let Some(parent_local) = self.fn_stack[outer_idx].resolve_in_scopes(name) {
+                if let Some(parent_local) = self.fn_stack[outer_idx].resolve_for_capture(name) {
                     // Found in fn_stack[outer_idx]. Record a capture
                     // chain in every function between outer_idx + 1
                     // and the current function (depth - 1).
@@ -481,7 +517,7 @@ impl<'a> Compiler<'a> {
         let depth = self.fn_stack.len();
         if depth >= 2 {
             for outer_idx in (0..depth - 1).rev() {
-                if let Some(parent_local) = self.fn_stack[outer_idx].resolve_in_scopes(name) {
+                if let Some(parent_local) = self.fn_stack[outer_idx].resolve_for_capture(name) {
                     let captured_idx = self.register_capture_chain(
                         Arc::from(name),
                         outer_idx,
@@ -885,8 +921,13 @@ impl<'a> Compiler<'a> {
         match &items[1].form {
             SpannedForm::Atom(Atom::Symbol(name)) => {
                 self.compile_form(&items[2], false)?;
-                let name_idx = self.chunk.names.intern(name.as_str());
-                self.emit_op(Op::StoreGlobal(name_idx), span);
+                if self.defines_globally() {
+                    let name_idx = self.chunk.names.intern(name.as_str());
+                    self.emit_op(Op::StoreGlobal(name_idx), span);
+                } else {
+                    let slot = self.bind_body_local(name);
+                    self.emit_op(Op::StoreLocal(slot), span);
+                }
                 self.emit_op(Op::Nil, span);
                 Ok(())
             }
@@ -904,9 +945,15 @@ impl<'a> Compiler<'a> {
                     SpannedForm::List(head[1..].to_vec()),
                 ));
                 lambda_form.extend_from_slice(&items[2..]);
+                let slot = (!self.defines_globally()).then(|| self.bind_body_local(name));
                 self.compile_lambda_named(&lambda_form, span, Some(Arc::<str>::from(name)))?;
-                let name_idx = self.chunk.names.intern(name);
-                self.emit_op(Op::StoreGlobal(name_idx), span);
+                match slot {
+                    Some(slot) => self.emit_op(Op::StoreLocal(slot), span),
+                    None => {
+                        let name_idx = self.chunk.names.intern(name);
+                        self.emit_op(Op::StoreGlobal(name_idx), span);
+                    }
+                }
                 self.emit_op(Op::Nil, span);
                 Ok(())
             }
@@ -960,6 +1007,7 @@ impl<'a> Compiler<'a> {
         }
 
         let body = &items[2..];
+        self.reserve_body_defines(body);
         let last = body.len().saturating_sub(1);
         for (i, form) in body.iter().enumerate() {
             self.compile_form(form, tail && i == last)?;
@@ -1045,6 +1093,7 @@ impl<'a> Compiler<'a> {
 
         // Compile body forms.
         let body_forms = &items[2..];
+        self.reserve_body_defines(body_forms);
         let last = body_forms.len() - 1;
         for (i, form) in body_forms.iter().enumerate() {
             self.compile_form(form, /*tail=*/ i == last)?;
@@ -1360,6 +1409,56 @@ impl<'a> Compiler<'a> {
 
     fn pop_scope(&mut self) {
         self.current_mut().scopes.pop();
+    }
+
+    fn defines_globally(&self) -> bool {
+        self.fn_stack.len() == 1 && self.current().scopes.len() == 1
+    }
+
+    fn bind_body_local(&mut self, name: &str) -> usize {
+        let scope = self.current().scopes.last().expect("at least one scope");
+        if let Some((_, idx)) = scope.bindings.iter().rev().find(|(n, _)| &**n == name) {
+            return *idx;
+        }
+        let reserved = scope.pending.iter().position(|(n, _)| &**n == name);
+        let (name, idx) = match reserved {
+            Some(pos) => self
+                .current_mut()
+                .scopes
+                .last_mut()
+                .expect("at least one scope")
+                .pending
+                .remove(pos),
+            None => (Arc::<str>::from(name), self.alloc_local()),
+        };
+        self.scope_define(name, idx);
+        idx
+    }
+
+    fn reserve_body_defines(&mut self, body: &[Spanned]) {
+        if self.defines_globally() {
+            return;
+        }
+        let mut names = Vec::new();
+        collect_body_defines(body, &mut names);
+        for name in names {
+            let scope = self.current().scopes.last().expect("at least one scope");
+            let known = scope
+                .bindings
+                .iter()
+                .chain(scope.pending.iter())
+                .any(|(n, _)| &**n == name);
+            if known {
+                continue;
+            }
+            let idx = self.alloc_local();
+            self.current_mut()
+                .scopes
+                .last_mut()
+                .expect("at least one scope")
+                .pending
+                .push((Arc::<str>::from(name), idx));
+        }
     }
 
     fn scope_define(&mut self, name: Arc<str>, idx: usize) {

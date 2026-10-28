@@ -18,7 +18,7 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
         Arity::Exact(1),
         |args: &[Value], _ctx: &mut ScriptCtx, sp| {
             let s = str_arg(&args[0], "yaml-parse", sp)?;
-            let parsed: serde_yaml::Value = serde_yaml::from_str(&s)
+            let parsed: serde_norway::Value = serde_norway::from_str(&s)
                 .map_err(|e| EvalError::native_fn("yaml-parse", e.to_string(), sp))?;
             Ok(yaml_to_value(&parsed))
         },
@@ -31,34 +31,34 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
             let path = str_arg(&args[0], "yaml-read", sp)?;
             let body = std::fs::read_to_string(&*path)
                 .map_err(|e| EvalError::native_fn("yaml-read", format!("{path}: {e}"), sp))?;
-            let parsed: serde_yaml::Value = serde_yaml::from_str(&body)
+            let parsed: serde_norway::Value = serde_norway::from_str(&body)
                 .map_err(|e| EvalError::native_fn("yaml-read", format!("{path}: {e}"), sp))?;
             Ok(yaml_to_value(&parsed))
         },
     );
 }
 
-fn yaml_to_value(y: &serde_yaml::Value) -> Value {
+fn yaml_to_value(y: &serde_norway::Value) -> Value {
     match y {
-        serde_yaml::Value::Null => Value::Nil,
-        serde_yaml::Value::Bool(b) => Value::Bool(*b),
-        serde_yaml::Value::Number(n) => {
+        serde_norway::Value::Null => Value::Nil,
+        serde_norway::Value::Bool(b) => Value::Bool(*b),
+        serde_norway::Value::Number(n) => {
             if let Some(i) = n.as_i64() {
                 Value::Int(i)
             } else {
                 Value::Float(n.as_f64().unwrap_or(0.0))
             }
         }
-        serde_yaml::Value::String(s) => Value::Str(Arc::from(s.as_str())),
-        serde_yaml::Value::Sequence(xs) => {
+        serde_norway::Value::String(s) => Value::Str(Arc::from(s.as_str())),
+        serde_norway::Value::Sequence(xs) => {
             Value::list(xs.iter().map(yaml_to_value).collect::<Vec<_>>())
         }
-        serde_yaml::Value::Mapping(m) => Value::list(
+        serde_norway::Value::Mapping(m) => Value::list(
             m.iter()
                 .map(|(k, v)| {
                     let key_str = match k {
-                        serde_yaml::Value::String(s) => s.clone(),
-                        other => serde_yaml::to_string(other)
+                        serde_norway::Value::String(s) => s.clone(),
+                        other => serde_norway::to_string(other)
                             .unwrap_or_default()
                             .trim()
                             .to_string(),
@@ -67,6 +67,6 @@ fn yaml_to_value(y: &serde_yaml::Value) -> Value {
                 })
                 .collect::<Vec<_>>(),
         ),
-        serde_yaml::Value::Tagged(t) => yaml_to_value(&t.value),
+        serde_norway::Value::Tagged(t) => yaml_to_value(&t.value),
     }
 }

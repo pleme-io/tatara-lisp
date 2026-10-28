@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "cargo_lock_sha256": "b311bc110ebe9831110aaed9c34671f8cc82b73fff17e0e5c241d3892147c03f",
+  "cargo_lock_sha256": "5e340f66bc50a9f4c1f66bb0ff90f8fff514a5b970cc3438eb55d29184ef3368",
   "manifest_sha256": {
     "Cargo.toml": "5975c5b2e00ee36591201e163cfaf504021eaa5e761f9ae8914d91db49ba856e",
     "kumihan/Cargo.toml": "a46d2ca6ac9adc86f076e72dd80bc2888f1294a04e52b2a7a7bf2ddec2db9f19",
@@ -9,7 +9,7 @@
     "tatara-closed-set-derive/Cargo.toml": "2fc3319ac7d59d99a114b54474b1bc489e2e2c91f8f8dcde90a81bb5f16e231b",
     "tatara-closed-set/Cargo.toml": "e752b1ba06b88cc3a9c725426f42156d158c361320872903d183f42b6bfa321d",
     "tatara-doc/Cargo.toml": "ea2347d4cfc6e0b07778d411364cbf8097f807036b7c7b6a8f4a8060986fb582",
-    "tatara-domain-forge/Cargo.toml": "d3122046a692c60608e42a6f8b8dc4276fc3be45e3be0602517f17371d9b3c5d",
+    "tatara-domain-forge/Cargo.toml": "f8b92a387ad9c5056ab96c2e8f684c0b21ee147e27606672453ef2f23606bc1d",
     "tatara-ebpf/Cargo.toml": "40f2a66bd52789cedbaa546247b8783a9dd6714e5236528e1bb35d7c62770a73",
     "tatara-env/Cargo.toml": "17550cd4cbd7071071094055778aec3170353fe4c38be987dcc6c35dcef81202",
     "tatara-gateway-api/Cargo.toml": "62232cd985b0a686337e5ff37441d1a0c6506882a01fb004c7d35d93dac28782",
@@ -18,14 +18,14 @@
     "tatara-lisp-derive/Cargo.toml": "55d90013e98f76326bf31222368fc6ad38a7afabf36c74eaa7a102a414434720",
     "tatara-lisp-eval/Cargo.toml": "7862e086ec79eee2984b14cd48db74dd220bab3f0a1404cc75a3fbcfd5babfd5",
     "tatara-lisp-lint/Cargo.toml": "670ccf870dceb37518532c98bf074d0f80146c2211a7b6f06221038b0e1db3f4",
-    "tatara-lisp-script/Cargo.toml": "ec53617316b5ab3b74376cbbb1fdfb23979d99246299c1dfa99f2fad738b49bb",
+    "tatara-lisp-script/Cargo.toml": "e9cc716bf1213a4259bbf090387598d2f3c437f0f49ce2ccd97bde6b8e34cead",
     "tatara-lisp-source/Cargo.toml": "1b17ac6ae0b6f0be9ba40e1b3a3f4f10a387ac5c6240eff42d40913b8e90e3c0",
     "tatara-lisp/Cargo.toml": "67b75c3398ec55f2cc2169d7224153046d5e5e19ad93fc82ec59a62ff94ee736",
     "tatara-platform-checks/Cargo.toml": "55c7c894699a8fc6fe029ccf6f82c6be9fa706749a77ab32c0c0c75208b4a4c3",
     "tatara-prometheus-operator/Cargo.toml": "5c5d72c3d560d2e81fcd98c1844d1466c4d7469c0f594bfb02763bf7c8634657",
-    "tatara-render/Cargo.toml": "f0ef50601dcc4994fb8549d51da2c6fe99d011a39b5d256b7963387cad1b0e01",
+    "tatara-render/Cargo.toml": "0c7fe17f8a2fc03d7a163d30994d1505a6452c1d1b9dfeabdc6c2507da3f904a",
     "tatara-rollout/Cargo.toml": "23b6c037158450f1125b5f2f22a920b4eba0064e93048a46d773aa75d957b202",
-    "tatara/Cargo.toml": "c8aa214a1f1d33f207f27b1e50644c4a97c84dab0db566c8ae5d45edb787db14"
+    "tatara/Cargo.toml": "4b43231ab7a2b8bc366595c5f3697c3891214324c7a91ff695c8baeb496531f4"
   },
   "target_resolves": {
     "base": {
@@ -206,6 +206,11 @@
           "std"
         ]
       },
+      "autocfg-1.5.1": {
+        "runtime_dependencies": [],
+        "build_dependencies": [],
+        "features": []
+      },
       "base64-0.22.1": {
         "runtime_dependencies": [],
         "build_dependencies": [],
@@ -258,8 +263,18 @@
           "std"
         ]
       },
-      "caixa-ast-0.1.33": {
+      "caixa-ast-0.1.686": {
         "runtime_dependencies": [
+          {
+            "name": "gen_platform",
+            "package_key": "gen-platform-0.1.54",
+            "kind": "normal",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "target"
+          },
           {
             "name": "logos",
             "package_key": "logos-0.14.4",
@@ -310,7 +325,7 @@
         "runtime_dependencies": [
           {
             "name": "caixa_ast",
-            "package_key": "caixa-ast-0.1.33",
+            "package_key": "caixa-ast-0.1.686",
             "kind": "normal",
             "features": [],
             "uses_default_features": true,
@@ -384,6 +399,58 @@
         "runtime_dependencies": [],
         "build_dependencies": [],
         "features": []
+      },
+      "chrono-0.4.45": {
+        "runtime_dependencies": [
+          {
+            "name": "iana_time_zone",
+            "package_key": "iana-time-zone-0.1.65",
+            "kind": "normal",
+            "features": [
+              "fallback"
+            ],
+            "uses_default_features": true,
+            "optional": true,
+            "target": "cfg(unix)",
+            "tree": "target"
+          },
+          {
+            "name": "num_traits",
+            "package_key": "num-traits-0.2.19",
+            "kind": "normal",
+            "features": [],
+            "uses_default_features": false,
+            "optional": false,
+            "target": null,
+            "tree": "target"
+          },
+          {
+            "name": "serde",
+            "package_key": "serde-1.0.229",
+            "kind": "normal",
+            "features": [],
+            "uses_default_features": false,
+            "optional": true,
+            "target": null,
+            "tree": "target"
+          }
+        ],
+        "build_dependencies": [],
+        "features": [
+          "alloc",
+          "clock",
+          "default",
+          "iana-time-zone",
+          "js-sys",
+          "now",
+          "oldtime",
+          "serde",
+          "std",
+          "wasm-bindgen",
+          "wasmbind",
+          "winapi",
+          "windows-link"
+        ]
       },
       "chunked_transfer-1.5.0": {
         "runtime_dependencies": [],
@@ -986,6 +1053,195 @@
           "alloc",
           "std"
         ]
+      },
+      "gen-macros-0.1.54": {
+        "runtime_dependencies": [
+          {
+            "name": "proc_macro2",
+            "package_key": "proc-macro2-1.0.107",
+            "kind": "normal",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "target"
+          },
+          {
+            "name": "quote",
+            "package_key": "quote-1.0.47",
+            "kind": "normal",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "target"
+          },
+          {
+            "name": "syn",
+            "package_key": "syn-2.0.119",
+            "kind": "normal",
+            "features": [
+              "extra-traits",
+              "full"
+            ],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "target"
+          }
+        ],
+        "build_dependencies": [],
+        "features": []
+      },
+      "gen-platform-0.1.54": {
+        "runtime_dependencies": [
+          {
+            "name": "gen_macros",
+            "package_key": "gen-macros-0.1.54",
+            "kind": "normal",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "host"
+          },
+          {
+            "name": "gen_types",
+            "package_key": "gen-types-0.1.54",
+            "kind": "normal",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "target"
+          },
+          {
+            "name": "inventory",
+            "package_key": "inventory-0.3.25",
+            "kind": "normal",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "target"
+          },
+          {
+            "name": "serde",
+            "package_key": "serde-1.0.229",
+            "kind": "normal",
+            "features": [
+              "derive"
+            ],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "target"
+          },
+          {
+            "name": "serde_json",
+            "package_key": "serde_json-1.0.151",
+            "kind": "normal",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "target"
+          },
+          {
+            "name": "thiserror",
+            "package_key": "thiserror-2.0.19",
+            "kind": "normal",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "target"
+          }
+        ],
+        "build_dependencies": [],
+        "features": []
+      },
+      "gen-types-0.1.54": {
+        "runtime_dependencies": [
+          {
+            "name": "blake3",
+            "package_key": "blake3-1.8.6",
+            "kind": "normal",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "target"
+          },
+          {
+            "name": "chrono",
+            "package_key": "chrono-0.4.45",
+            "kind": "normal",
+            "features": [
+              "serde"
+            ],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "target"
+          },
+          {
+            "name": "indexmap",
+            "package_key": "indexmap-2.14.0",
+            "kind": "normal",
+            "features": [
+              "serde"
+            ],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "target"
+          },
+          {
+            "name": "inventory",
+            "package_key": "inventory-0.3.25",
+            "kind": "normal",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "target"
+          },
+          {
+            "name": "serde",
+            "package_key": "serde-1.0.229",
+            "kind": "normal",
+            "features": [
+              "derive"
+            ],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "target"
+          },
+          {
+            "name": "serde_json",
+            "package_key": "serde_json-1.0.151",
+            "kind": "normal",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "target"
+          },
+          {
+            "name": "thiserror",
+            "package_key": "thiserror-2.0.19",
+            "kind": "normal",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "target"
+          }
+        ],
+        "build_dependencies": [],
+        "features": []
       },
       "generic-array-0.14.7": {
         "runtime_dependencies": [
@@ -1770,6 +2026,11 @@
           "std"
         ]
       },
+      "inventory-0.3.25": {
+        "runtime_dependencies": [],
+        "build_dependencies": [],
+        "features": []
+      },
       "is_terminal_polyfill-1.70.2": {
         "runtime_dependencies": [],
         "build_dependencies": [],
@@ -1976,6 +2237,22 @@
       "num-conv-0.2.2": {
         "runtime_dependencies": [],
         "build_dependencies": [],
+        "features": []
+      },
+      "num-traits-0.2.19": {
+        "runtime_dependencies": [],
+        "build_dependencies": [
+          {
+            "name": "autocfg",
+            "package_key": "autocfg-1.5.1",
+            "kind": "build",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "host"
+          }
+        ],
         "features": []
       },
       "object-0.39.1": {
@@ -2592,6 +2869,62 @@
           "std"
         ]
       },
+      "serde_norway-0.9.42": {
+        "runtime_dependencies": [
+          {
+            "name": "indexmap",
+            "package_key": "indexmap-2.14.0",
+            "kind": "normal",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "target"
+          },
+          {
+            "name": "itoa",
+            "package_key": "itoa-1.0.18",
+            "kind": "normal",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "target"
+          },
+          {
+            "name": "ryu",
+            "package_key": "ryu-1.0.23",
+            "kind": "normal",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "target"
+          },
+          {
+            "name": "serde",
+            "package_key": "serde-1.0.229",
+            "kind": "normal",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "target"
+          },
+          {
+            "name": "unsafe_libyaml_norway",
+            "package_key": "unsafe-libyaml-norway-0.2.15",
+            "kind": "normal",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "target"
+          }
+        ],
+        "build_dependencies": [],
+        "features": []
+      },
       "serde_spanned-1.1.1": {
         "runtime_dependencies": [
           {
@@ -2611,118 +2944,6 @@
           "serde",
           "std"
         ]
-      },
-      "serde_yaml-0.9.34+deprecated": {
-        "runtime_dependencies": [
-          {
-            "name": "indexmap",
-            "package_key": "indexmap-2.14.0",
-            "kind": "normal",
-            "features": [],
-            "uses_default_features": true,
-            "optional": false,
-            "target": null,
-            "tree": "target"
-          },
-          {
-            "name": "itoa",
-            "package_key": "itoa-1.0.18",
-            "kind": "normal",
-            "features": [],
-            "uses_default_features": true,
-            "optional": false,
-            "target": null,
-            "tree": "target"
-          },
-          {
-            "name": "ryu",
-            "package_key": "ryu-1.0.23",
-            "kind": "normal",
-            "features": [],
-            "uses_default_features": true,
-            "optional": false,
-            "target": null,
-            "tree": "target"
-          },
-          {
-            "name": "serde",
-            "package_key": "serde-1.0.229",
-            "kind": "normal",
-            "features": [],
-            "uses_default_features": true,
-            "optional": false,
-            "target": null,
-            "tree": "target"
-          },
-          {
-            "name": "unsafe_libyaml",
-            "package_key": "unsafe-libyaml-0.2.11",
-            "kind": "normal",
-            "features": [],
-            "uses_default_features": true,
-            "optional": false,
-            "target": null,
-            "tree": "target"
-          }
-        ],
-        "build_dependencies": [],
-        "features": []
-      },
-      "serde_yaml_ng-0.10.0": {
-        "runtime_dependencies": [
-          {
-            "name": "indexmap",
-            "package_key": "indexmap-2.14.0",
-            "kind": "normal",
-            "features": [],
-            "uses_default_features": true,
-            "optional": false,
-            "target": null,
-            "tree": "target"
-          },
-          {
-            "name": "itoa",
-            "package_key": "itoa-1.0.18",
-            "kind": "normal",
-            "features": [],
-            "uses_default_features": true,
-            "optional": false,
-            "target": null,
-            "tree": "target"
-          },
-          {
-            "name": "ryu",
-            "package_key": "ryu-1.0.23",
-            "kind": "normal",
-            "features": [],
-            "uses_default_features": true,
-            "optional": false,
-            "target": null,
-            "tree": "target"
-          },
-          {
-            "name": "serde",
-            "package_key": "serde-1.0.229",
-            "kind": "normal",
-            "features": [],
-            "uses_default_features": true,
-            "optional": false,
-            "target": null,
-            "tree": "target"
-          },
-          {
-            "name": "unsafe_libyaml",
-            "package_key": "unsafe-libyaml-0.2.11",
-            "kind": "normal",
-            "features": [],
-            "uses_default_features": true,
-            "optional": false,
-            "target": null,
-            "tree": "target"
-          }
-        ],
-        "build_dependencies": [],
-        "features": []
       },
       "sha1-0.10.7": {
         "runtime_dependencies": [
@@ -2973,7 +3194,8 @@
           "parsing",
           "printing",
           "proc-macro",
-          "visit"
+          "visit",
+          "visit-mut"
         ]
       },
       "synstructure-0.14.0": {
@@ -3069,8 +3291,8 @@
             "tree": "target"
           },
           {
-            "name": "serde_yaml",
-            "package_key": "serde_yaml-0.9.34+deprecated",
+            "name": "serde_norway",
+            "package_key": "serde_norway-0.9.42",
             "kind": "normal",
             "features": [],
             "uses_default_features": true,
@@ -3393,8 +3615,8 @@
             "tree": "target"
           },
           {
-            "name": "serde_yaml_ng",
-            "package_key": "serde_yaml_ng-0.10.0",
+            "name": "serde_norway",
+            "package_key": "serde_norway-0.9.42",
             "kind": "normal",
             "features": [],
             "uses_default_features": true,
@@ -4043,8 +4265,8 @@
             "tree": "target"
           },
           {
-            "name": "serde_yaml",
-            "package_key": "serde_yaml-0.9.34+deprecated",
+            "name": "serde_norway",
+            "package_key": "serde_norway-0.9.42",
             "kind": "normal",
             "features": [],
             "uses_default_features": true,
@@ -4337,8 +4559,8 @@
             "tree": "target"
           },
           {
-            "name": "serde_yaml_ng",
-            "package_key": "serde_yaml_ng-0.10.0",
+            "name": "serde_norway",
+            "package_key": "serde_norway-0.9.42",
             "kind": "normal",
             "features": [],
             "uses_default_features": true,
@@ -4932,7 +5154,7 @@
         "build_dependencies": [],
         "features": []
       },
-      "unsafe-libyaml-0.2.11": {
+      "unsafe-libyaml-norway-0.2.15": {
         "runtime_dependencies": [],
         "build_dependencies": [],
         "features": []
@@ -5733,6 +5955,14 @@
               "std"
             ]
           },
+          "core-foundation-sys-0.8.7": {
+            "runtime_dependencies": [],
+            "build_dependencies": [],
+            "features": [
+              "default",
+              "link"
+            ]
+          },
           "cpufeatures-0.2.17": {
             "runtime_dependencies": [
               {
@@ -5778,6 +6008,24 @@
             ],
             "build_dependencies": [],
             "features": []
+          },
+          "iana-time-zone-0.1.65": {
+            "runtime_dependencies": [
+              {
+                "name": "core_foundation_sys",
+                "package_key": "core-foundation-sys-0.8.7",
+                "kind": "normal",
+                "features": [],
+                "uses_default_features": true,
+                "optional": false,
+                "target": "cfg(target_vendor = \"apple\")",
+                "tree": "target"
+              }
+            ],
+            "build_dependencies": [],
+            "features": [
+              "fallback"
+            ]
           },
           "ring-0.17.14": {
             "runtime_dependencies": [
@@ -6030,6 +6278,13 @@
             ],
             "build_dependencies": [],
             "features": []
+          },
+          "iana-time-zone-0.1.65": {
+            "runtime_dependencies": [],
+            "build_dependencies": [],
+            "features": [
+              "fallback"
+            ]
           },
           "linux-raw-sys-0.12.1": {
             "runtime_dependencies": [],
@@ -6326,6 +6581,13 @@
             "build_dependencies": [],
             "features": []
           },
+          "iana-time-zone-0.1.65": {
+            "runtime_dependencies": [],
+            "build_dependencies": [],
+            "features": [
+              "fallback"
+            ]
+          },
           "linux-raw-sys-0.12.1": {
             "runtime_dependencies": [],
             "build_dependencies": [],
@@ -6585,6 +6847,14 @@
               "std"
             ]
           },
+          "core-foundation-sys-0.8.7": {
+            "runtime_dependencies": [],
+            "build_dependencies": [],
+            "features": [
+              "default",
+              "link"
+            ]
+          },
           "cpufeatures-0.2.17": {
             "runtime_dependencies": [],
             "build_dependencies": [],
@@ -6594,6 +6864,24 @@
             "runtime_dependencies": [],
             "build_dependencies": [],
             "features": []
+          },
+          "iana-time-zone-0.1.65": {
+            "runtime_dependencies": [
+              {
+                "name": "core_foundation_sys",
+                "package_key": "core-foundation-sys-0.8.7",
+                "kind": "normal",
+                "features": [],
+                "uses_default_features": true,
+                "optional": false,
+                "target": "cfg(target_vendor = \"apple\")",
+                "tree": "target"
+              }
+            ],
+            "build_dependencies": [],
+            "features": [
+              "fallback"
+            ]
           },
           "ring-0.17.14": {
             "runtime_dependencies": [
@@ -6800,6 +7088,13 @@
             "runtime_dependencies": [],
             "build_dependencies": [],
             "features": []
+          },
+          "iana-time-zone-0.1.65": {
+            "runtime_dependencies": [],
+            "build_dependencies": [],
+            "features": [
+              "fallback"
+            ]
           },
           "linux-raw-sys-0.12.1": {
             "runtime_dependencies": [],
@@ -7050,6 +7345,13 @@
             "build_dependencies": [],
             "features": []
           },
+          "iana-time-zone-0.1.65": {
+            "runtime_dependencies": [],
+            "build_dependencies": [],
+            "features": [
+              "fallback"
+            ]
+          },
           "linux-raw-sys-0.12.1": {
             "runtime_dependencies": [],
             "build_dependencies": [],
@@ -7257,6 +7559,9 @@
     "ascii-1.1.0": {
       "edition": "2015"
     },
+    "autocfg-1.5.1": {
+      "edition": "2015"
+    },
     "base64-0.22.1": {
       "edition": "2018"
     },
@@ -7279,7 +7584,7 @@
     "bytes-1.12.1": {
       "edition": "2021"
     },
-    "caixa-ast-0.1.33": {
+    "caixa-ast-0.1.686": {
       "edition": "2024"
     },
     "caixa-fmt-0.1.5": {
@@ -7290,6 +7595,9 @@
     },
     "cfg-if-1.0.5": {
       "edition": "2018"
+    },
+    "chrono-0.4.45": {
+      "edition": "2021"
     },
     "chunked_transfer-1.5.0": {
       "edition": "2018"
@@ -7325,6 +7633,9 @@
     },
     "cookie_store-0.22.1": {
       "edition": "2021"
+    },
+    "core-foundation-sys-0.8.7": {
+      "edition": "2018"
     },
     "cpufeatures-0.2.17": {
       "edition": "2018"
@@ -7382,6 +7693,16 @@
     "form_urlencoded-1.2.2": {
       "edition": "2018"
     },
+    "gen-macros-0.1.54": {
+      "edition": "2024",
+      "proc_macro": true
+    },
+    "gen-platform-0.1.54": {
+      "edition": "2024"
+    },
+    "gen-types-0.1.54": {
+      "edition": "2024"
+    },
     "generic-array-0.14.7": {
       "edition": "2015",
       "build_script": "build.rs"
@@ -7413,6 +7734,9 @@
       "build_script": "build.rs"
     },
     "httpdate-1.0.3": {
+      "edition": "2021"
+    },
+    "iana-time-zone-0.1.65": {
       "edition": "2021"
     },
     "icu_collections-2.2.0": {
@@ -7452,6 +7776,9 @@
     },
     "indexmap-2.14.0": {
       "edition": "2024"
+    },
+    "inventory-0.3.25": {
+      "edition": "2021"
     },
     "is_terminal_polyfill-1.70.2": {
       "edition": "2021"
@@ -7510,6 +7837,10 @@
     },
     "num-conv-0.2.2": {
       "edition": "2021"
+    },
+    "num-traits-0.2.19": {
+      "edition": "2021",
+      "build_script": "build.rs"
     },
     "object-0.39.1": {
       "edition": "2018",
@@ -7602,14 +7933,11 @@
       "edition": "2021",
       "build_script": "build.rs"
     },
+    "serde_norway-0.9.42": {
+      "edition": "2021"
+    },
     "serde_spanned-1.1.1": {
       "edition": "2024"
-    },
-    "serde_yaml-0.9.34+deprecated": {
-      "edition": "2021"
-    },
-    "serde_yaml_ng-0.10.0": {
-      "edition": "2021"
     },
     "sha1-0.10.7": {
       "edition": "2018"
@@ -7885,7 +8213,7 @@
     "unicode-ident-1.0.27": {
       "edition": "2021"
     },
-    "unsafe-libyaml-0.2.11": {
+    "unsafe-libyaml-norway-0.2.15": {
       "edition": "2021",
       "binaries": [
         {

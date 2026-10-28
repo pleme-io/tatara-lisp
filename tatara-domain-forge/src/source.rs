@@ -15,7 +15,7 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum FromCrdError {
     #[error("yaml parse: {0}")]
-    Yaml(#[from] serde_yaml_ng::Error),
+    Yaml(#[from] serde_norway::Error),
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
     #[error("unsupported schema at `{path}`: {message}")]
@@ -41,8 +41,8 @@ pub fn from_crd_yaml(path: &std::path::Path, domain_name: &str) -> Result<Domain
 /// already have the YAML in hand.
 pub fn from_crd_str(yaml: &str, domain_name: &str) -> Result<Domain, FromCrdError> {
     let mut resources = Vec::new();
-    for doc in serde_yaml_ng::Deserializer::from_str(yaml) {
-        let value: serde_yaml_ng::Value = serde_yaml_ng::Value::deserialize(doc)?;
+    for doc in serde_norway::Deserializer::from_str(yaml) {
+        let value: serde_norway::Value = serde_norway::Value::deserialize(doc)?;
         if !looks_like_crd(&value) {
             continue;
         }
@@ -64,11 +64,11 @@ pub fn from_crd_str(yaml: &str, domain_name: &str) -> Result<Domain, FromCrdErro
     })
 }
 
-fn looks_like_crd(v: &serde_yaml_ng::Value) -> bool {
+fn looks_like_crd(v: &serde_norway::Value) -> bool {
     v.get("kind").and_then(|k| k.as_str()) == Some("CustomResourceDefinition")
 }
 
-fn crd_to_resource(v: &serde_yaml_ng::Value) -> Result<Resource, FromCrdError> {
+fn crd_to_resource(v: &serde_norway::Value) -> Result<Resource, FromCrdError> {
     let group = v
         .get("spec")
         .and_then(|s| s.get("group"))
@@ -153,7 +153,7 @@ fn crd_to_resource(v: &serde_yaml_ng::Value) -> Result<Resource, FromCrdError> {
 /// Top-level entry point — also called recursively for nested
 /// `object` schemas.
 fn lower_object(
-    schema: &serde_yaml_ng::Value,
+    schema: &serde_norway::Value,
     name_prefix: &str,
 ) -> Result<IndexMap<String, Field>, FromCrdError> {
     let required: std::collections::HashSet<String> = schema
@@ -200,7 +200,7 @@ fn lower_object(
 /// Lower one schema fragment to a `FieldType`. Recursive — nested
 /// objects lower to `Nested`, arrays to `List`, etc.
 fn lower_type(
-    schema: &serde_yaml_ng::Value,
+    schema: &serde_norway::Value,
     nested_name_seed: &str,
 ) -> Result<FieldType, FromCrdError> {
     // Honor `x-kubernetes-preserve-unknown-fields` — these are

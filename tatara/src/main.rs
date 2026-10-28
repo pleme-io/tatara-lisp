@@ -586,7 +586,7 @@ fn deploy(
         .unwrap_or_else(|| derive_unit_name(url));
 
     let manifest = compute_unit_manifest(&unit_name, namespace, url, &blake3);
-    let yaml = serde_yaml::to_string(&manifest).context("rendering YAML")?;
+    let yaml = serde_norway::to_string(&manifest).context("rendering YAML")?;
 
     if let Some(path) = output {
         std::fs::write(path, &yaml).with_context(|| format!("writing {}", path.display()))?;

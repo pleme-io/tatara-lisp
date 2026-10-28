@@ -170,7 +170,7 @@ fn string_field<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
 /// `serde_yaml_ng` so the output is deterministic + reads cleanly
 /// in `kubectl apply`.
 fn yaml_string(v: &Value) -> Result<String, RenderError> {
-    let yaml = serde_yaml_ng::to_string(v).map_err(|e| RenderError::Yaml(e.to_string()))?;
+    let yaml = serde_norway::to_string(v).map_err(|e| RenderError::Yaml(e.to_string()))?;
     // Add a leading `---\n` so multiple manifests can be
     // concatenated into one stream cleanly.
     let mut out = String::new();

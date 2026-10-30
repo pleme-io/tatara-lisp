@@ -2635,8 +2635,7 @@ fn sf_try<H: 'static>(
             Ok(v) => {
                 last = v;
             }
-            // An interrupt is the host's, not the program's: no catch sees it.
-            Err(EvalError::Halted) => return Err(EvalError::Halted),
+            Err(e) if !e.is_catchable() => return Err(e),
             Err(EvalError::User { value, .. }) => {
                 registry.unwind.clear();
                 return run_catch_handler(
@@ -3719,6 +3718,61 @@ mod tests {
         t.join().unwrap();
         assert!(matches!(r, Err(EvalError::Halted)), "{r:?}");
         assert!(matches!(eval_ok("(+ 1 2)"), Value::Int(3)));
+    }
+
+    fn with_breach() -> Interpreter<NoHost> {
+        let mut interp: Interpreter<NoHost> = Interpreter::new();
+        install_primitives(&mut interp);
+        crate::hof::install_hof(&mut interp);
+        interp.register_fn(
+            "breach",
+            Arity::Exact(0),
+            |_: &[Value], _: &mut NoHost, at| {
+                Err(EvalError::fatal(
+                    "breach",
+                    "the frame does not grant it",
+                    at,
+                ))
+            },
+        );
+        interp
+    }
+
+    #[test]
+    fn no_catch_sees_a_fatal_error_on_the_walker() {
+        for src in [
+            "(try (breach) (catch (e) :caught))",
+            "(try (try (breach) (catch (e) :inner)) (catch (e) :outer))",
+            "(try (map (lambda (x) (breach)) (list 1 2)) (catch (e) :caught))",
+            "(define (f) (breach)) (try (f) (catch (e) :caught))",
+        ] {
+            let mut interp = with_breach();
+            let forms = read_spanned(src).unwrap();
+            let r = interp.eval_program(&forms, &mut NoHost);
+            assert!(
+                matches!(&r, Err(EvalError::Fatal { kind, .. }) if &**kind == "breach"),
+                "{src}: {r:?}"
+            );
+        }
+        let mut interp = with_breach();
+        let forms = read_spanned("(try (/ 1 0) (catch (e) :caught))").unwrap();
+        let r = interp.eval_program(&forms, &mut NoHost);
+        assert!(
+            matches!(&r, Ok(Value::Keyword(k)) if &**k == "caught"),
+            "{r:?}"
+        );
+    }
+
+    #[test]
+    fn only_halted_and_fatal_are_uncatchable() {
+        let at = Span::synthetic();
+        assert!(!EvalError::Halted.is_catchable());
+        assert!(!EvalError::fatal("k", "m", at).is_catchable());
+        assert!(EvalError::unbound("x", at).is_catchable());
+        assert!(EvalError::native_fn("f", "r", at).is_catchable());
+        assert!(EvalError::DivisionByZero { at }.is_catchable());
+        assert_eq!(EvalError::fatal("k", "m", at).tag(), "fatal");
+        assert_eq!(EvalError::fatal("k", "m", at).short_message(), "fatal k: m");
     }
 
     #[test]

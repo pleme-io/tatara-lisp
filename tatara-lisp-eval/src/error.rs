@@ -99,6 +99,16 @@ pub enum EvalError {
     #[error("halted (host-initiated interrupt)")]
     Halted,
 
+    /// A fault the embedder declares unrecoverable. No `catch` intercepts it
+    /// on either executor ([`EvalError::is_catchable`]); it reaches the
+    /// embedder.
+    #[error("fatal {kind}: {message} at {at}")]
+    Fatal {
+        kind: Arc<str>,
+        message: Arc<str>,
+        at: Span,
+    },
+
     /// A run exceeded one dimension of its [`crate::vm::Budget`].
     ///
     /// Before this existed, exceeding the depth the tree-walker could hold was
@@ -224,6 +234,21 @@ impl EvalError {
         }
     }
 
+    pub fn fatal(kind: impl Into<Arc<str>>, message: impl Into<Arc<str>>, at: Span) -> Self {
+        Self::Fatal {
+            kind: kind.into(),
+            message: message.into(),
+            at,
+        }
+    }
+
+    /// Whether a `(catch ...)` handler may observe this error, on either
+    /// executor.
+    #[must_use]
+    pub const fn is_catchable(&self) -> bool {
+        !matches!(self, Self::Halted | Self::Fatal { .. })
+    }
+
     /// The Lisp-visible tag this error surfaces as when a `(catch ...)`
     /// handler observes it.
     ///
@@ -246,6 +271,7 @@ impl EvalError {
             Self::SetSealed { .. } => "set-sealed",
             Self::Reader(_) => "reader",
             Self::Halted => "halted",
+            Self::Fatal { .. } => "fatal",
             Self::BudgetExceeded { dimension, .. } => dimension.tag(),
             Self::NotImplemented(_) => "not-implemented",
             Self::User { .. } => "user",
@@ -266,6 +292,7 @@ impl EvalError {
             | Self::NativeFn { at, .. }
             | Self::SetSealed { at, .. }
             | Self::BudgetExceeded { at, .. }
+            | Self::Fatal { at, .. }
             | Self::User { at, .. } => Some(*at),
             Self::Reader(_) | Self::Halted | Self::NotImplemented(_) => None,
         }
@@ -362,6 +389,7 @@ impl EvalError {
             Self::NativeFn { name, reason, .. } => format!("in native `{name}`: {reason}"),
             Self::Reader(e) => format!("reader: {e}"),
             Self::Halted => "halted".into(),
+            Self::Fatal { kind, message, .. } => format!("fatal {kind}: {message}"),
             Self::BudgetExceeded {
                 dimension,
                 limit,

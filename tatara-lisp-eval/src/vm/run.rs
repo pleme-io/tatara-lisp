@@ -804,6 +804,9 @@ impl Vm {
         loop {
             match self.run_inner(chunk, interp, host) {
                 Ok(p) => return Ok(p),
+                Err(VmError::Eval(eval_err)) if !eval_err.is_catchable() => {
+                    return Err(VmError::Eval(eval_err));
+                }
                 Err(VmError::Eval(eval_err)) => {
                     let err_value = vm_err_to_value(&eval_err);
                     if !self.unwind_to_handler(err_value) {
@@ -1574,6 +1577,38 @@ mod tests {
         crate::install_primitives(&mut interp);
         let mut vm = Vm::with_budget(budget);
         vm.run(&chunk, &mut interp, &mut ())
+    }
+
+    #[test]
+    fn no_handler_sees_a_fatal_error_on_the_vm() {
+        for src in [
+            "(try (breach) (catch (e) :caught))",
+            "(try (try (breach) (catch (e) :inner)) (catch (e) :outer))",
+            "(define (f) (breach)) (try (f) (catch (e) :caught))",
+        ] {
+            let forms = tatara_lisp::read_spanned(src).expect("parse");
+            let chunk = Arc::new(compile_program(&forms).expect("compile"));
+            let mut interp = Interpreter::new();
+            crate::install_primitives(&mut interp);
+            interp.register_fn(
+                "breach",
+                crate::ffi::Arity::Exact(0),
+                |_: &[Value], _: &mut (), at| {
+                    Err(crate::EvalError::fatal(
+                        "breach",
+                        "the frame does not grant it",
+                        at,
+                    ))
+                },
+            );
+            let err = Vm::with_budget(Budget::default())
+                .run(&chunk, &mut interp, &mut ())
+                .expect_err("a fatal error must leave every try");
+            assert!(
+                matches!(&err, VmError::Eval(crate::EvalError::Fatal { kind, .. }) if &**kind == "breach"),
+                "{src}: {err:?}"
+            );
+        }
     }
 
     /// A runaway loop returns a TYPED ERROR rather than running forever or

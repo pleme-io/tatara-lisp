@@ -6,12 +6,82 @@
 //! bodies referenced by `MakeClosure`). Span lookup lets the VM map
 //! a runtime error back to the source position.
 
+use std::fmt;
 use std::sync::Arc;
 
-use tatara_lisp::Span;
+use serde::{Deserialize, Serialize};
+use tatara_lisp::{Span, Spanned};
 
 use super::op::Op;
 use crate::value::Value;
+
+/// Which compiled function of a [`Chunk`]: its top level, or an entry of its
+/// `fn_table`.
+///
+/// A VM frame records one so that a parked frame can be placed in a chunk
+/// recompiled from the same source, where the function's `Arc` is a different
+/// allocation but its index is the same.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum FnRef {
+    /// `chunk.top`, the program itself.
+    Top,
+    /// `chunk.fn_table[i]`, a lambda body.
+    Table(usize),
+}
+
+impl FnRef {
+    /// The function this names in `chunk`, or `None` when the chunk has no
+    /// such entry.
+    ///
+    /// ```
+    /// use tatara_lisp_eval::vm::{compile_program, FnRef};
+    /// let chunk = compile_program(&tatara_lisp_eval::read_spanned("(lambda (x) x)").unwrap()).unwrap();
+    /// assert!(FnRef::Top.resolve(&chunk).is_some());
+    /// assert_eq!(FnRef::Table(0).resolve(&chunk).unwrap().params.len(), 1);
+    /// assert!(FnRef::Table(1).resolve(&chunk).is_none());
+    /// ```
+    #[must_use]
+    pub fn resolve(self, chunk: &Chunk) -> Option<&CompiledFn> {
+        match self {
+            Self::Top => Some(&chunk.top),
+            Self::Table(i) => chunk.fn_table.get(i),
+        }
+    }
+}
+
+/// A BLAKE3 hash of what a [`Chunk`] executes, from [`Chunk::fingerprint`].
+///
+/// Two chunks compiled from the same source by the same compiler have the same
+/// fingerprint; a chunk whose code, constants or names differ has another.
+/// Spans are left out: they place diagnostics and do not change what runs.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Fingerprint(pub [u8; 32]);
+
+impl fmt::Display for Fingerprint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.iter().try_for_each(|byte| write!(f, "{byte:02x}"))
+    }
+}
+
+impl fmt::Debug for Fingerprint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Fingerprint({self})")
+    }
+}
+
+fn canonical_const(v: &Value) -> String {
+    match v {
+        Value::Sexp(form, _) => format!("Sexp({form:?})"),
+        Value::List(xs) => format!(
+            "[{}]",
+            xs.iter()
+                .map(canonical_const)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        other => format!("{other:?}"),
+    }
+}
 
 /// Where a captured variable comes from in the enclosing scope —
 /// either a real local of the parent frame, or another captured slot
@@ -181,6 +251,57 @@ pub struct Chunk {
     pub consts: ConstPool,
     /// Name pool — global symbol names + local-scope param names.
     pub names: NamePool,
+}
+
+impl Chunk {
+    /// The fingerprint of what this chunk executes: every function's
+    /// parameters, locals, captures, opcodes, name and source body, the
+    /// constants and the names, with spans left out.
+    ///
+    /// [`crate::vm::Vm::from_parked`] compares it to refuse a parked state
+    /// taken from different source rather than misread its indices.
+    ///
+    /// ```
+    /// use tatara_lisp_eval::vm::compile_program;
+    /// let compile = |src: &str| compile_program(&tatara_lisp_eval::read_spanned(src).unwrap()).unwrap();
+    /// assert_eq!(compile("(+ 1 2)").fingerprint(), compile("(+  1   2)").fingerprint());
+    /// assert_ne!(compile("(+ 1 2)").fingerprint(), compile("(+ 1 3)").fingerprint());
+    /// ```
+    #[must_use]
+    pub fn fingerprint(&self) -> Fingerprint {
+        let mut hasher = blake3::Hasher::new();
+        let mut field = |text: &str| {
+            hasher.update(&(text.len() as u64).to_le_bytes());
+            hasher.update(text.as_bytes());
+        };
+        field(&self.fn_table.len().to_string());
+        for func in std::iter::once(&self.top).chain(&self.fn_table) {
+            field(&format!(
+                "{:?}",
+                (
+                    &func.params,
+                    &func.rest,
+                    func.locals,
+                    &func.captures,
+                    &func.ops,
+                    &func.name
+                )
+            ));
+            field(&format!(
+                "{:?}",
+                func.source_body
+                    .iter()
+                    .map(Spanned::to_sexp)
+                    .collect::<Vec<_>>()
+            ));
+        }
+        field(&self.consts.values.len().to_string());
+        for value in &self.consts.values {
+            field(&canonical_const(value));
+        }
+        field(&format!("{:?}", self.names.names));
+        Fingerprint(*hasher.finalize().as_bytes())
+    }
 }
 
 #[cfg(test)]

@@ -12,11 +12,15 @@ use std::sync::{Arc, Mutex};
 use tatara_lisp::Span;
 use thiserror::Error;
 
-use super::chunk::{CaptureSource, Chunk, CompiledFn};
+use super::chunk::{CaptureSource, Chunk, CompiledFn, FnRef};
 use super::op::Op;
 use crate::error::EvalError;
 use crate::eval::Interpreter;
 use crate::value::Value;
+
+mod park;
+
+pub use park::{ParkError, Parked, ParkedFrame, ParkedHandler, ParkedValue};
 
 #[derive(Debug, Error)]
 pub enum VmError {
@@ -253,6 +257,7 @@ struct HandlerRecord {
 struct Frame {
     /// The function being executed.
     func: Arc<CompiledFn>,
+    func_ref: FnRef,
     /// The chunk `func` was compiled into: its constants, global names and
     /// nested functions are this chunk's tables, indexed by `func`'s
     /// operands. Not the chunk the run started from — a closure made by an
@@ -456,6 +461,7 @@ impl Vm {
         let top_locals = top_func.locals;
         let top_frame = Frame {
             func: top_func.clone(),
+            func_ref: FnRef::Top,
             chunk: Arc::clone(&chunk),
             ip: 0,
             locals_base: 0,
@@ -504,6 +510,7 @@ impl Vm {
             let top_locals = top_func.locals;
             self.frames.push(Frame {
                 func: top_func,
+                func_ref: FnRef::Top,
                 chunk: Arc::clone(&chunk),
                 ip: 0,
                 locals_base: 0,
@@ -714,6 +721,7 @@ impl Vm {
                         captures: closure_captures,
                         chunk: Arc::clone(&self.frames[frame_idx].chunk),
                         globals: interp.globals_snapshot().clone(),
+                        fn_index: fn_idx,
                     };
                     self.stack.push(Value::Foreign(Arc::new(compiled)));
                 }
@@ -1041,6 +1049,7 @@ impl Vm {
                 self.stack.push(v);
             }
             f.func = body.clone();
+            f.func_ref = FnRef::Table(cc.fn_index);
             f.chunk = Arc::clone(&cc.chunk);
             f.ip = 0;
             f.captures = cc.captures.clone();
@@ -1057,6 +1066,7 @@ impl Vm {
             let stack_base = self.stack.len();
             self.frames.push(Frame {
                 func: body.clone(),
+                func_ref: FnRef::Table(cc.fn_index),
                 chunk: Arc::clone(&cc.chunk),
                 ip: 0,
                 locals_base,
@@ -1194,6 +1204,9 @@ pub struct CompiledClosure {
     pub captures: Vec<Arc<Mutex<Value>>>,
     pub chunk: Arc<super::chunk::Chunk>,
     pub globals: crate::env::Env,
+    /// The index of `body` in `chunk.fn_table`: what a parked closure records
+    /// so a chunk recompiled from the same source can rebuild it.
+    pub fn_index: usize,
 }
 
 impl CompiledClosure {

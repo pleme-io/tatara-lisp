@@ -1481,8 +1481,11 @@ dependencies = [
 name = "tatara-lisp-eval"
 version = "0.4.12"
 dependencies = [
+ "blake3",
  "imbl",
  "monosashi",
+ "serde",
+ "serde_json",
  "stacker",
  "tatara-closed-set 0.4.12",
  "tatara-lisp 0.4.12",

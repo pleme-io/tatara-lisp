@@ -34,7 +34,10 @@ pub mod op;
 mod parity;
 pub mod run;
 
-pub use chunk::{Chunk, ConstPool};
+pub use chunk::{Chunk, ConstPool, Fingerprint, FnRef};
 pub use compile::{compile_program, CompileError, Compiler};
 pub use op::Op;
-pub use run::{Budget, Park, Progress, Vm, VmError, DEFAULT_FUEL, DEFAULT_MAX_DEPTH};
+pub use run::{
+    Budget, Park, ParkError, Parked, ParkedFrame, ParkedHandler, ParkedValue, Progress, Vm,
+    VmError, DEFAULT_FUEL, DEFAULT_MAX_DEPTH,
+};

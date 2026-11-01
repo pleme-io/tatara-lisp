@@ -65,7 +65,9 @@ fn decimals_come_back_as_float() {
 fn the_result_is_usable_as_a_number() {
     // The whole point: arithmetic on text that came from outside.
     assert_eq!(int_of(r#"(+ (string->number "1700") 100)"#), 1800);
-    assert!(bool_of(r#"(> (string->number "1800") (string->number "1799"))"#));
+    assert!(bool_of(
+        r#"(> (string->number "1800") (string->number "1799"))"#
+    ));
 }
 
 #[test]

@@ -22,8 +22,16 @@ fn names_the_fleet_kept_re_deriving_are_listed() {
     // Each of these was hand-rolled or probed-for by trial and error across the
     // fleet while being bound. Listing them is the point of `symbols`.
     let names = bound_symbol_names();
-    for n in ["member?", "first", "alist-get", "exec-capture",
-              "status-of", "stdout-of", "stderr-of", "string-lowercase"] {
+    for n in [
+        "member?",
+        "first",
+        "alist-get",
+        "exec-capture",
+        "status-of",
+        "stdout-of",
+        "stderr-of",
+        "string-lowercase",
+    ] {
         assert!(names.contains(n), "{n} is bound but missing from the set");
     }
 }
@@ -35,8 +43,10 @@ fn a_name_that_is_not_bound_is_absent() {
     // to a name that fails at runtime.
     let names = bound_symbol_names();
     assert!(!names.contains("string-downcase"));
-    assert!(eval_str("(string-downcase \"X\")").is_err(),
-            "negative control is only meaningful if the name really is unbound");
+    assert!(
+        eval_str("(string-downcase \"X\")").is_err(),
+        "negative control is only meaningful if the name really is unbound"
+    );
 }
 
 #[test]

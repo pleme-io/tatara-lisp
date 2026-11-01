@@ -20,7 +20,13 @@ fn compile(src: &str) -> Result<Probe, String> {
 #[test]
 fn a_raw_identifier_field_is_authored_without_the_prefix() {
     let p = compile(r#"(defraw-probe :name "wc" :fn "run")"#).unwrap();
-    assert_eq!(p, Probe { name: "wc".into(), r#fn: "run".into() });
+    assert_eq!(
+        p,
+        Probe {
+            name: "wc".into(),
+            r#fn: "run".into()
+        }
+    );
 }
 
 #[test]

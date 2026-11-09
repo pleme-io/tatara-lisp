@@ -23,7 +23,7 @@
     "tatara-lisp/Cargo.toml": "67b75c3398ec55f2cc2169d7224153046d5e5e19ad93fc82ec59a62ff94ee736",
     "tatara-platform-checks/Cargo.toml": "55c7c894699a8fc6fe029ccf6f82c6be9fa706749a77ab32c0c0c75208b4a4c3",
     "tatara-prometheus-operator/Cargo.toml": "5c5d72c3d560d2e81fcd98c1844d1466c4d7469c0f594bfb02763bf7c8634657",
-    "tatara-render/Cargo.toml": "0c7fe17f8a2fc03d7a163d30994d1505a6452c1d1b9dfeabdc6c2507da3f904a",
+    "tatara-render/Cargo.toml": "c03ddc082c51505b2de0b490f313019c5519a19b32f142276f8e0322bc561476",
     "tatara-rollout/Cargo.toml": "23b6c037158450f1125b5f2f22a920b4eba0064e93048a46d773aa75d957b202",
     "tatara/Cargo.toml": "4b43231ab7a2b8bc366595c5f3697c3891214324c7a91ff695c8baeb496531f4"
   },

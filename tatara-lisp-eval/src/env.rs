@@ -1,6 +1,9 @@
 //! Lexical environment holding `Value`s.
 //!
-//! Each frame is an `Arc<Mutex<HashMap>>`. Cloning an `Env` Arc-clones
+//! Each frame is an `Arc<Frame>` holding a `HashMap` behind a `Mutex`, until a
+//! fork seals it: from then on the map is published behind an `ArcSwapOption`
+//! and read without the lock, because every fork of a test runner or a
+//! supervisor reads the same shared frames. Cloning an `Env` Arc-clones
 //! the frames, so a closure that captures the env at creation shares
 //! state with subsequent definitions in those same frames — which is
 //! what makes top-level recursion and mutual recursion work: the closure
@@ -14,7 +17,9 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
+
+use arc_swap::ArcSwapOption;
 
 use crate::value::{Closure, PromiseState, Value};
 
@@ -68,8 +73,21 @@ impl Seal {
     }
 }
 
+type Bindings = HashMap<Arc<str>, Value>;
+
 pub struct Frame {
-    bindings: Mutex<HashMap<Arc<str>, Value>>,
+    bindings: Mutex<Bindings>,
+    /// The map a fork published, read without `bindings`' lock.
+    ///
+    /// [`Frame::freeze`] moves the map here when a fork seals the frame, and
+    /// from then on `bindings` stays empty: a later `define` or `set!` copies
+    /// the published map, changes the copy and publishes it, holding
+    /// `bindings`' lock only to order writers.
+    ///
+    /// Held in a `OnceLock` so a frame no fork sealed, which is nearly every
+    /// frame (each call pushes one), never builds the swap cell and never
+    /// pays its drop, which visits every thread's reader slots.
+    sealed: OnceLock<ArcSwapOption<Bindings>>,
     /// The scope that pushed this frame has not ended yet.
     ///
     /// Set at creation, cleared by [`Env::release_scope_frames`] when the
@@ -86,6 +104,7 @@ impl Default for Frame {
     fn default() -> Self {
         Self {
             bindings: Mutex::default(),
+            sealed: OnceLock::new(),
             scope_open: AtomicBool::new(true),
         }
     }
@@ -95,12 +114,120 @@ impl Frame {
     fn new() -> Self {
         Self::default()
     }
+
+    fn is_frozen(&self) -> bool {
+        self.sealed.get().is_some()
+    }
+
+    fn slot(&self) -> &ArcSwapOption<Bindings> {
+        static UNSEALED: ArcSwapOption<Bindings> = ArcSwapOption::const_empty();
+        self.sealed.get().unwrap_or(&UNSEALED)
+    }
+
+    fn sealed_get(&self, name: &str) -> Option<Value> {
+        self.slot()
+            .load()
+            .as_ref()
+            .and_then(|m| m.get(name).cloned())
+    }
+
+    fn get(&self, name: &str) -> Option<Value> {
+        if self.is_frozen() {
+            return self.sealed_get(name);
+        }
+        let bindings = self.bindings.lock().unwrap();
+        if let Some(v) = bindings.get(name) {
+            return Some(v.clone());
+        }
+        drop(bindings);
+        if self.is_frozen() {
+            return self.sealed_get(name);
+        }
+        None
+    }
+
+    fn contains(&self, name: &str) -> bool {
+        self.get(name).is_some()
+    }
+
+    fn insert(&self, name: Arc<str>, value: Value) {
+        let mut bindings = self.bindings.lock().unwrap();
+        if self.is_frozen() {
+            let mut next = self
+                .slot()
+                .load_full()
+                .map(|m| (*m).clone())
+                .unwrap_or_default();
+            next.insert(name, value);
+            self.slot().store(Some(Arc::new(next)));
+        } else {
+            bindings.insert(name, value);
+        }
+    }
+
+    fn set(&self, name: &str, value: Value) -> Result<(), Value> {
+        let mut bindings = self.bindings.lock().unwrap();
+        if !self.is_frozen() {
+            return match bindings.get_mut(name) {
+                Some(slot) => {
+                    *slot = value;
+                    Ok(())
+                }
+                None => Err(value),
+            };
+        }
+        let Some(current) = self.slot().load_full() else {
+            return Err(value);
+        };
+        let Some(key) = current.get_key_value(name).map(|(k, _)| Arc::clone(k)) else {
+            return Err(value);
+        };
+        let mut next = (*current).clone();
+        next.insert(key, value);
+        self.slot().store(Some(Arc::new(next)));
+        Ok(())
+    }
+
+    /// Publish this frame's map for lock-free reads. Idempotent.
+    fn freeze(&self) {
+        let mut bindings = self.bindings.lock().unwrap();
+        if self.is_frozen() {
+            return;
+        }
+        let map = std::mem::take(&mut *bindings);
+        let _ = self.sealed.set(ArcSwapOption::new(Some(Arc::new(map))));
+    }
+
+    fn entries(&self) -> Vec<(Arc<str>, Value)> {
+        let bindings = self.bindings.lock().unwrap();
+        if self.is_frozen() {
+            drop(bindings);
+            return self
+                .slot()
+                .load()
+                .as_ref()
+                .map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+                .unwrap_or_default();
+        }
+        bindings
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
+    }
+
+    fn len(&self) -> usize {
+        if self.is_frozen() {
+            return self.slot().load().as_ref().map_or(0, |m| m.len());
+        }
+        self.bindings.lock().unwrap().len()
+    }
 }
 
 impl std::fmt::Debug for Frame {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Frame")
-            .field("len", &self.bindings.lock().unwrap().len())
+            .field("len", &self.len())
+            .field("frozen", &self.is_frozen())
             .finish()
     }
 }
@@ -162,6 +289,11 @@ impl Env {
     /// `reason` is a parameter and not a constant because the refusal is read
     /// by a human who needs to know *which* boundary they hit — see [`Seal`].
     pub fn sealed_below_top(&self, reason: Seal) -> Self {
+        if reason == Seal::Fork {
+            for frame in &self.frames {
+                frame.freeze();
+            }
+        }
         let mut env = self.clone();
         env.write_floor = env.frames.len();
         env.seal = Some(reason);
@@ -185,13 +317,13 @@ impl Env {
         }
         let writable_has_it = self.frames[self.write_floor..]
             .iter()
-            .any(|f| f.bindings.lock().unwrap().contains_key(name));
+            .any(|f| f.contains(name));
         if writable_has_it {
             return false;
         }
         self.frames[..self.write_floor]
             .iter()
-            .any(|f| f.bindings.lock().unwrap().contains_key(name))
+            .any(|f| f.contains(name))
     }
 
     /// Push a fresh innermost frame, for `let` / lambda body scope.
@@ -221,29 +353,24 @@ impl Env {
     /// Visible to every other `Env` holding the same innermost frame.
     pub fn define(&self, name: impl Into<Arc<str>>, value: Value) {
         if let Some(top) = self.frames.last() {
-            top.bindings.lock().unwrap().insert(name.into(), value);
+            top.insert(name.into(), value);
         }
     }
 
     /// Look up `name`, walking from innermost to outermost frame.
     pub fn lookup(&self, name: &str) -> Option<Value> {
-        for frame in self.frames.iter().rev() {
-            if let Some(v) = frame.bindings.lock().unwrap().get(name) {
-                return Some(v.clone());
-            }
-        }
-        None
+        self.frames.iter().rev().find_map(|frame| frame.get(name))
     }
 
     /// Mutate an existing binding in the nearest enclosing frame. Returns
     /// `false` if no such binding exists.
     /// Frames below `write_floor` are skipped — see the field's docs.
     pub fn set(&self, name: &str, value: Value) -> bool {
+        let mut value = value;
         for frame in self.frames[self.write_floor..].iter().rev() {
-            let mut bindings = frame.bindings.lock().unwrap();
-            if let Some(slot) = bindings.get_mut(name) {
-                *slot = value;
-                return true;
+            match frame.set(name, value) {
+                Ok(()) => return true,
+                Err(back) => value = back,
             }
         }
         false
@@ -403,16 +530,10 @@ impl Env {
     /// snapshot the top-level definitions a module evaluated to.
     /// Bindings in inner frames (let / lambda body) are excluded.
     pub fn iter_top_level(&self) -> Vec<(Arc<str>, Value)> {
-        if let Some(root) = self.frames.first() {
-            root.bindings
-                .lock()
-                .unwrap()
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect()
-        } else {
-            Vec::new()
-        }
+        self.frames
+            .first()
+            .map(|root| root.entries())
+            .unwrap_or_default()
     }
 }
 
@@ -455,10 +576,16 @@ fn release_if_closed(frame: &Arc<Frame>, held: usize) -> bool {
     let Ok(bindings) = frame.bindings.lock() else {
         return false;
     };
+    let published = if frame.is_frozen() {
+        frame.slot().load_full()
+    } else {
+        None
+    };
     if strong != held {
+        let walked: &Bindings = published.as_deref().unwrap_or(&*bindings);
         let mut aliased: HashMap<*const Closure, (usize, &Arc<Closure>)> = HashMap::new();
         let mut internal = 0usize;
-        for value in bindings.values() {
+        for value in walked.values() {
             match value {
                 Value::Closure(c) if Arc::strong_count(c) > 1 => {
                     aliased.entry(Arc::as_ptr(c)).or_insert((0, c)).0 += 1;
@@ -482,8 +609,12 @@ fn release_if_closed(frame: &Arc<Frame>, held: usize) -> bool {
     // critical section.
     let mut bindings = bindings;
     let drained = std::mem::take(&mut *bindings);
+    if published.is_some() {
+        frame.slot().store(None);
+    }
     drop(bindings);
     drop(drained);
+    drop(published);
     true
 }
 
@@ -623,6 +754,91 @@ mod tests {
         let env_b = env_a.clone();
         env_a.define("x", Value::Int(42));
         assert!(matches!(env_b.lookup("x"), Some(Value::Int(42))));
+    }
+
+    #[test]
+    fn a_frame_sealed_by_fork_answers_a_lookup_without_its_lock() {
+        let parent = Env::new();
+        parent.define("x", Value::Int(1));
+        let child = parent.sealed_below_top(Seal::Fork);
+        let held = parent.frames[0].bindings.lock().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(child.lookup("x"));
+        });
+        let seen = rx.recv_timeout(std::time::Duration::from_secs(10));
+        drop(held);
+        assert!(
+            matches!(seen, Ok(Some(Value::Int(1)))),
+            "a lookup through a forked frame waited on the frame's mutex: {seen:?}"
+        );
+    }
+
+    #[test]
+    fn a_macro_seal_leaves_the_frames_unfrozen() {
+        let env = Env::new();
+        env.define("x", Value::Int(1));
+        let sealed = env.sealed_below_top(Seal::MacroExpansion);
+        assert!(!env.frames[0].is_frozen());
+        assert!(matches!(sealed.lookup("x"), Some(Value::Int(1))));
+        let forked = env.sealed_below_top(Seal::Fork);
+        assert!(env.frames[0].is_frozen());
+        assert!(!forked.frames[1].is_frozen());
+    }
+
+    #[test]
+    fn a_parent_still_defines_and_sets_through_a_frame_it_forked() {
+        let parent = Env::new();
+        parent.define("x", Value::Int(1));
+        let child = parent.sealed_below_top(Seal::Fork);
+        parent.define("y", Value::Int(2));
+        assert!(matches!(child.lookup("y"), Some(Value::Int(2))));
+        assert!(parent.set("x", Value::Int(3)));
+        assert!(matches!(child.lookup("x"), Some(Value::Int(3))));
+        assert!(!parent.set("absent", Value::Int(4)));
+        assert!(child.lookup("absent").is_none());
+        assert!(child.is_sealed_binding("x"));
+        assert!(!child.is_sealed_binding("absent"));
+        assert!(!parent.is_sealed_binding("x"));
+        assert!(!child.set("x", Value::Int(5)));
+        child.define("x", Value::Int(6));
+        assert!(!child.is_sealed_binding("x"));
+        assert!(child.set("x", Value::Int(7)));
+        assert!(matches!(parent.lookup("x"), Some(Value::Int(3))));
+        let mut top: Vec<String> = parent
+            .iter_top_level()
+            .into_iter()
+            .map(|(k, _)| k.to_string())
+            .collect();
+        top.sort();
+        assert_eq!(top, ["x", "y"]);
+        assert_eq!(
+            format!("{:?}", parent.frames[0]),
+            "Frame { len: 2, frozen: true }"
+        );
+    }
+
+    #[test]
+    fn only_a_frame_a_fork_sealed_carries_a_swap_cell() {
+        let mut env = Env::new();
+        env.define("x", Value::Int(1));
+        env.push();
+        assert!(env.frames.iter().all(|f| f.sealed.get().is_none()));
+        let mut child = env.sealed_below_top(Seal::Fork);
+        child.push();
+        assert!(env.frames.iter().all(|f| f.sealed.get().is_some()));
+        assert!(child.frames[env.frames.len()..]
+            .iter()
+            .all(|f| f.sealed.get().is_none()));
+    }
+
+    #[test]
+    fn freezing_twice_keeps_the_bindings() {
+        let env = Env::new();
+        env.define("x", Value::Int(1));
+        let _a = env.sealed_below_top(Seal::Fork);
+        let b = env.sealed_below_top(Seal::Fork);
+        assert!(matches!(b.lookup("x"), Some(Value::Int(1))));
     }
 
     #[test]

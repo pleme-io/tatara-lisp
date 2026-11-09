@@ -160,6 +160,25 @@ fn a_promise_thunk_does_not_pin_the_frame_either() {
 
 // ── what the release must NOT do ───────────────────────────────────────────
 
+#[test]
+fn a_forked_parents_frame_is_reclaimed_once_its_children_die() {
+    let freed = Arc::new(AtomicBool::new(false));
+    let proto = prototype();
+    let mut parent = proto.fork();
+    parent.define_global(
+        "sentinel",
+        Value::Foreign(Arc::new(Sentinel(freed.clone()))),
+    );
+    eval(&mut parent, "(define (f n) n)").expect("parent defines");
+    let child = parent.fork();
+    drop(child);
+    drop(parent);
+    assert!(
+        freed.load(Ordering::SeqCst),
+        "a frame a fork sealed must still be released when its last reader dies"
+    );
+}
+
 /// **SOUNDNESS.** A frame above the write floor is private to the fork that
 /// pushed it — but a fork OF that fork inherits it, below its own floor. The
 /// releasing interpreter is then not the only reader, and clearing the frame

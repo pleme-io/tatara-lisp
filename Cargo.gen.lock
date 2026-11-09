@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "cargo_lock_sha256": "e90b0475eacdc73fbed7f62c2e9bec69a2dda8cc290705167a52975338e1a42d",
+  "cargo_lock_sha256": "d33e614c1444bb32c80960cd0a04fef9fa29ee94c9618075cc72c77743847a94",
   "manifest_sha256": {
     "Cargo.toml": "8a15ae092e187b18fbffb81a0bf1761e7f2d735a70f78aef00e7189ed25389c5",
     "kumihan/Cargo.toml": "a46d2ca6ac9adc86f076e72dd80bc2888f1294a04e52b2a7a7bf2ddec2db9f19",
@@ -16,7 +16,7 @@
     "tatara-kanmon/Cargo.toml": "0f4ac7cc4e78849b92f239945f2b312f69872f50563f267ec1de94e00a90c699",
     "tatara-keywords/Cargo.toml": "483f089c71edd4e41b18cfedc7d084b1191b6662545c0881def1415134f00e2b",
     "tatara-lisp-derive/Cargo.toml": "55d90013e98f76326bf31222368fc6ad38a7afabf36c74eaa7a102a414434720",
-    "tatara-lisp-eval/Cargo.toml": "60163ea3f350731302784253c84f2299e2c934d6e4ad1a68224b14ee490c28a7",
+    "tatara-lisp-eval/Cargo.toml": "a7883cf37d09dea800b7cfe6dee877e2937425b4752578ee4d7a48f121322d8f",
     "tatara-lisp-lint/Cargo.toml": "670ccf870dceb37518532c98bf074d0f80146c2211a7b6f06221038b0e1db3f4",
     "tatara-lisp-script/Cargo.toml": "e9cc716bf1213a4259bbf090387598d2f3c437f0f49ce2ccd97bde6b8e34cead",
     "tatara-lisp-source/Cargo.toml": "1b17ac6ae0b6f0be9ba40e1b3a3f4f10a387ac5c6240eff42d40913b8e90e3c0",
@@ -177,6 +177,22 @@
             "optional": false,
             "target": null,
             "tree": "target"
+          }
+        ],
+        "build_dependencies": [],
+        "features": []
+      },
+      "arc-swap-1.9.4": {
+        "runtime_dependencies": [
+          {
+            "name": "rustversion",
+            "package_key": "rustversion-1.0.23",
+            "kind": "normal",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "host"
           }
         ],
         "build_dependencies": [],
@@ -2706,6 +2722,11 @@
           "std"
         ]
       },
+      "rustversion-1.0.23": {
+        "runtime_dependencies": [],
+        "build_dependencies": [],
+        "features": []
+      },
       "ryu-1.0.23": {
         "runtime_dependencies": [],
         "build_dependencies": [],
@@ -4090,6 +4111,16 @@
       },
       "tatara-lisp-eval-0.4.14": {
         "runtime_dependencies": [
+          {
+            "name": "arc_swap",
+            "package_key": "arc-swap-1.9.4",
+            "kind": "normal",
+            "features": [],
+            "uses_default_features": true,
+            "optional": false,
+            "target": null,
+            "tree": "target"
+          },
           {
             "name": "blake3",
             "package_key": "blake3-1.8.6",
@@ -7569,6 +7600,9 @@
     "ar_archive_writer-0.5.3": {
       "edition": "2024"
     },
+    "arc-swap-1.9.4": {
+      "edition": "2018"
+    },
     "archery-1.2.3": {
       "edition": "2024"
     },
@@ -7932,6 +7966,11 @@
         "name": "webpki",
         "path": "src/lib.rs"
       }
+    },
+    "rustversion-1.0.23": {
+      "edition": "2018",
+      "proc_macro": true,
+      "build_script": "build/build.rs"
     },
     "ryu-1.0.23": {
       "edition": "2021"

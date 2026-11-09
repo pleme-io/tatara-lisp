@@ -2,7 +2,7 @@
 //!
 //! ## Where it sits
 //!
-//! Phase 5 of the eight-phase convergence loop (THEORY §IV.3):
+//! Phase 5 of the eight-phase convergence loop:
 //!
 //! ```text
 //! 1. DECLARE    → tatara_env::compile_into_env  (Vec<Sexp> → Env)

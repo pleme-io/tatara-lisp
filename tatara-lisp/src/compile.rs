@@ -59,14 +59,14 @@ impl Expander {
     /// to this method; consumers that consume source text directly bind
     /// to the from-source sibling.
     ///
-    /// Theory anchor: THEORY.md §VI.1 — generation over composition;
+    /// Anchor: generation over composition;
     /// the typed-pair `(T::KEYWORD, T::compile_from_args)` is bound in
     /// ONE place per form shape (this method) — the from-source sibling
     /// inherits the binding through delegation rather than re-deriving
-    /// it at its own call site. THEORY.md §II.1 invariant 1 — typed
+    /// it at its own call site. Invariant 1 — typed
     /// entry; the typed-keyword filter paired with `T::compile_from_args`
     /// IS the from-forms typed-entry-batch gate, named on the `Expander`
-    /// surface. THEORY.md §II.1 invariant 2 — free middle; the from-forms
+    /// surface. Invariant 2 — free middle; the from-forms
     /// posture and the from-source posture route through the SAME typed
     /// primitive, so a regression that drifts ONE posture's pairing
     /// from the other becomes structurally impossible.
@@ -124,12 +124,12 @@ impl Expander {
     /// shape. Together with their from-source siblings they close the
     /// typed-from-`Expander` family.
     ///
-    /// Theory anchor: see [`Self::expand_to_typed`] — the named sibling
+    /// Anchor: see [`Self::expand_to_typed`] — the named sibling
     /// shares the same lift posture, threading the NAME-then-kwargs
     /// projection through `T` AND routing through the named
     /// constant-keyword primitive (rather than the bare-kwargs one
     /// with `named_form_projection::<T>` doing the NAME extraction
-    /// inside the projection). THEORY.md §VI.1 — generation over
+    /// inside the projection). Generation over
     /// composition; the named-form `split_name_slot` composition lives
     /// at ONE site post-lift rather than at TWO sites (the bare-kwargs
     /// path through `named_form_projection<T>` AND the classifier path
@@ -250,7 +250,7 @@ pub type Definition<T> = NamedDefinition<T>;
 /// not a symbol — are skipped silently, matching the soft-projection posture
 /// of [`crate::ast::iter_calls_to`] this composes.
 ///
-/// Theory anchor: THEORY.md §II.1 invariant 2 — free middle. The middle of
+/// Anchor: invariant 2 — free middle. The middle of
 /// the pipeline (read → expand → project) is now decomposed at every joint,
 /// so a consumer binds at the joint its input actually sits on rather than
 /// re-entering from the top and paying the prefix again.
@@ -393,20 +393,20 @@ pub fn compile_named_from_forms<T: TataraDomain>(
 /// top of `expand_and_collect_calls_to_any` + this primitive, without
 /// re-deriving the gate.
 ///
-/// Theory anchor: THEORY.md §VI.1 — generation over composition; the
+/// Anchor: generation over composition; the
 /// named-form arity + NAME-shape gate is a NAMED primitive on the
 /// `&[Sexp]` algebra, NOT a re-derived inline pipeline at every
 /// named-form consumer site. The typed-domain compose (the
 /// `T::compile_from_args` step inside `named_form_projection`)
 /// follows AS A COMPOSITION of THIS primitive + the typed-entry gate,
-/// not as a re-derivation of either. THEORY.md §II.1 invariant 2 —
+/// not as a re-derivation of either. Invariant 2 —
 /// free middle; both the typed-domain consumer
 /// (`named_form_projection<T>`) AND any future classifier-NAME
 /// consumer route through ONE gate body, so a regression in the gate
 /// (a future debug-mode logger, span-aware borrow walker,
 /// instrumentation that records every NAME-slot rejection for
 /// telemetry) lands at ONE site the entire named-form authoring
-/// surface inherits. THEORY.md §V.1 — knowable platform; the
+/// surface inherits. Knowable platform; the
 /// named-form gate becomes a discoverable primitive on the
 /// substrate's `&[Sexp]` algebra rather than an implementation
 /// detail buried inside the typed-domain composition.

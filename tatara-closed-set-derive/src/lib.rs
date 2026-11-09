@@ -135,9 +135,9 @@ use syn::{parse_macro_input, Attribute, Data, DeriveInput, Ident, LitStr, Meta};
 /// }
 /// ```
 ///
-/// ## Theory grounding
+/// ## Grounding
 ///
-/// THEORY.md §VI.1 — generation over composition; the derive IS the
+/// Generation over composition; the derive IS the
 /// generative shape — new closed-set enums add ONE `#[derive(ClosedSet)]`
 /// line + the attribute that names their inherent projection method
 /// instead of re-deriving the eight-line `impl ClosedSet` + `impl FromStr`
@@ -561,7 +561,7 @@ fn parse_closed_set_attrs(attrs: &[Attribute], name: &Ident) -> syn::Result<Clos
 /// sections up carries the same primitive / meta-level wrapper motif —
 /// the derive crate's convention for two-shape sub-key primitives.
 ///
-/// Theory grounding: THEORY.md §VI.1 — generation over composition.
+/// Grounding: generation over composition.
 /// The three-times-rule signal fires at three sites of the string-
 /// valued sub-key idiom; the primitive names the composition as ONE
 /// substrate entry so a new arm of the same shape adds as ONE line, and
@@ -617,7 +617,7 @@ fn try_lit_str_sub_key(
 /// that primitive's doc for the sibling-shape motif that mirrors the
 /// [`parse_lit_str`] / [`read_meta_lit_str`] pair.
 ///
-/// Theory grounding: THEORY.md §VI.1 — generation over composition.
+/// Grounding: generation over composition.
 /// The two sites of the bare-flag sub-key idiom cross the three-times-
 /// rule signal when composed with the sibling string-valued primitive
 /// (five sites in aggregate on the SAME `parse_nested_meta` callback);

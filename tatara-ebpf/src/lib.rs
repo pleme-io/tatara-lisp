@@ -30,7 +30,7 @@
 //! attaching programs and surfacing maps for read/write. The codegen
 //! tier (planned) lets you write the program **body** in tatara-lisp
 //! and emits the matching aya Rust source automatically — the
-//! "best merger of the two" the pleme-io theory points at.
+//! "best merger of the two".
 //!
 //! ## Why hand-written, not forge-generated
 //!

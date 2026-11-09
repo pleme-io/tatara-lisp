@@ -13,7 +13,7 @@
 //! byte that goes in the `--> label:line:col` header; the span's `end`
 //! is what the underline is sized from.
 //!
-//! Theory grounding: THEORY.md §V.1 — knowable platform / constructive
+//! Grounding: knowable platform / constructive
 //! diagnostics. An error whose location cannot be projected to source
 //! is not knowable, and one that points at a byte when it means a form
 //! is only half-knowable. Inspiration: rustc's `DiagnosticBuilder`
@@ -31,8 +31,8 @@ use crate::span::Span;
 /// is total — `impl fmt::Write for String { fn write_str(&mut self, s)
 /// { self.push_str(s); Ok(()) } }` — so every `writeln!`/`write!` into
 /// it returns `Ok(())`; the inline `.expect("writes to a String never
-/// fail")` triple recurred at four sites (THEORY.md §VI.1
-/// three-times rule, crossed decisively).
+/// fail")` triple recurred at four sites
+/// (three-times rule, crossed decisively).
 ///
 /// Lifting it into ONE macro centralizes the canonical panic message:
 /// a typo in the expect-string can never drift across the four
@@ -40,7 +40,7 @@ use crate::span::Span;
 /// non-newline-terminated single-write case (the trailing caret line
 /// in `format_diagnostic`).
 ///
-/// Theory grounding: THEORY.md §VI.1 — the four-times duplication of
+/// Grounding: the four-times duplication of
 /// `.expect("writes to a String never fail")` collapses into one
 /// named primitive. The macro names the invariant ("infallible write
 /// to String") as a primitive of the diagnostic-rendering substrate,
@@ -63,8 +63,7 @@ macro_rules! infallible_writeln {
 /// emit a closing newline (so consumers concatenating the rendered
 /// diagnostic into a longer message see the caret as the final
 /// character, not the line after it). Same `String`-infallibility
-/// invariant; same canonical panic message; same theory-anchor
-/// (THEORY.md §VI.1).
+/// invariant; same canonical panic message; same anchor.
 macro_rules! infallible_write {
     ($out:expr, $($t:tt)*) => {{
         use ::std::fmt::Write as _;
@@ -142,7 +141,7 @@ pub fn line_at(src: &str, byte_offset: usize) -> &str {
 /// discipline mechanically — the visual-width invariant lives at ONE
 /// projection on the diagnostic-rendering surface.
 ///
-/// Theory anchor: THEORY.md §V.1 — knowable platform / constructive
+/// Anchor: knowable platform / constructive
 /// diagnostics. A caret whose column drifts under a tab-indented
 /// source is not knowable to the operator. Inspiration: rustc's
 /// `SnippetData::render_source_line` tab-mirror idiom; translation
@@ -188,7 +187,7 @@ fn mirror_source_prefix_as_pad(line_text: &str, column: usize) -> String {
 /// under cover of this consolidation — see the `pending-caret-multiline`
 /// note in `tatara_lisp_eval::EvalError::render`.
 ///
-/// Theory anchor: THEORY.md §V.1 — knowable platform / constructive
+/// Anchor: knowable platform / constructive
 /// diagnostics. A caret whose column or width drifts from the byte it
 /// names is not knowable to the operator.
 #[must_use]

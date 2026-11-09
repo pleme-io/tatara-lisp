@@ -83,9 +83,9 @@
 //! punctuation, `keyword` for macro-head reserved word, `as_str` for
 //! `tatara-process`'s PascalCase wire format).
 //!
-//! ## Theory grounding
+//! ## Grounding
 //!
-//! THEORY.md §V.1 — knowable platform; the for-loop / `Unknown`-
+//! Knowable platform; the for-loop / `Unknown`-
 //! emission pattern was a known idiom carried by convention across 36+
 //! implementors. This trait makes the idiom a TYPED WITNESS — any new
 //! closed-set enum that implements `ClosedSet` plugs into the trait's
@@ -94,7 +94,7 @@
 //! renderer over closed-set kinds) can take a `T: ClosedSet`
 //! parameter and walk the set without knowing which crate it lives in.
 //!
-//! THEORY.md §VI.1 — generation over composition; the trait IS the
+//! Generation over composition; the trait IS the
 //! generative shape. New closed-set enums add the trait impl + the
 //! one-line FromStr delegation instead of re-deriving the for-loop
 //! body, and the parse-rejection diagnostic surface narrows from "36+
@@ -177,9 +177,9 @@ pub use tatara_closed_set_derive::ClosedSet as DeriveClosedSet;
 /// suggestions, the LSP's completion-failure fallback — bind to one
 /// helper rather than re-implementing edit distance.
 ///
-/// Theory anchor: THEORY.md §V.1 — "Knowable platform … Render Anywhere."
+/// Anchor: "Knowable platform … Render Anywhere."
 /// Naming the likely intended candidate is the floor of a constructive
-/// diagnostic. THEORY.md §VI.1 — generation over composition: every
+/// diagnostic. Generation over composition: every
 /// near-match suggestion in the substrate routes through ONE primitive.
 ///
 /// Frontier inspiration: rustc's `find_best_match_for_name`, Idris's
@@ -369,7 +369,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// each call site, and the closed-set projection's cardinality
     /// surface evolves at ONE site rather than per-consumer.
     ///
-    /// THEORY.md §III — the typescape; the closed-set cardinality
+    /// The typescape; the closed-set cardinality
     /// becomes a TYPE-level projection on the trait rather than a
     /// per-consumer inline `Self::ALL.len()` composition at every
     /// downstream generic site. The (variant enumeration, cardinality)
@@ -377,13 +377,13 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// typed projections, each with a distinct load-bearing consumer
     /// surface — iteration for [`Self::ALL`], const-generic bindings
     /// for this const.
-    /// THEORY.md §V.1 — knowable platform; the cardinality was an
+    /// Knowable platform; the cardinality was an
     /// unnamed inline projection (`T::ALL.len()`) recurring at 20+
     /// test sites and every prospective const-generic consumer site
     /// pre-lift. Naming it on the trait makes the projection a TYPED
     /// CONSEQUENCE of [`Self::ALL`] — generic consumers see ONE const,
     /// not ONE inline-length-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the cardinality
+    /// Generation over composition; the cardinality
     /// emerges from the composition of ONE substrate primitive
     /// ([`Self::ALL`]) with the standard-library const `<[T]>::len`
     /// projection rather than as a per-implementor `const N: usize =
@@ -585,17 +585,17 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// `Self::ALL.iter().copied().find(|v| v.label() == s)`
     /// composition (which re-derives the sweep at every call site).
     ///
-    /// THEORY.md §III — the typescape; the zero-allocation typed
+    /// The typescape; the zero-allocation typed
     /// decode becomes a TYPE projection on the closed-set algebra
     /// rather than an inline `iter().find(|v| v.label() == s)`
     /// composition at every downstream consumer.
-    /// THEORY.md §V.1 — knowable platform; the zero-allocation typed
+    /// Knowable platform; the zero-allocation typed
     /// decode was an unnamed compound of [`Self::ALL`] +
     /// [`Self::label`] + `Iterator::find` pre-lift; naming it on
     /// the trait makes the projection a TYPED CONSEQUENCE of the
     /// two substrate primitives — generic consumers see ONE method,
     /// not ONE typed-decode-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the
+    /// Generation over composition; the
     /// zero-allocation typed decode emerges from the composition of
     /// TWO substrate primitives ([`Self::ALL`], [`Self::label`])
     /// rather than as a per-implementor inline `iter+find` pair. A
@@ -670,7 +670,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// the closed-set projection's pure-membership surface evolves at
     /// ONE site rather than per-consumer.
     ///
-    /// THEORY.md §V.1 — knowable platform; the pure-membership
+    /// Knowable platform; the pure-membership
     /// predicate was an unnamed compound of [`Self::ALL`] +
     /// [`Self::label`] + `Iterator::any` pre-lift; naming it on the
     /// trait makes the projection a TYPED CONSEQUENCE of the two
@@ -682,7 +682,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// consumer surface — carrier-emitting decoders take
     /// [`Self::parse_label`], predicate-gated filters take
     /// [`Self::contains_label`].
-    /// THEORY.md §VI.1 — generation over composition; the
+    /// Generation over composition; the
     /// pure-membership predicate emerges from the composition of TWO
     /// substrate primitives ([`Self::ALL`], [`Self::label`]) rather
     /// than as a per-implementor inline `iter+any` pair. A future
@@ -732,7 +732,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// names a subset of `Self::ALL` distinct from what `label()`
     /// projects).
     ///
-    /// THEORY.md §V.1 — knowable platform; the labels list was a
+    /// Knowable platform; the labels list was a
     /// known idiom carried by convention across 10+ implementor
     /// sites. Lifting it onto the trait makes the projection a TYPED
     /// CONSEQUENCE of [`Self::ALL`] + [`Self::label`] — generic
@@ -799,13 +799,13 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// site, and the closed-set projection's separator surface evolves
     /// at ONE site rather than per-consumer.
     ///
-    /// THEORY.md §V.1 — knowable platform; the joined-candidate-list
+    /// Knowable platform; the joined-candidate-list
     /// shape was a known idiom carried by convention across 4+ test
     /// sites + indirectly across 4+ production `&'static str`
     /// constants. Lifting the join onto the trait makes the shape a
     /// TYPED CONSEQUENCE of [`Self::labels`] + the chosen separator —
     /// generic consumers see ONE method, not ONE join-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the
+    /// Generation over composition; the
     /// joined-candidate-list rendering emerges from the composition of
     /// THREE substrate primitives ([`Self::ALL`], [`Self::label`], the
     /// caller-supplied separator) rather than as a per-implementor
@@ -883,12 +883,12 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// closed-set projection's canonical-ordering surface evolves at
     /// ONE site rather than per-consumer.
     ///
-    /// THEORY.md §V.1 — knowable platform; the sorted-candidate-list
+    /// Knowable platform; the sorted-candidate-list
     /// shape was a known idiom carried by convention across 7+ test
     /// sites. Lifting the sort onto the trait makes the shape a TYPED
     /// CONSEQUENCE of [`Self::labels`] + ASCII lexicographic ordering —
     /// generic consumers see ONE method, not ONE sort-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the
+    /// Generation over composition; the
     /// sorted-candidate-list rendering emerges from the composition of
     /// THREE substrate primitives ([`Self::ALL`], [`Self::label`],
     /// `slice::sort_unstable`) rather than as a per-implementor inline
@@ -961,14 +961,14 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// closed-set projection's alphabetized-rendering surface evolves
     /// at ONE site rather than per-consumer.
     ///
-    /// THEORY.md §V.1 — knowable platform; the alphabetized
+    /// Knowable platform; the alphabetized
     /// candidate-list-as-string shape sits as an unnamed compound of
     /// [`Self::sorted_labels`] + [`slice::join`] pre-lift; naming it on
     /// the trait makes the projection a TYPED CONSEQUENCE of
     /// [`Self::labels`] + ASCII lexicographic ordering + the chosen
     /// separator — generic consumers see ONE method, not ONE
     /// sort-then-join compound per crate.
-    /// THEORY.md §VI.1 — generation over composition; the
+    /// Generation over composition; the
     /// alphabetized-candidate-list rendering emerges from the
     /// composition of FOUR substrate primitives ([`Self::ALL`],
     /// [`Self::label`], `slice::sort_unstable`, `slice::join`) rather
@@ -1066,7 +1066,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// site, and the closed-set typed-variant canonical-ordering
     /// surface evolves at ONE site rather than per-consumer.
     ///
-    /// THEORY.md §III — the typescape; the (typed variant,
+    /// The typescape; the (typed variant,
     /// lexicographic ordering) projection becomes a TYPE projection on
     /// the trait rather than a per-consumer hand-rolled
     /// `T::ALL.to_vec().sort_unstable_by_key(|v| v.label())` triple at
@@ -1076,14 +1076,14 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// (declaration + `Vec<&str>`, declaration + `Vec<Self>`,
     /// lexicographic + `Vec<&str>`, lexicographic + `Vec<Self>`),
     /// each with a distinct load-bearing consumer surface.
-    /// THEORY.md §V.1 — knowable platform; the sorted-typed-variants
+    /// Knowable platform; the sorted-typed-variants
     /// shape was an unnamed compound of [`Self::ALL`] +
     /// [`Self::label`] + `slice::sort_unstable_by_key` pre-lift.
     /// Naming it on the trait makes the projection a TYPED CONSEQUENCE
     /// of the two substrate primitives + the label-keyed lexicographic
     /// ordering — generic consumers see ONE method, not ONE
     /// sort-by-label shape per crate.
-    /// THEORY.md §VI.1 — generation over composition; the
+    /// Generation over composition; the
     /// sorted-typed-variants rendering emerges from the composition of
     /// THREE substrate primitives ([`Self::ALL`], [`Self::label`],
     /// `slice::sort_unstable_by_key`) rather than as a per-implementor
@@ -1245,7 +1245,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// closed set whose declaration order diverges from lex order fires
     /// on the composition-equality arm loudly rather than silently.
     ///
-    /// THEORY.md §III — the typescape; the (full-set × lex → decl-slot
+    /// The typescape; the (full-set × lex → decl-slot
     /// collection) `Vec<usize>` projection becomes a TYPE projection on
     /// the trait rather than a per-consumer inline
     /// `T::sorted_variants().into_iter().map(T::index_of).collect()`
@@ -1259,13 +1259,13 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// (interior × decl/lex) corners with a single implicit
     /// `(0..CARDINALITY).collect()` at the trivially-derivable
     /// (full-set × decl) corner.
-    /// THEORY.md §V.1 — knowable platform; the (lex-order full-set
+    /// Knowable platform; the (lex-order full-set
     /// decl-slot collection) projection was an unnamed compound of
     /// [`Self::sorted_variants`] + `.map(Self::index_of).collect()`
     /// pre-lift; naming it on the trait makes the projection a TYPED
     /// CONSEQUENCE of the two substrate primitives — generic consumers
     /// see ONE method, not ONE lex-order-decl-slot-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the projection
+    /// Generation over composition; the projection
     /// emerges from the composition of [`Self::sorted_variants`] +
     /// [`Self::index_of`] rather than as a per-implementor
     /// `const SORTED_INDICES: [usize; N]` declaration that silently
@@ -1321,7 +1321,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// case-sensitive Unicode where the default metric would
     /// systematically miss).
     ///
-    /// THEORY.md §V.1 — knowable platform; the "did you mean …?"
+    /// Knowable platform; the "did you mean …?"
     /// suggestion shape ships at ONE primitive ([`tatara_lisp::domain::suggest`])
     /// the substrate already routes kwarg + domain-keyword
     /// diagnostics through. Lifting the closed-set bridge onto this
@@ -1329,7 +1329,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// enum without forcing each consumer to re-derive the
     /// candidate-list shape.
     ///
-    /// THEORY.md §VI.1 — generation over composition; the
+    /// Generation over composition; the
     /// suggest-closest behavior emerges from the composition of
     /// THREE substrate primitives ([`Self::ALL`], [`Self::label`],
     /// [`tatara_lisp::domain::suggest`]) rather than as a per-implementor
@@ -1398,17 +1398,17 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// escape hatch the trait surface exposes rather than forcing
     /// the implementor to hand-roll the impl).
     ///
-    /// THEORY.md §III — the typescape; the structured rejection
+    /// The typescape; the structured rejection
     /// becomes a typed projection on the trait rather than a
     /// per-consumer hand-rolled (`parse_label(s).map_err(|e| (e,
     /// Self::suggest_closest(s)))`) call at every parse boundary.
-    /// THEORY.md §V.1 — knowable platform; the "did you mean …?"
+    /// Knowable platform; the "did you mean …?"
     /// surface emits at ONE primitive ([`tatara_lisp::domain::suggest`])
     /// the substrate already routes diagnostics through, and the
     /// composition that threads it next to the typed rejection
     /// emits at ONE trait body that every closed-set enum inherits
     /// through zero additional source.
-    /// THEORY.md §VI.1 — generation over composition; the
+    /// Generation over composition; the
     /// structured-diagnostic shape emerges from the composition of
     /// FOUR substrate primitives ([`Self::ALL`], [`Self::label`],
     /// [`Self::make_unknown`], [`tatara_lisp::domain::suggest`]) rather
@@ -1506,7 +1506,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// zero-allocation structured-decode surface evolves at ONE site
     /// rather than per-consumer.
     ///
-    /// THEORY.md §III — the typescape; the structured typed-decode
+    /// The typescape; the structured typed-decode
     /// becomes a TYPE projection on the trait rather than a
     /// per-consumer hand-rolled
     /// (`find_by_label(s).ok_or_else(|| suggest_closest(s))`) call
@@ -1515,14 +1515,14 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// with-hint) 2×2 matrix partitions the structured-decode
     /// surface exhaustively into FOUR typed projections, each with
     /// a distinct load-bearing consumer surface.
-    /// THEORY.md §V.1 — knowable platform; the structured
+    /// Knowable platform; the structured
     /// typed-decode was an unnamed compound of
     /// [`Self::find_by_label`] + [`Self::suggest_closest`] pre-lift.
     /// Naming it on the trait makes the projection a TYPED
     /// CONSEQUENCE of the two substrate primitives — generic
     /// consumers see ONE method, not ONE structured-decode-shape-
     /// per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the
+    /// Generation over composition; the
     /// structured-diagnostic shape emerges from the composition of
     /// TWO substrate primitives ([`Self::find_by_label`],
     /// [`Self::suggest_closest`]) rather than as a per-implementor
@@ -1626,7 +1626,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// `match self { ... }` (which re-derives the per-variant literal
     /// index at every callsite).
     ///
-    /// THEORY.md §III — the typescape; the (typed variant → array
+    /// The typescape; the (typed variant → array
     /// index) projection becomes a TYPE projection on the trait rather
     /// than a per-consumer hand-rolled `T::ALL.iter().position(|v| *v
     /// == self)` composition at every downstream indexing site. The
@@ -1635,14 +1635,14 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// exhaustively into TWO typed projections, each with a distinct
     /// load-bearing consumer surface — label decoding for
     /// [`Self::label`], array indexing for this method.
-    /// THEORY.md §V.1 — knowable platform; the (variant → array
+    /// Knowable platform; the (variant → array
     /// index) projection was an unnamed compound of [`Self::ALL`] +
     /// `Iterator::position` + `PartialEq` pre-lift; naming it on the
     /// trait makes the projection a TYPED CONSEQUENCE of [`Self::ALL`]
     /// alone (the discriminant-keyed sweep re-uses the enum's natural
     /// per-variant identity WITHOUT a `PartialEq` bound) — generic
     /// consumers see ONE method, not ONE position-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the (variant →
+    /// Generation over composition; the (variant →
     /// array index) projection emerges from the composition of ONE
     /// substrate primitive ([`Self::ALL`]) with the standard-library
     /// [`core::mem::discriminant`] projection and the standard-library
@@ -1746,7 +1746,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// call `from_index` on any `usize` payload and expect the same
     /// `Option`-typed answer at every crate boundary.
     ///
-    /// THEORY.md §III — the typescape; the (array index → typed
+    /// The typescape; the (array index → typed
     /// variant) projection becomes a TYPE projection on the trait
     /// rather than a per-consumer inline `Self::ALL.get(i).copied()`
     /// composition at every downstream index-decode site. The
@@ -1755,13 +1755,13 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// TWO typed projections, each with a distinct load-bearing
     /// consumer surface — array indexing for [`Self::index_of`],
     /// variant recovery for this method.
-    /// THEORY.md §V.1 — knowable platform; the (array index → typed
+    /// Knowable platform; the (array index → typed
     /// variant) projection was an unnamed compound of [`Self::ALL`] +
     /// `<[T]>::get` + `Option::copied` pre-lift; naming it on the
     /// trait makes the projection a TYPED CONSEQUENCE of
     /// [`Self::ALL`] — generic consumers see ONE method, not ONE
     /// slice-lookup-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the (array
+    /// Generation over composition; the (array
     /// index → typed variant) projection emerges from the composition
     /// of ONE substrate primitive ([`Self::ALL`]) with the
     /// standard-library `<[T]>::get` bounded-index projection and the
@@ -1862,7 +1862,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// structurally forbids), and the closed-set endpoint-anchor
     /// surface evolves at ONE site rather than per-consumer.
     ///
-    /// THEORY.md §III — the typescape; the (declaration-order head
+    /// The typescape; the (declaration-order head
     /// endpoint) projection becomes a TYPE projection on the trait
     /// rather than a per-consumer inline `Self::ALL[0]` composition
     /// at every downstream anchor site. The (head, tail) endpoint-
@@ -1871,7 +1871,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// distinct load-bearing consumer surface — the head for
     /// canonical defaulters / iterator-start anchors, the tail for
     /// iterator-terminator / bounded-loop guards.
-    /// THEORY.md §V.1 — knowable platform; the (declaration-order
+    /// Knowable platform; the (declaration-order
     /// head endpoint) projection was an unnamed compound of
     /// [`Self::ALL`] + slice-index-0 pre-lift; naming it on the
     /// trait makes the projection a TYPED CONSEQUENCE of
@@ -1881,7 +1881,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// so a passing well-formedness sweep means every generic
     /// consumer can call [`Self::first`] on any typed variant without
     /// threading an [`Option`] through the return.
-    /// THEORY.md §VI.1 — generation over composition; the
+    /// Generation over composition; the
     /// (declaration-order head endpoint) projection emerges from the
     /// composition of ONE substrate primitive ([`Self::ALL`]) with
     /// the standard-library slice-index-0 projection rather than as
@@ -1921,7 +1921,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// declaration-order head, this method returns the
     /// declaration-order tail. See [`Self::first`] for the shared
     /// design rationale, sibling matrix, override axis, future-
-    /// consumer inventory, THEORY.md grounding, and frontier
+    /// consumer inventory, grounding, and frontier
     /// inspiration — this method is the (endpoint = `CARDINALITY - 1`)
     /// arm of the same axis and inherits every property from the
     /// (endpoint = 0) arm's documentation, differing only in the
@@ -2029,18 +2029,18 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// projection SHAPE at the boundary-cardinality edge where the
     /// two SLOTS collapse onto the same anchor.
     ///
-    /// THEORY.md §III — the typescape; the (declaration head anchor →
+    /// The typescape; the (declaration head anchor →
     /// canonical label) singular projection becomes a TYPE projection
     /// on the trait rather than a per-consumer inline
     /// `T::first().label()` two-primitive composition at every
     /// downstream head-label rendering site.
-    /// THEORY.md §V.1 — knowable platform; the (declaration head
+    /// Knowable platform; the (declaration head
     /// anchor → label) projection was an unnamed compound of
     /// [`Self::first`] + [`Self::label`] pre-lift; naming it on the
     /// trait makes the projection a TYPED CONSEQUENCE of TWO
     /// substrate primitives — generic consumers see ONE method, not
     /// one head-label-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the (declaration
+    /// Generation over composition; the (declaration
     /// head anchor → label) projection emerges from the composition
     /// of TWO substrate primitives ([`Self::first`], [`Self::label`])
     /// rather than as a per-implementor `const HEAD_LABEL: &'static
@@ -2079,7 +2079,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// returns the declaration-order head-anchor label, this method
     /// returns the declaration-order tail-anchor label. See
     /// [`Self::first_label`] for the shared design rationale, sibling
-    /// matrix, override axis, future-consumer inventory, THEORY.md
+    /// matrix, override axis, future-consumer inventory,
     /// grounding, and frontier inspiration — this method is the tail-
     /// direction arm of the same axis and inherits every property
     /// from the head arm's documentation, differing only in the
@@ -2197,19 +2197,19 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// interior-less variant's decl-slot all collapse onto the same `0`
     /// anchor.
     ///
-    /// THEORY.md §III — the typescape; the (declaration head anchor →
+    /// The typescape; the (declaration head anchor →
     /// decl-slot) singular projection becomes a TYPE projection on the
     /// trait rather than a per-consumer inline `T::first().index_of()`
     /// two-primitive composition at every downstream head-slot lookup
     /// site. Opens the `usize` return-type row on the (return-type ×
     /// endpoint-direction) singular endpoint-anchor projection matrix.
-    /// THEORY.md §V.1 — knowable platform; the (declaration head anchor
+    /// Knowable platform; the (declaration head anchor
     /// → decl-slot) projection was an unnamed compound of
     /// [`Self::first`] + [`Self::index_of`] pre-lift; naming it on the
     /// trait makes the projection a TYPED CONSEQUENCE of TWO substrate
     /// primitives — generic consumers see ONE method, not one head-
     /// decl-slot-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the (declaration
+    /// Generation over composition; the (declaration
     /// head anchor → decl-slot) projection emerges from the composition
     /// of TWO substrate primitives ([`Self::first`], [`Self::index_of`])
     /// rather than as a per-implementor `const HEAD_INDEX: usize = 0;`
@@ -2255,7 +2255,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// (structurally `0`), this method projects the tail-endpoint decl-
     /// slot (structurally `T::CARDINALITY - 1`). See [`Self::first_index`]
     /// for the shared design rationale, sibling matrix, override axis,
-    /// future-consumer inventory, THEORY.md grounding, and frontier
+    /// future-consumer inventory, grounding, and frontier
     /// inspiration — this method is the tail-direction arm of the same
     /// axis and inherits every property from the head arm's
     /// documentation, differing only in the composition through
@@ -2337,20 +2337,20 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// projection SHAPE at the boundary-cardinality edge where the two
     /// SLOTS collapse onto the same anchor.
     ///
-    /// THEORY.md §III — the typescape; the (declaration tail anchor →
+    /// The typescape; the (declaration tail anchor →
     /// decl-slot) singular projection becomes a TYPE projection on the
     /// trait rather than a per-consumer inline `T::last().index_of()`
     /// two-primitive composition at every downstream tail-slot lookup
     /// site. Closes the `usize` return-type row on the (return-type ×
     /// endpoint-direction) singular endpoint-anchor projection matrix at
     /// the tail slot.
-    /// THEORY.md §V.1 — knowable platform; the (declaration tail anchor
+    /// Knowable platform; the (declaration tail anchor
     /// → decl-slot) projection was an unnamed compound of
     /// [`Self::last`] + [`Self::index_of`] pre-lift; naming it on the
     /// trait makes the projection a TYPED CONSEQUENCE of TWO substrate
     /// primitives — generic consumers see ONE method, not one tail-
     /// decl-slot-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the (declaration
+    /// Generation over composition; the (declaration
     /// tail anchor → decl-slot) projection emerges from the composition
     /// of TWO substrate primitives ([`Self::last`], [`Self::index_of`])
     /// rather than as a per-implementor
@@ -2486,17 +2486,17 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// and [`Self::is_last`]'s singleton collapse at the (Self, bool)
     /// arm one arg-type axis over.
     ///
-    /// THEORY.md §III — the typescape; the (label → head-membership
+    /// The typescape; the (label → head-membership
     /// bool) projection becomes a TYPE projection on the trait rather
     /// than a per-consumer inline `s == T::first_label()` comparison
     /// at every downstream label-shaped head-boundary query site.
-    /// THEORY.md §V.1 — knowable platform; the (label → head-
+    /// Knowable platform; the (label → head-
     /// membership) projection was an unnamed compound of
     /// [`Self::first_label`] + `&str` `==` pre-lift; naming it on the
     /// trait makes the projection a TYPED CONSEQUENCE of ONE substrate
     /// primitive — generic consumers see ONE method, not one label-
     /// shaped-head-boundary-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the (label →
+    /// Generation over composition; the (label →
     /// head-membership) projection emerges from the composition of
     /// [`Self::first_label`] with the standard-library `&str` equality
     /// operator rather than as a per-implementor `match s { ... }`
@@ -2545,7 +2545,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// "is this &str the declaration-order tail-endpoint label?".
     /// See [`Self::is_first_label`] for the shared design rationale,
     /// sibling matrix, override axis, future-consumer inventory,
-    /// THEORY.md grounding, and frontier inspiration — this method
+    /// grounding, and frontier inspiration — this method
     /// is the tail-direction arm of the same axis and inherits every
     /// property from the head arm's documentation, differing only in
     /// the composition through [`Self::last_label`] instead of
@@ -2638,17 +2638,17 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// every generic consumer can call [`Self::is_first`] on any typed
     /// variant and expect the same `bool` answer at every crate boundary.
     ///
-    /// THEORY.md §III — the typescape; the (variant → head-membership
+    /// The typescape; the (variant → head-membership
     /// bool) projection becomes a TYPE projection on the trait rather
     /// than a per-consumer inline `self.index_of() == 0` composition at
     /// every downstream head-boundary query site.
-    /// THEORY.md §V.1 — knowable platform; the (variant → head-
+    /// Knowable platform; the (variant → head-
     /// membership) projection was an unnamed compound of
     /// [`Self::index_of`] + `usize` `==` `0` pre-lift; naming it on the
     /// trait makes the projection a TYPED CONSEQUENCE of ONE substrate
     /// primitive — generic consumers see ONE method, not one
     /// head-boundary-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the (variant →
+    /// Generation over composition; the (variant →
     /// head-membership) projection emerges from the composition of
     /// [`Self::index_of`] with the standard-library `usize` equality
     /// operator rather than as a per-implementor
@@ -2687,7 +2687,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// head endpoint?", this method answers "am I at the tail
     /// endpoint?". See [`Self::is_first`] for the shared design
     /// rationale, sibling matrix, override axis, future-consumer
-    /// inventory, THEORY.md grounding, and frontier inspiration —
+    /// inventory, grounding, and frontier inspiration —
     /// this method is the tail-direction arm of the same axis and
     /// inherits every property from the head arm's documentation,
     /// differing only in the `+ 1 == Self::CARDINALITY` boundary
@@ -2833,20 +2833,20 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// singleton collapse at the (`&str`, bool) arm one arg-type
     /// axis over.
     ///
-    /// THEORY.md §III — the typescape; the (usize → head-membership
+    /// The typescape; the (usize → head-membership
     /// bool) projection becomes a TYPE projection on the trait rather
     /// than a per-consumer inline `i == 0` comparison at every
     /// downstream index-shaped head-boundary query site. Opens the
     /// arg-type dimension of the declaration-axis endpoint-membership
     /// matrix from the 2×2 (`Self`, `&str`) subset to the 3×2
     /// (`Self`, `&str`, `usize`) trio.
-    /// THEORY.md §V.1 — knowable platform; the (usize →
+    /// Knowable platform; the (usize →
     /// head-membership) projection was an unnamed compound of the
     /// `i == 0` comparison pre-lift; naming it on the trait makes
     /// the projection a TYPED CONSEQUENCE of the closed-set
     /// declaration-order head-slot literal — generic consumers see
     /// ONE method, not one index-shaped-head-boundary-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the (usize →
+    /// Generation over composition; the (usize →
     /// head-membership) projection emerges from the closed-set
     /// declaration-order head-slot literal `0` rather than as a
     /// per-implementor `match i { 0 => true, _ => false }` block.
@@ -2892,7 +2892,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// "is this usize the declaration-order tail-endpoint slot?".
     /// See [`Self::is_first_index`] for the shared design rationale,
     /// sibling matrix, override axis, future-consumer inventory,
-    /// THEORY.md grounding, and frontier inspiration — this method
+    /// grounding, and frontier inspiration — this method
     /// is the tail-direction arm of the same axis and inherits every
     /// property from the head arm's documentation, differing only in
     /// the composition through the closed-set declaration-order
@@ -3080,7 +3080,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// singleton collapse at the (declaration, `usize`) arm one
     /// ordering axis over.
     ///
-    /// THEORY.md §III — the typescape; the (usize → lex-head-membership
+    /// The typescape; the (usize → lex-head-membership
     /// bool) projection becomes a TYPE projection on the trait rather
     /// than a per-consumer inline `i == 0` comparison on a lex-position
     /// input. Closes the ordering-axis of the index-shaped endpoint-
@@ -3088,13 +3088,13 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// full 3×2×2 = 12-corner endpoint-membership hypercube at eleven
     /// of twelve corners (the sole remaining gap is
     /// [`Self::is_sorted_last_index`] one endpoint-direction over).
-    /// THEORY.md §V.1 — knowable platform; the (usize → lex-head-
+    /// Knowable platform; the (usize → lex-head-
     /// membership) projection was an unnamed compound of the `i == 0`
     /// comparison on a lex-position input pre-lift; naming it on the
     /// trait makes the projection a TYPED CONSEQUENCE of the closed-set
     /// lex-order head-slot literal — generic consumers see ONE method,
     /// not one index-shaped-lex-head-boundary-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the (usize →
+    /// Generation over composition; the (usize →
     /// lex-head-membership) projection emerges from the closed-set
     /// lex-order head-slot literal `0` rather than as a per-implementor
     /// `match i { 0 => true, _ => false }` block on a lex-position
@@ -3144,7 +3144,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// usize the lex-order tail-endpoint lex-slot?". See
     /// [`Self::is_sorted_first_index`] for the shared design rationale,
     /// sibling matrix, override axis, future-consumer inventory,
-    /// THEORY.md grounding, and frontier inspiration — this method is
+    /// grounding, and frontier inspiration — this method is
     /// the tail-direction arm of the same axis and inherits every
     /// property from the head arm's documentation, differing only in
     /// the composition through the closed-set lex-order tail-slot
@@ -3270,7 +3270,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// [`Option`]-typed dispatch the closed-set non-empty + distinct-
     /// labels contract structurally forbids).
     ///
-    /// THEORY.md §III — the typescape; the (lexicographic-order head
+    /// The typescape; the (lexicographic-order head
     /// endpoint) projection becomes a TYPE projection on the trait
     /// rather than a per-consumer composition of [`Self::sorted_variants`]
     /// combined with `<[Self]>::first` at every downstream anchor site.
@@ -3279,7 +3279,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// into FOUR typed projections, each with a distinct load-bearing
     /// consumer surface.
     ///
-    /// THEORY.md §V.1 — knowable platform; the (lexicographic-order
+    /// Knowable platform; the (lexicographic-order
     /// head endpoint) projection was an unnamed compound of
     /// [`Self::ALL`] combined with a label-keyed sort combined with a
     /// slice-index-0 projection pre-lift; naming it on the trait makes
@@ -3290,7 +3290,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// label-keyed linear scan and the sorted-listing surface stay
     /// aligned at ONE anchor site.
     ///
-    /// THEORY.md §VI.1 — generation over composition; the (lex head
+    /// Generation over composition; the (lex head
     /// endpoint) projection emerges from the composition of TWO
     /// substrate primitives ([`Self::ALL`] combined with
     /// [`Self::label`]) via the standard-library `PartialOrd` on `str`
@@ -3337,7 +3337,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// surface: [`Self::sorted_first`] returns the lex-min,
     /// this method returns the lex-max. See [`Self::sorted_first`] for
     /// the shared design rationale, sibling matrix, override axis,
-    /// future-consumer inventory, THEORY.md grounding, and frontier
+    /// future-consumer inventory, grounding, and frontier
     /// inspiration — this method is the tail arm of the same axis and
     /// inherits every property from the head arm's documentation,
     /// differing only in the strict-`>` comparator direction.
@@ -3467,18 +3467,18 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// label projection SHAPE at the boundary-cardinality edge where
     /// all four SLOTS collapse onto the same anchor.
     ///
-    /// THEORY.md §III — the typescape; the (lex-head anchor → canonical
+    /// The typescape; the (lex-head anchor → canonical
     /// label) singular projection becomes a TYPE projection on the
     /// trait rather than a per-consumer inline
     /// `T::sorted_first().label()` two-primitive composition at every
     /// downstream lex-head-label rendering site.
-    /// THEORY.md §V.1 — knowable platform; the (lex-head anchor →
+    /// Knowable platform; the (lex-head anchor →
     /// label) projection was an unnamed compound of
     /// [`Self::sorted_first`] + [`Self::label`] pre-lift; naming it on
     /// the trait makes the projection a TYPED CONSEQUENCE of TWO
     /// substrate primitives — generic consumers see ONE method, not
     /// one lex-head-label-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the (lex-head
+    /// Generation over composition; the (lex-head
     /// anchor → label) projection emerges from the composition of TWO
     /// substrate primitives ([`Self::sorted_first`], [`Self::label`])
     /// rather than as a per-implementor `const SORTED_HEAD_LABEL:
@@ -3522,7 +3522,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// this method returns the lex-tail-anchor label. See
     /// [`Self::sorted_first_label`] for the shared design rationale,
     /// sibling matrix, override axis, future-consumer inventory,
-    /// THEORY.md grounding, and frontier inspiration — this method is
+    /// grounding, and frontier inspiration — this method is
     /// the tail-direction arm of the same axis and inherits every
     /// property from the head arm's documentation, differing only in
     /// the composition through [`Self::sorted_last`] instead of
@@ -3660,18 +3660,18 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// collapse) fold onto the same anchor at the boundary-cardinality
     /// edge.
     ///
-    /// THEORY.md §III — the typescape; the (lex head anchor →
+    /// The typescape; the (lex head anchor →
     /// decl-slot) singular projection becomes a TYPE projection on
     /// the trait rather than a per-consumer inline
     /// `T::sorted_first().index_of()` two-primitive composition at
     /// every downstream lex-head decl-slot lookup site.
-    /// THEORY.md §V.1 — knowable platform; the (lex head anchor →
+    /// Knowable platform; the (lex head anchor →
     /// decl-slot) projection was an unnamed compound of
     /// [`Self::sorted_first`] + [`Self::index_of`] pre-lift; naming it
     /// on the trait makes the projection a TYPED CONSEQUENCE of TWO
     /// substrate primitives — generic consumers see ONE method, not
     /// one lex-head-decl-slot-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the (lex head
+    /// Generation over composition; the (lex head
     /// anchor → decl-slot) projection emerges from the composition of
     /// TWO substrate primitives rather than as a per-implementor
     /// `const SORTED_HEAD_INDEX: usize = ...;` declaration.
@@ -3715,7 +3715,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// decl-slot, this method projects the lex-tail-endpoint's
     /// decl-slot. See [`Self::sorted_first_index`] for the shared
     /// design rationale, sibling matrix, override axis, future-consumer
-    /// inventory, THEORY.md grounding, and frontier inspiration — this
+    /// inventory, grounding, and frontier inspiration — this
     /// method is the tail-direction arm of the same axis and inherits
     /// every property from the head arm's documentation, differing only
     /// in the composition through [`Self::sorted_last`] instead of
@@ -3817,18 +3817,18 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// `self.sorted_index_of() == 0` composition (which re-derives
     /// the same lex-slot projection at every callsite).
     ///
-    /// THEORY.md §III — the typescape; the (variant → lex head-
+    /// The typescape; the (variant → lex head-
     /// membership bool) projection becomes a TYPE projection on the
     /// trait rather than a per-consumer inline
     /// `self.sorted_index_of() == 0` composition at every downstream
     /// lex-head-boundary query site.
-    /// THEORY.md §V.1 — knowable platform; the (variant → lex head-
+    /// Knowable platform; the (variant → lex head-
     /// membership) projection was an unnamed compound of
     /// [`Self::sorted_index_of`] + `usize` `==` `0` pre-lift; naming
     /// it on the trait makes the projection a TYPED CONSEQUENCE of
     /// ONE substrate primitive — generic consumers see ONE method,
     /// not one lex-head-boundary-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the (variant →
+    /// Generation over composition; the (variant →
     /// lex head-membership) projection emerges from the composition
     /// of [`Self::sorted_index_of`] with the standard-library `usize`
     /// equality operator rather than as a per-implementor
@@ -3870,7 +3870,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// head endpoint?", this method answers "am I at the lex tail
     /// endpoint?". See [`Self::is_sorted_first`] for the shared design
     /// rationale, sibling matrix, override axis, future-consumer
-    /// inventory, THEORY.md grounding, and frontier inspiration —
+    /// inventory, grounding, and frontier inspiration —
     /// this method is the tail-direction arm of the same axis and
     /// inherits every property from the head arm's documentation,
     /// differing only in the `+ 1 == Self::CARDINALITY` boundary
@@ -4047,18 +4047,18 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// (&str, lex, tail) is [`Self::is_sorted_last_label`], the natural
     /// tail-direction sibling this method's docs pair to.
     ///
-    /// THEORY.md §III — the typescape; the (label → lex-head-membership
+    /// The typescape; the (label → lex-head-membership
     /// bool) projection becomes a TYPE projection on the trait rather
     /// than a per-consumer inline `s == T::sorted_first_label()`
     /// comparison at every downstream label-shaped lex-head-boundary
     /// query site.
-    /// THEORY.md §V.1 — knowable platform; the (label → lex-head-
+    /// Knowable platform; the (label → lex-head-
     /// membership) projection was an unnamed compound of
     /// [`Self::sorted_first_label`] + `&str` `==` pre-lift; naming it
     /// on the trait makes the projection a TYPED CONSEQUENCE of ONE
     /// substrate primitive — generic consumers see ONE method, not one
     /// label-shaped-lex-head-boundary-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the (label →
+    /// Generation over composition; the (label →
     /// lex-head-membership) projection emerges from the composition of
     /// [`Self::sorted_first_label`] with the standard-library `&str`
     /// equality operator rather than as a per-implementor
@@ -4114,7 +4114,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// the lex-order tail-endpoint label?". See
     /// [`Self::is_sorted_first_label`] for the shared design rationale,
     /// sibling matrix, override axis, future-consumer inventory,
-    /// THEORY.md grounding, and frontier inspiration — this method is
+    /// grounding, and frontier inspiration — this method is
     /// the tail-direction arm of the same axis and inherits every
     /// property from the head arm's documentation, differing only in
     /// the composition through [`Self::sorted_last_label`] instead of
@@ -4243,7 +4243,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// `is_endpoint(v) != is_interior(v)` on every representative
     /// input.
     ///
-    /// THEORY.md §III — the typescape; the (variant → boundary-
+    /// The typescape; the (variant → boundary-
     /// membership bool) projection becomes a TYPE projection on the
     /// trait rather than a per-consumer inline
     /// `self.is_first() || self.is_last()` composition at every
@@ -4253,13 +4253,13 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// (return-type × direction) 2×2 endpoint-anchor / endpoint-
     /// membership matrix clauses (18) + (30) already close on the
     /// declaration axis.
-    /// THEORY.md §V.1 — knowable platform; the (variant → boundary-
+    /// Knowable platform; the (variant → boundary-
     /// membership) projection was an unnamed compound of
     /// [`Self::is_first`] + [`Self::is_last`] + `||` pre-lift;
     /// naming it on the trait makes the projection a TYPED CONSEQUENCE
     /// of the two point-membership primitives — generic consumers see
     /// ONE method, not one boundary-disjunction-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the (variant →
+    /// Generation over composition; the (variant →
     /// boundary-membership) projection emerges from the composition of
     /// TWO substrate primitives ([`Self::is_first`], [`Self::is_last`])
     /// under the standard-library boolean `||` operator rather than as
@@ -4304,7 +4304,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// on both structural anchors, this method fires on every
     /// strictly-interior slot. See [`Self::is_endpoint`] for the
     /// shared design rationale, sibling matrix, override axis,
-    /// future-consumer inventory, THEORY.md grounding, and frontier
+    /// future-consumer inventory, grounding, and frontier
     /// inspiration — this method is the complement-direction arm of
     /// the same predicate-flavor axis and inherits every property
     /// from the endpoint arm's documentation, differing only in the
@@ -4461,7 +4461,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// `is_sorted_endpoint(v) != is_sorted_interior(v)` on every
     /// representative input.
     ///
-    /// THEORY.md §III — the typescape; the (variant → lex-boundary-
+    /// The typescape; the (variant → lex-boundary-
     /// membership bool) projection becomes a TYPE projection on the
     /// trait rather than a per-consumer inline
     /// `self.is_sorted_first() || self.is_sorted_last()` composition
@@ -4470,14 +4470,14 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// boundary surface CLOSES on the lex axis — the sibling
     /// declaration-axis matrix opened with clause (32) is now paired
     /// under a shared partition-flavor axis.
-    /// THEORY.md §V.1 — knowable platform; the (variant → lex-
+    /// Knowable platform; the (variant → lex-
     /// boundary-membership) projection was an unnamed compound of
     /// [`Self::is_sorted_first`] + [`Self::is_sorted_last`] + `||`
     /// pre-lift; naming it on the trait makes the projection a TYPED
     /// CONSEQUENCE of the two lex point-membership primitives —
     /// generic consumers see ONE method, not one lex-boundary-
     /// disjunction-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the (variant →
+    /// Generation over composition; the (variant →
     /// lex-boundary-membership) projection emerges from the
     /// composition of TWO substrate primitives
     /// ([`Self::is_sorted_first`], [`Self::is_sorted_last`]) under
@@ -4522,7 +4522,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// fires on both lex-structural anchors, this method fires on
     /// every strictly-lex-interior slot. See [`Self::is_sorted_endpoint`]
     /// for the shared design rationale, sibling matrix, override axis,
-    /// future-consumer inventory, THEORY.md grounding, and frontier
+    /// future-consumer inventory, grounding, and frontier
     /// inspiration — this method is the complement-direction arm of
     /// the same predicate-flavor axis and inherits every property from
     /// the lex-endpoint arm's documentation, differing only in the
@@ -4604,7 +4604,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// allocate the reject carrier on non-matching inputs OR force the
     /// caller through the `Option<Self>`-typed dispatch). See
     /// [`Self::is_endpoint`] for the shared design rationale, sibling
-    /// matrix, override axis, future-consumer inventory, THEORY.md
+    /// matrix, override axis, future-consumer inventory,
     /// grounding, and frontier inspiration — this method is the label-
     /// shaped-arg-type arm of the same predicate-flavor + ordering axis
     /// and inherits every property from the `Self`-arg endpoint arm's
@@ -4651,17 +4651,17 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// slots. Mirrors the singleton collapse [`Self::is_endpoint`]
     /// observes at the `Self`-arg column one arg-type axis over.
     ///
-    /// THEORY.md §III — the typescape; the (&str → declaration-boundary-
+    /// The typescape; the (&str → declaration-boundary-
     /// membership bool) projection becomes a TYPE projection on the
     /// trait rather than a per-consumer inline
     /// `T::is_first_label(s) || T::is_last_label(s)` composition at every
     /// downstream label-shaped structural-boundary query site.
-    /// THEORY.md §V.1 — knowable platform; the (&str → declaration-
+    /// Knowable platform; the (&str → declaration-
     /// boundary-membership bool) projection was an unnamed compound of
     /// [`Self::is_first_label`] + [`Self::is_last_label`] + `||` pre-
     /// lift; naming it on the trait makes the projection a TYPED
     /// CONSEQUENCE of the two label-shaped point-membership primitives.
-    /// THEORY.md §VI.1 — generation over composition; the projection
+    /// Generation over composition; the projection
     /// emerges from the composition of TWO substrate primitives under
     /// the standard-library boolean `||` operator rather than as a
     /// per-implementor `match s { ... }` block.
@@ -4740,11 +4740,11 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// BOTH endpoints so `is_endpoint_label` fires; the interior arm
     /// correspondingly rejects).
     ///
-    /// THEORY.md §III — the typescape; the (&str → declaration-interior-
+    /// The typescape; the (&str → declaration-interior-
     /// membership bool) projection becomes a TYPE projection on the
     /// trait rather than a per-consumer inline
     /// `T::contains_label(s) && !T::is_endpoint_label(s)` composition.
-    /// THEORY.md §V.1 — knowable platform; naming the projection on the
+    /// Knowable platform; naming the projection on the
     /// trait turns "the label is a strictly-interior canonical" from an
     /// unnamed compound into a workspace-wide theorem.
     ///
@@ -4808,12 +4808,12 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// returns `true` for the sole variant's label (both lex point-
     /// membership predicates fire on the same label).
     ///
-    /// THEORY.md §III — the typescape; the (&str → lex-boundary-
+    /// The typescape; the (&str → lex-boundary-
     /// membership bool) projection becomes a TYPE projection on the
     /// trait rather than a per-consumer inline
     /// `T::is_sorted_first_label(s) || T::is_sorted_last_label(s)`
     /// composition.
-    /// THEORY.md §V.1 — knowable platform; naming the projection on the
+    /// Knowable platform; naming the projection on the
     /// trait turns "the label is an alphabetized-boundary label" from
     /// an unnamed compound into a workspace-wide theorem.
     ///
@@ -4891,16 +4891,16 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// or-interior) corners of the boundary-partition space binds to
     /// ONE typed predicate rather than hand-rolling a composition.
     ///
-    /// THEORY.md §III — the typescape; the (&str → lex-interior-
+    /// The typescape; the (&str → lex-interior-
     /// membership bool) projection becomes a TYPE projection on the
     /// trait. The 8-corner boolean-boundary hypercube CLOSES with
     /// this method — every corner of the (arg-type × ordering ×
     /// predicate-flavor) space is a typed default trait body composed
     /// from substrate primitives.
-    /// THEORY.md §V.1 — knowable platform; naming the projection on
+    /// Knowable platform; naming the projection on
     /// the trait turns "the label is a strictly-lex-interior canonical"
     /// from an unnamed compound into a workspace-wide theorem.
-    /// THEORY.md §VI.1 — generation over composition; the projection
+    /// Generation over composition; the projection
     /// emerges from the composition of TWO substrate primitives under
     /// standard-library boolean operators, rather than as a per-
     /// implementor `match s { ... }` block.
@@ -5010,16 +5010,16 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// shaped point-membership predicates fire on the same slot);
     /// [`Self::is_interior_index`] correspondingly returns `false`.
     ///
-    /// THEORY.md §III — the typescape; the (usize → declaration-
+    /// The typescape; the (usize → declaration-
     /// boundary-membership bool) projection becomes a TYPE projection
     /// on the trait rather than a per-consumer inline
     /// `i == 0 || i + 1 == T::CARDINALITY` composition on a
     /// declaration-slot input at every downstream index-shaped
     /// declaration-boundary query site.
-    /// THEORY.md §V.1 — knowable platform; naming the projection on
+    /// Knowable platform; naming the projection on
     /// the trait turns "the index is a declaration-endpoint slot" from
     /// an unnamed compound into a workspace-wide theorem.
-    /// THEORY.md §VI.1 — generation over composition; the projection
+    /// Generation over composition; the projection
     /// emerges from the composition of TWO substrate primitives
     /// ([`Self::is_first_index`], [`Self::is_last_index`]) under the
     /// standard-library boolean `||` operator, rather than as a per-
@@ -5110,12 +5110,12 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// implementor that overrides [`Self::is_endpoint_index`]
     /// propagates the override through this default body automatically.
     ///
-    /// THEORY.md §III — the typescape; the (usize → declaration-
+    /// The typescape; the (usize → declaration-
     /// interior-membership bool) projection becomes a TYPE projection
     /// on the trait rather than a per-consumer inline
     /// `i < T::CARDINALITY && !(i == 0 || i + 1 == T::CARDINALITY)`
     /// composition.
-    /// THEORY.md §V.1 — knowable platform; naming the projection on
+    /// Knowable platform; naming the projection on
     /// the trait turns "the index is a strictly-declaration-interior
     /// slot" from an unnamed compound into a workspace-wide theorem.
     ///
@@ -5195,12 +5195,12 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// [`Self::is_sorted_interior_index`] correspondingly returns
     /// `false`.
     ///
-    /// THEORY.md §III — the typescape; the (usize → lex-boundary-
+    /// The typescape; the (usize → lex-boundary-
     /// membership bool) projection on a LEX-position input becomes a
     /// TYPE projection on the trait rather than a per-consumer inline
     /// `i == 0 || i + 1 == T::CARDINALITY` composition on a lex-
     /// position input.
-    /// THEORY.md §V.1 — knowable platform; naming the projection on
+    /// Knowable platform; naming the projection on
     /// the trait turns "the lex slot is a lex-endpoint slot" from an
     /// unnamed compound into a workspace-wide theorem.
     ///
@@ -5280,16 +5280,16 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// interior) corners of the boundary-partition space binds to ONE
     /// typed predicate rather than hand-rolling a composition.
     ///
-    /// THEORY.md §III — the typescape; the (usize → lex-interior-
+    /// The typescape; the (usize → lex-interior-
     /// membership bool) projection becomes a TYPE projection on the
     /// trait. The 12-corner boolean-boundary hypercube CLOSES with
     /// this method — every corner of the (arg-type × ordering ×
     /// predicate-flavor) space is a typed default trait body composed
     /// from substrate primitives.
-    /// THEORY.md §V.1 — knowable platform; naming the projection on
+    /// Knowable platform; naming the projection on
     /// the trait turns "the lex slot is a strictly-lex-interior slot"
     /// from an unnamed compound into a workspace-wide theorem.
-    /// THEORY.md §VI.1 — generation over composition; the projection
+    /// Generation over composition; the projection
     /// emerges from the composition of TWO substrate primitives under
     /// the standard-library `<` comparison and boolean `&&` / `!`
     /// operators.
@@ -5407,7 +5407,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// aggregation surface evolves at ONE site rather than per-
     /// consumer.
     ///
-    /// THEORY.md §III — the typescape; the (declaration-order head,
+    /// The typescape; the (declaration-order head,
     /// declaration-order tail) pair-aggregation becomes a TYPE
     /// projection on the trait rather than a per-consumer inline
     /// `(T::first(), T::last())` composition at every downstream
@@ -5416,13 +5416,13 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// `(Self, Self)` pair, `Vec<Self>` collection) return-shape
     /// column on the declaration-order endpoint-anchor row is now
     /// fully closed.
-    /// THEORY.md §V.1 — knowable platform; the (declaration-order
+    /// Knowable platform; the (declaration-order
     /// endpoint pair) aggregation was an unnamed compound of
     /// [`Self::first`] + [`Self::last`] pre-lift; naming it on the
     /// trait makes the projection a TYPED CONSEQUENCE of the two
     /// substrate primitives — generic consumers see ONE method, not
     /// ONE endpoint-pair-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the
+    /// Generation over composition; the
     /// (declaration-order endpoint pair) aggregation emerges from the
     /// composition of TWO substrate primitives ([`Self::first`],
     /// [`Self::last`]) under the standard-library tuple constructor
@@ -5466,7 +5466,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// fires on the declaration-order (head, tail) pair, this method
     /// fires on the lex-order (head, tail) pair. See
     /// [`Self::endpoints`] for the shared design rationale, sibling
-    /// matrix, override axis, future-consumer inventory, THEORY.md
+    /// matrix, override axis, future-consumer inventory,
     /// grounding, and frontier inspiration — this method is the lex-
     /// ordering-axis arm of the same return-shape axis and inherits
     /// every property from the declaration-axis arm's documentation,
@@ -5624,7 +5624,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// carrier and expect the same tuple answer at every crate
     /// boundary.
     ///
-    /// THEORY.md §III — the typescape; the (declaration-order head-
+    /// The typescape; the (declaration-order head-
     /// label, declaration-order tail-label) pair-aggregation becomes
     /// a TYPE projection on the trait rather than a per-consumer
     /// inline `(T::first().label(), T::last().label())` composition
@@ -5634,14 +5634,14 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// typed-variant pair, `(&'static str, &'static str)` label pair)
     /// return-shape axis on the declaration-order endpoint row is
     /// now closed at BOTH corners.
-    /// THEORY.md §V.1 — knowable platform; the (declaration-order
+    /// Knowable platform; the (declaration-order
     /// head-label, declaration-order tail-label) pair aggregation
     /// was an unnamed compound of [`Self::endpoints`] destructured
     /// under [`Self::label`] pre-lift; naming it on the trait makes
     /// the projection a TYPED CONSEQUENCE of the two substrate
     /// primitives — generic consumers see ONE method, not one label-
     /// pair-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the
+    /// Generation over composition; the
     /// (declaration-order label-pair) aggregation emerges from the
     /// composition of [`Self::endpoints`] with per-slot [`Self::label`]
     /// projection rather than as a per-implementor
@@ -5691,7 +5691,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// order (head-label, tail-label) pair. See
     /// [`Self::endpoint_labels`] for the shared design rationale,
     /// sibling matrix, override axis, future-consumer inventory,
-    /// THEORY.md grounding, and frontier inspiration — this method
+    /// grounding, and frontier inspiration — this method
     /// is the lex-ordering-axis arm of the same return-shape axis
     /// and inherits every property from the declaration-axis arm's
     /// documentation, differing only in the composition through
@@ -5864,7 +5864,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// can call [`Self::endpoint_indices`] on any typed carrier and
     /// expect the same tuple answer at every crate boundary.
     ///
-    /// THEORY.md §III — the typescape; the (declaration-order head-
+    /// The typescape; the (declaration-order head-
     /// decl-slot, declaration-order tail-decl-slot) pair-aggregation
     /// becomes a TYPE projection on the trait rather than a per-consumer
     /// inline `(T::first().index_of(), T::last().index_of())`
@@ -5874,14 +5874,14 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// ordering) 3×2 pair-endpoint aggregation matrix on the pair-tuple
     /// return-shape column is now closed at the (`usize`, declaration)
     /// corner.
-    /// THEORY.md §V.1 — knowable platform; the (declaration-order
+    /// Knowable platform; the (declaration-order
     /// head-decl-slot, declaration-order tail-decl-slot) pair
     /// aggregation was an unnamed compound of [`Self::endpoints`]
     /// destructured under [`Self::index_of`] pre-lift; naming it on
     /// the trait makes the projection a TYPED CONSEQUENCE of the two
     /// substrate primitives — generic consumers see ONE method, not
     /// one decl-slot-pair-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the (declaration-
+    /// Generation over composition; the (declaration-
     /// order decl-slot-pair) aggregation emerges from the composition
     /// of [`Self::endpoints`] with per-slot [`Self::index_of`]
     /// projection rather than as a per-implementor
@@ -5932,7 +5932,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// endpoint decl-slot pair, this method projects the lex-order
     /// endpoint decl-slot pair. See [`Self::endpoint_indices`] for the
     /// shared design rationale, sibling matrix, override axis, future-
-    /// consumer inventory, THEORY.md grounding, and frontier inspiration
+    /// consumer inventory, grounding, and frontier inspiration
     /// — this method is the lex-ordering-axis arm of the same axis and
     /// inherits every property from the declaration-axis arm's
     /// documentation, differing only in the composition through
@@ -6118,19 +6118,19 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// ordering, return-shape) corner of the closed-set label-
     /// aggregation cube now emits at ONE typed trait method.
     ///
-    /// THEORY.md §III — the typescape; the (declaration-axis
+    /// The typescape; the (declaration-axis
     /// endpoint-label-pair rendering-as-string) projection becomes a
     /// TYPE projection on the trait rather than a per-consumer inline
     /// `let (h, t) = T::endpoint_labels(); [h, t].join(sep)`
     /// composition at every downstream endpoint-label-as-string site.
-    /// THEORY.md §V.1 — knowable platform; the endpoint-label-as-
+    /// Knowable platform; the endpoint-label-as-
     /// string projection was an unnamed compound of the endpoint-
     /// label-pair primitive + `slice::join` pre-lift; naming it on
     /// the trait makes the projection a TYPED CONSEQUENCE of the
     /// substrate's endpoint-label-pair primitive — generic consumers
     /// see ONE method, not one endpoint-pair-then-join compound per
     /// crate.
-    /// THEORY.md §VI.1 — generation over composition; the endpoint-
+    /// Generation over composition; the endpoint-
     /// label-as-string rendering emerges from the composition of
     /// FOUR substrate primitives ([`Self::first`], [`Self::last`],
     /// [`Self::label`], `slice::join`) rather than as a per-
@@ -6199,7 +6199,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// strictly-lex-boundary labels only. See
     /// [`Self::endpoint_labels_joined`] for the shared design
     /// rationale, sibling matrix, override axis, future-consumer
-    /// inventory, THEORY.md grounding, and frontier inspiration —
+    /// inventory, grounding, and frontier inspiration —
     /// this method is the lex-ordering-axis arm of the same
     /// return-shape axis and inherits every property from the
     /// declaration-axis arm's documentation, differing only in the
@@ -6360,7 +6360,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// structural endpoint anchor to the interior collection would
     /// fail EITHER clause on the implementor whose partition drifted.
     ///
-    /// THEORY.md §III — the typescape; the (declaration-axis strict-
+    /// The typescape; the (declaration-axis strict-
     /// interior collection) projection becomes a TYPE projection on the
     /// trait rather than a per-consumer inline
     /// `T::ALL.iter().copied().filter(T::is_interior).collect()`
@@ -6370,14 +6370,14 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// closes on the interior arm — [`Self::endpoints`] on the
     /// boundary arm, this method on the interior arm, together
     /// covering every variant in [`Self::ALL`] exactly once.
-    /// THEORY.md §V.1 — knowable platform; the (declaration-axis
+    /// Knowable platform; the (declaration-axis
     /// strict-interior collection) projection was an unnamed compound
     /// of [`Self::ALL`] + [`Self::is_interior`] + `filter` + `collect`
     /// pre-lift; naming it on the trait makes the projection a TYPED
     /// CONSEQUENCE of the substrate's boundary-partition predicate —
     /// generic consumers see ONE method, not one interior-filter-shape-
     /// per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the (declaration-
+    /// Generation over composition; the (declaration-
     /// axis interior collection) projection emerges from the
     /// composition of TWO substrate primitives ([`Self::ALL`],
     /// [`Self::is_interior`]) under `Iterator::filter` +
@@ -6428,7 +6428,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// declaration-order strictly-interior slice, this method fires on
     /// the lex-order strictly-interior slice. See [`Self::interior`]
     /// for the shared design rationale, sibling matrix, override axis,
-    /// future-consumer inventory, THEORY.md grounding, and frontier
+    /// future-consumer inventory, grounding, and frontier
     /// inspiration — this method is the lex-ordering-axis arm of the
     /// same partition axis and inherits every property from the
     /// declaration-axis arm's documentation, differing only in the
@@ -6632,7 +6632,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// typed carrier and expect the same `Vec<&'static str>` answer
     /// at every crate boundary.
     ///
-    /// THEORY.md §III — the typescape; the (declaration-axis strict-
+    /// The typescape; the (declaration-axis strict-
     /// interior label collection) projection becomes a TYPE projection
     /// on the trait rather than a per-consumer inline
     /// `T::interior().into_iter().map(T::label).collect()` composition
@@ -6644,7 +6644,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// label) corner, this method on the (interior, declaration,
     /// label) corner, together covering every declaration-axis label
     /// in [`Self::ALL`] exactly once.
-    /// THEORY.md §V.1 — knowable platform; the (declaration-axis
+    /// Knowable platform; the (declaration-axis
     /// strict-interior label collection) projection was an unnamed
     /// compound of [`Self::interior`] + [`Self::label`] + `map` +
     /// `collect` pre-lift; naming it on the trait makes the
@@ -6652,7 +6652,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// axis interior-collection primitive and the per-slot label
     /// projection — generic consumers see ONE method, not one
     /// interior-label-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the
+    /// Generation over composition; the
     /// (declaration-axis interior-label collection) projection emerges
     /// from the composition of TWO substrate primitives
     /// ([`Self::interior`], [`Self::label`]) under `Iterator::map` +
@@ -6707,7 +6707,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// this method fires on the lex-order strictly-interior label
     /// slice. See [`Self::interior_labels`] for the shared design
     /// rationale, sibling matrix, override axis, future-consumer
-    /// inventory, THEORY.md grounding, and frontier inspiration —
+    /// inventory, grounding, and frontier inspiration —
     /// this method is the lex-ordering-axis arm of the same
     /// return-shape axis and inherits every property from the
     /// declaration-axis arm's documentation, differing only in the
@@ -6873,14 +6873,14 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// the closed-set projection's interior-only rendering surface
     /// evolves at ONE site rather than per-consumer.
     ///
-    /// THEORY.md §V.1 — knowable platform; the interior-labels-as-
+    /// Knowable platform; the interior-labels-as-
     /// string shape sat as an unnamed compound of
     /// [`Self::interior_labels`] + [`slice::join`] pre-lift; naming
     /// it on the trait makes the projection a TYPED CONSEQUENCE of
     /// [`Self::interior_labels`] + the chosen separator — generic
     /// consumers see ONE method, not ONE interior-then-join compound
     /// per crate.
-    /// THEORY.md §VI.1 — generation over composition; the interior-
+    /// Generation over composition; the interior-
     /// labels-as-string rendering emerges from the composition of
     /// FIVE substrate primitives ([`Self::ALL`], [`Self::label`],
     /// [`Self::is_endpoint`], `slice::join`, the caller-supplied
@@ -6936,7 +6936,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// lex-boundary-anchor labels stripped. See
     /// [`Self::interior_labels_joined`] for the shared design
     /// rationale, sibling matrix, override axis, future-consumer
-    /// inventory, THEORY.md grounding, and frontier inspiration —
+    /// inventory, grounding, and frontier inspiration —
     /// this method is the lex-ordering-axis arm of the same
     /// return-shape axis and inherits every property from the
     /// declaration-axis arm's documentation, differing only in the
@@ -7098,7 +7098,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// carrier and expect the same `Vec<usize>` answer at every crate
     /// boundary.
     ///
-    /// THEORY.md §III — the typescape; the (strictly-interior partition
+    /// The typescape; the (strictly-interior partition
     /// → decl-slot collection) `Vec<usize>` projection becomes a TYPE
     /// projection on the trait rather than a per-consumer inline
     /// `T::interior().into_iter().map(T::index_of).collect()` two-
@@ -7108,13 +7108,13 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// alongside the pre-existing (`Vec<Self>`, decl) corner
     /// [`Self::interior`] and (`Vec<&'static str>`, decl) corner
     /// [`Self::interior_labels`].
-    /// THEORY.md §V.1 — knowable platform; the (strictly-interior decl-
+    /// Knowable platform; the (strictly-interior decl-
     /// slot collection) projection was an unnamed compound of
     /// [`Self::interior`] + `.map(Self::index_of).collect()` pre-lift;
     /// naming it on the trait makes the projection a TYPED CONSEQUENCE
     /// of the two substrate primitives — generic consumers see ONE
     /// method, not ONE interior-decl-slot-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the projection
+    /// Generation over composition; the projection
     /// emerges from the composition of [`Self::interior`] +
     /// [`Self::index_of`] rather than as a per-implementor
     /// `const INTERIOR_INDICES: [usize; N - 2] = [1, 2, ..., N - 2];`
@@ -7287,7 +7287,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// carrier and expect the same `Vec<usize>` answer at every crate
     /// boundary.
     ///
-    /// THEORY.md §III — the typescape; the (strictly-lex-interior
+    /// The typescape; the (strictly-lex-interior
     /// partition → decl-slot collection) `Vec<usize>` projection becomes
     /// a TYPE projection on the trait rather than a per-consumer inline
     /// `T::sorted_interior().into_iter().map(T::index_of).collect()`
@@ -7295,13 +7295,13 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// slot lookup site. The (return-shape × ordering) 3×2 interior-
     /// aggregation matrix CLOSES its sixth corner at the (`Vec<usize>`,
     /// lex) slot alongside the five pre-existing corners.
-    /// THEORY.md §V.1 — knowable platform; the (strictly-lex-interior
+    /// Knowable platform; the (strictly-lex-interior
     /// decl-slot collection) projection was an unnamed compound of
     /// [`Self::sorted_interior`] + `.map(Self::index_of).collect()`
     /// pre-lift; naming it on the trait makes the projection a TYPED
     /// CONSEQUENCE of the two substrate primitives — generic consumers
     /// see ONE method, not ONE lex-interior-decl-slot-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the projection
+    /// Generation over composition; the projection
     /// emerges from the composition of [`Self::sorted_interior`] +
     /// [`Self::index_of`] rather than as a per-implementor
     /// `const SORTED_INTERIOR_INDICES: [usize; N - 2]` declaration
@@ -7427,7 +7427,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// at each callsite, and the closed-set `(usize → label)` direct
     /// projection surface evolves at ONE site rather than per-consumer.
     ///
-    /// THEORY.md §III — the typescape; the (`usize` array index →
+    /// The typescape; the (`usize` array index →
     /// `&'static str` label) projection becomes a TYPE projection on
     /// the trait rather than a per-consumer inline
     /// `Self::from_index(i).map(|v| v.label())` composition at every
@@ -7436,7 +7436,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// carriers gains its fourth direct edge — every (input, output)
     /// pair over the three carriers binds to ONE typed projection
     /// surface with no two-step composition at the call site.
-    /// THEORY.md §V.1 — knowable platform; the (`usize` → `&'static str`)
+    /// Knowable platform; the (`usize` → `&'static str`)
     /// direct projection was an unnamed compound of [`Self::from_index`]
     /// composed with [`Self::label`] pre-lift; naming it on the trait
     /// makes the projection a TYPED CONSEQUENCE of the two substrate
@@ -7446,7 +7446,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// implementor so a passing well-formedness sweep means every
     /// generic consumer can call `label_at` on any `usize` payload and
     /// expect the same `Option`-typed answer at every crate boundary.
-    /// THEORY.md §VI.1 — generation over composition; the direct
+    /// Generation over composition; the direct
     /// (`usize → label`) projection emerges from the composition of
     /// TWO substrate primitives ([`Self::from_index`], [`Self::label`])
     /// rather than as a per-implementor inline
@@ -7592,7 +7592,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// direct projection surface evolves at ONE site rather than
     /// per-consumer.
     ///
-    /// THEORY.md §III — the typescape; the (`&'static str` label →
+    /// The typescape; the (`&'static str` label →
     /// `usize` array index) projection becomes a TYPE projection on
     /// the trait rather than a per-consumer inline
     /// `Self::find_by_label(s).map(Self::index_of)` composition at
@@ -7602,7 +7602,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// variant, `&'static str` label, `usize` index) carriers binds
     /// to ONE typed projection surface with no two-step composition
     /// at the call site.
-    /// THEORY.md §V.1 — knowable platform; the (`&str` → `usize`)
+    /// Knowable platform; the (`&str` → `usize`)
     /// direct projection was an unnamed compound of
     /// [`Self::find_by_label`] composed with [`Self::index_of`]
     /// pre-lift; naming it on the trait makes the projection a TYPED
@@ -7614,7 +7614,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// generic consumer can call `index_of_label` on any `&str`
     /// payload and expect the same `Option`-typed answer at every
     /// crate boundary.
-    /// THEORY.md §VI.1 — generation over composition; the direct
+    /// Generation over composition; the direct
     /// (`&str → index`) projection emerges from the composition of
     /// TWO substrate primitives ([`Self::find_by_label`],
     /// [`Self::index_of`]) rather than as a per-implementor inline
@@ -7755,7 +7755,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// (`&str → usize` allocating-carrier decl-order decode) surface
     /// evolves at ONE site rather than per-consumer.
     ///
-    /// THEORY.md §III — the typescape; the allocating-carrier
+    /// The typescape; the allocating-carrier
     /// (`&str → usize` decl) decode becomes a TYPE projection on the
     /// trait rather than a per-consumer inline
     /// `Self::parse_label(s).map(Self::index_of)` composition at
@@ -7767,7 +7767,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// binds to a typed primitive, matching the shape
     /// [`Self::parse_label`] / [`Self::find_by_label`] pin one
     /// return-type column over.
-    /// THEORY.md §V.1 — knowable platform; the allocating-carrier
+    /// Knowable platform; the allocating-carrier
     /// (`&str → usize` decl) decode was an unnamed compound of
     /// [`Self::parse_label`] + [`Self::index_of`] pre-lift. Naming
     /// it on the trait makes the projection a TYPED CONSEQUENCE of
@@ -7778,7 +7778,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// a passing well-formedness sweep means every generic consumer
     /// can call `parse_index_of_label` on any `&str` payload and
     /// expect the same `Result`-typed answer at every crate boundary.
-    /// THEORY.md §VI.1 — generation over composition; the
+    /// Generation over composition; the
     /// allocating-carrier direct-decl-decode emerges from the
     /// composition of TWO substrate primitives ([`Self::parse_label`],
     /// [`Self::index_of`]) rather than as a per-implementor inline
@@ -7905,7 +7905,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// every crate boundary AND the SAME `Option<Self>` hint variant
     /// on rejection as [`Self::find_by_label_with_hint`] surfaces.
     ///
-    /// THEORY.md §III — the typescape; the structured
+    /// The typescape; the structured
     /// (`&str → usize` with hint) decode becomes a TYPE projection on
     /// the trait rather than a per-consumer inline
     /// `find_by_label_with_hint(s).map(index_of)` composition at
@@ -7915,14 +7915,14 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// with a distinct load-bearing consumer surface — `Self`-typed
     /// carrier decode on either side of the (hint) axis, `usize`-
     /// typed direct decode on either side.
-    /// THEORY.md §V.1 — knowable platform; the structured
+    /// Knowable platform; the structured
     /// (`&str → usize` with hint) decode was an unnamed compound of
     /// [`Self::find_by_label_with_hint`] + [`Self::index_of`] pre-
     /// lift. Naming it on the trait makes the projection a TYPED
     /// CONSEQUENCE of the two substrate primitives — generic
     /// consumers see ONE method, not ONE structured-index-decode-
     /// shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the
+    /// Generation over composition; the
     /// structured-diagnostic shape emerges from the composition of
     /// TWO substrate primitives ([`Self::find_by_label_with_hint`],
     /// [`Self::index_of`]) rather than as a per-implementor
@@ -8089,7 +8089,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// set (`&str → usize` allocating-carrier decl-order decode with
     /// hint) surface evolves at ONE site rather than per-consumer.
     ///
-    /// THEORY.md §III — the typescape; the allocating-carrier
+    /// The typescape; the allocating-carrier
     /// (`&str → usize` decl with hint) decode becomes a TYPE
     /// projection on the trait rather than a per-consumer inline
     /// `Self::parse_label_with_hint(s).map(Self::index_of)`
@@ -8100,7 +8100,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// `parse_label_with_hint(s).map(index_of)` composition, mirroring
     /// clause (7)'s pin one return-type-axis over on the
     /// (`Self`-typed, allocating, with-hint) corner.
-    /// THEORY.md §V.1 — knowable platform; the allocating-carrier
+    /// Knowable platform; the allocating-carrier
     /// (`&str → usize` decl with hint) decode was an unnamed compound
     /// of [`Self::parse_label_with_hint`] + [`Self::index_of`] pre-
     /// lift. Naming it on the trait makes the projection a TYPED
@@ -8113,7 +8113,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// any `&str` payload and expect the same `Result`-typed answer at
     /// every crate boundary AND the SAME
     /// `(Self::Unknown, Option<Self>)` tuple variant on rejection.
-    /// THEORY.md §VI.1 — generation over composition; the allocating-
+    /// Generation over composition; the allocating-
     /// carrier direct-decl-decode-with-hint emerges from the
     /// composition of TWO substrate primitives
     /// ([`Self::parse_label_with_hint`], [`Self::index_of`]) rather
@@ -8239,14 +8239,14 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// the closed-set (variant → lex position) direct projection
     /// surface evolves at ONE site rather than per-consumer.
     ///
-    /// THEORY.md §III — the typescape; the (typed variant → `usize`
+    /// The typescape; the (typed variant → `usize`
     /// lexicographic-order position) projection becomes a TYPE
     /// projection on the trait rather than a per-consumer inline
     /// `Self::sorted_variants().iter().position(|v| v == self)`
     /// composition at every downstream lex-index site. The (declaration,
     /// lex) × (variant → position) 1×2 forward-projection partition
     /// completes at BOTH ordering axes.
-    /// THEORY.md §V.1 — knowable platform; the (variant → lex position)
+    /// Knowable platform; the (variant → lex position)
     /// projection was an unnamed compound of [`Self::sorted_variants`] +
     /// `Iterator::position` + `PartialEq` pre-lift; naming it on the
     /// trait makes the projection a TYPED CONSEQUENCE of [`Self::ALL`]
@@ -8257,7 +8257,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// well-formedness sweep means every generic consumer can call
     /// `sorted_index_of` on any typed variant and expect the same
     /// `usize` answer at every crate boundary.
-    /// THEORY.md §VI.1 — generation over composition; the (variant →
+    /// Generation over composition; the (variant →
     /// lex position) projection emerges from the composition of TWO
     /// substrate primitives ([`Self::ALL`], [`Self::label`]) via the
     /// standard-library `str: Ord` strict-`<` comparator rather than
@@ -8406,20 +8406,20 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// (`sorted_variants()` + `<[T]>::get` + `Option::copied`) with a
     /// `Vec<Self>` allocation at every call site.
     ///
-    /// THEORY.md §III — the typescape; the (`usize` lex position →
+    /// The typescape; the (`usize` lex position →
     /// typed variant) projection becomes a TYPE projection on the
     /// trait rather than a per-consumer inline
     /// `Self::sorted_variants().get(i).copied()` composition at every
     /// downstream lex-order inverse-decode site. The (declaration, lex)
     /// × (position → variant) 1×2 inverse-projection partition
     /// completes at BOTH ordering axes.
-    /// THEORY.md §V.1 — knowable platform; the (lex position → typed
+    /// Knowable platform; the (lex position → typed
     /// variant) projection was an unnamed compound of
     /// [`Self::sorted_variants`] + `<[T]>::get` + `Option::copied`
     /// pre-lift; naming it on the trait makes the projection a TYPED
     /// CONSEQUENCE of [`Self::sorted_variants`] — generic consumers
     /// see ONE method, not ONE lex-inverse-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the (lex
+    /// Generation over composition; the (lex
     /// position → typed variant) projection emerges from the
     /// composition of ONE substrate primitive
     /// ([`Self::sorted_variants`]) with the standard-library
@@ -8551,20 +8551,20 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// position → label)` direct projection surface evolves at ONE site
     /// rather than per-consumer.
     ///
-    /// THEORY.md §III — the typescape; the (`usize` lex-order position
+    /// The typescape; the (`usize` lex-order position
     /// → `&'static str` canonical label) projection becomes a TYPE
     /// projection on the trait rather than a per-consumer inline
     /// `Self::from_sorted_index(i).map(|v| v.label())` composition at
     /// every downstream lex-slot-decode site. The (declaration, lex) ×
     /// (`usize` position → `&'static str` label) 1×2 forward-projection
     /// partition completes at BOTH ordering axes.
-    /// THEORY.md §V.1 — knowable platform; the (`usize` lex position
+    /// Knowable platform; the (`usize` lex position
     /// → `&'static str` label) projection was an unnamed compound of
     /// [`Self::from_sorted_index`] composed with [`Self::label`]
     /// pre-lift; naming it on the trait makes the projection a TYPED
     /// CONSEQUENCE of the two substrate primitives — generic consumers
     /// see ONE method, not ONE lex-slot-to-label-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the direct
+    /// Generation over composition; the direct
     /// (lex position → label) projection emerges from the composition
     /// of TWO substrate primitives ([`Self::from_sorted_index`],
     /// [`Self::label`]) rather than as a per-implementor inline
@@ -8720,7 +8720,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// each callsite, and the closed-set `(&str → lex position)` direct
     /// projection surface evolves at ONE site rather than per-consumer.
     ///
-    /// THEORY.md §III — the typescape; the (`&'static str` label →
+    /// The typescape; the (`&'static str` label →
     /// `usize` lex-order position) projection becomes a TYPE projection
     /// on the trait rather than a per-consumer inline
     /// `Self::find_by_label(s).map(Self::sorted_index_of)` composition
@@ -8731,7 +8731,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// position) carriers now binds to ONE typed projection surface at
     /// BOTH ordering axes (declaration and lexicographic) with no
     /// two-step composition at the call site.
-    /// THEORY.md §V.1 — knowable platform; the (`&str` → `usize` lex
+    /// Knowable platform; the (`&str` → `usize` lex
     /// position) direct projection was an unnamed compound of
     /// [`Self::find_by_label`] composed with [`Self::sorted_index_of`]
     /// pre-lift; naming it on the trait makes the projection a TYPED
@@ -8743,7 +8743,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// generic consumer can call `sorted_index_of_label` on any `&str`
     /// payload and expect the same `Option`-typed answer at every
     /// crate boundary.
-    /// THEORY.md §VI.1 — generation over composition; the direct
+    /// Generation over composition; the direct
     /// (`&str → lex position`) projection emerges from the composition
     /// of TWO substrate primitives ([`Self::find_by_label`],
     /// [`Self::sorted_index_of`]) rather than as a per-implementor
@@ -8896,7 +8896,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// on rejection as [`Self::find_by_label_with_hint`] AND
     /// [`Self::index_of_label_with_hint`] both surface.
     ///
-    /// THEORY.md §III — the typescape; the structured
+    /// The typescape; the structured
     /// (`&str → usize` lex-order with hint) decode becomes a TYPE
     /// projection on the trait rather than a per-consumer inline
     /// `find_by_label_with_hint(s).map(sorted_index_of)` composition at
@@ -8906,7 +8906,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// (input, output) pair on BOTH ordering axes with OR without hint
     /// binds to ONE typed projection surface with no two-step
     /// composition at any consumer site.
-    /// THEORY.md §V.1 — knowable platform; the structured
+    /// Knowable platform; the structured
     /// (`&str → usize` lex-order with hint) decode was an unnamed
     /// compound of [`Self::find_by_label_with_hint`] +
     /// [`Self::sorted_index_of`] pre-lift. Naming it on the trait makes
@@ -8919,7 +8919,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// generic consumer can call `sorted_index_of_label_with_hint` on
     /// any typed variant and expect the same `Result`-typed answer at
     /// every crate boundary.
-    /// THEORY.md §VI.1 — generation over composition; the structured-
+    /// Generation over composition; the structured-
     /// diagnostic shape emerges from the composition of TWO substrate
     /// primitives ([`Self::find_by_label_with_hint`],
     /// [`Self::sorted_index_of`]) rather than as a per-implementor
@@ -9067,7 +9067,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// usize-lex with carrier)` structured projection surface evolves
     /// at ONE site rather than per-consumer.
     ///
-    /// THEORY.md §III — the typescape; the (`&str → usize` lex-order
+    /// The typescape; the (`&str → usize` lex-order
     /// index with allocating carrier) structured decode becomes a
     /// TYPE projection on the trait, completing the (side-effect ×
     /// ordering) 2×2 partition on the (`&str → usize` no-hint) row at
@@ -9076,14 +9076,14 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// no-hint) corner binds at ONE typed method rather than at
     /// per-consumer inline `parse_label(s).map(sorted_index_of)`
     /// composition.
-    /// THEORY.md §V.1 — knowable platform; the (`&str → usize-lex
+    /// Knowable platform; the (`&str → usize-lex
     /// with carrier`) projection was an unnamed compound of
     /// [`Self::parse_label`] composed with [`Self::sorted_index_of`]
     /// pre-lift. Naming it on the trait makes the projection a TYPED
     /// CONSEQUENCE of the two substrate primitives — generic
     /// consumers see ONE method, not ONE lex-index-decode-shape-per-
     /// crate.
-    /// THEORY.md §VI.1 — generation over composition; the direct
+    /// Generation over composition; the direct
     /// (`&str → usize-lex with carrier`) projection emerges from the
     /// composition of TWO substrate primitives ([`Self::parse_label`],
     /// [`Self::sorted_index_of`]) rather than as a per-implementor
@@ -9282,7 +9282,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// with hint) surface evolves at ONE site rather than per-
     /// consumer.
     ///
-    /// THEORY.md §III — the typescape; the allocating-carrier
+    /// The typescape; the allocating-carrier
     /// (`&str → usize` lex with hint) decode becomes a TYPE
     /// projection on the trait rather than a per-consumer inline
     /// `Self::parse_label_with_hint(s).map(Self::sorted_index_of)`
@@ -9302,7 +9302,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// decode's typed variant carries no ordering-axis distinction,
     /// so the with-hint face of the 4-axis surface CLOSES at ALL its
     /// populated corners.
-    /// THEORY.md §V.1 — knowable platform; the allocating-carrier
+    /// Knowable platform; the allocating-carrier
     /// (`&str → usize` lex with hint) decode was an unnamed compound
     /// of [`Self::parse_label_with_hint`] + [`Self::sorted_index_of`]
     /// pre-lift. Naming it on the trait makes the projection a TYPED
@@ -9316,7 +9316,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// and expect the same `Result`-typed answer at every crate
     /// boundary AND the SAME `(Self::Unknown, Option<Self>)` tuple
     /// variant on rejection.
-    /// THEORY.md §VI.1 — generation over composition; the
+    /// Generation over composition; the
     /// allocating-carrier direct-lex-decode-with-hint emerges from
     /// the composition of TWO substrate primitives
     /// ([`Self::parse_label_with_hint`], [`Self::sorted_index_of`])
@@ -9451,7 +9451,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// closed-set forward-neighbor projection surface evolves at ONE
     /// site rather than per-consumer.
     ///
-    /// THEORY.md §III — the typescape; the (variant → forward
+    /// The typescape; the (variant → forward
     /// neighbor) projection becomes a TYPE projection on the trait
     /// rather than a per-consumer inline
     /// `Self::from_index(self.index_of() + 1)` composition at every
@@ -9460,7 +9460,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// exhaustively into TWO typed projections, each with a distinct
     /// load-bearing consumer surface — forward walk for
     /// [`Self::next`], backward walk for [`Self::prev`].
-    /// THEORY.md §V.1 — knowable platform; the (variant → forward
+    /// Knowable platform; the (variant → forward
     /// neighbor) projection was an unnamed compound of
     /// [`Self::index_of`] + [`Self::from_index`] + `+ 1` arithmetic
     /// pre-lift; naming it on the trait makes the projection a TYPED
@@ -9472,7 +9472,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// passing sweep means every generic consumer can call
     /// [`Self::next`] on any typed variant and expect the same
     /// [`Option`]-typed answer at every crate boundary.
-    /// THEORY.md §VI.1 — generation over composition; the (variant
+    /// Generation over composition; the (variant
     /// → forward neighbor) projection emerges from the composition
     /// of TWO substrate primitives ([`Self::index_of`],
     /// [`Self::from_index`]) via `usize` `+ 1` arithmetic rather
@@ -9514,7 +9514,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// successor, this method returns the declaration-order
     /// predecessor. See [`Self::next`] for the shared design
     /// rationale, sibling matrix, override axis, future-consumer
-    /// inventory, THEORY.md grounding, and frontier inspiration —
+    /// inventory, grounding, and frontier inspiration —
     /// this method is the backward-direction arm of the same axis
     /// and inherits every property from the forward arm's
     /// documentation, differing only in the `- 1` arithmetic and the
@@ -9632,20 +9632,20 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// tail-endpoint anchor share, mirroring the `T::last().next() ==
     /// None` fixpoint one return-type axis over.
     ///
-    /// THEORY.md §III — the typescape; the (variant → forward-neighbor
+    /// The typescape; the (variant → forward-neighbor
     /// label) projection becomes a TYPE projection on the trait rather
     /// than a per-consumer inline `self.next().map(|v| v.label())`
     /// composition at every downstream label-shaped forward-neighbor
     /// rendering site. The (return-type × direction) 2×2 declaration-
     /// axis neighbor matrix partitions exhaustively into FOUR typed
     /// projections, each with a distinct load-bearing consumer surface.
-    /// THEORY.md §V.1 — knowable platform; the (variant → forward-
+    /// Knowable platform; the (variant → forward-
     /// neighbor label) projection was an unnamed compound of
     /// [`Self::next`] + [`Self::label`] + `Option::map` pre-lift;
     /// naming it on the trait makes the projection a TYPED CONSEQUENCE
     /// of the two substrate primitives — generic consumers see ONE
     /// method, not one forward-neighbor-label-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the (variant →
+    /// Generation over composition; the (variant →
     /// forward-neighbor label) projection emerges from the
     /// composition of TWO substrate primitives ([`Self::next`],
     /// [`Self::label`]) via `Option::map` rather than as a per-
@@ -9679,7 +9679,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// returns the declaration-order predecessor label. See
     /// [`Self::next_label`] for the shared design rationale, the
     /// (return-type × direction) 2×2 matrix, override axis, future-
-    /// consumer inventory, THEORY.md grounding, and frontier
+    /// consumer inventory, grounding, and frontier
     /// inspiration — this method is the backward-direction arm of the
     /// same axis and inherits every property from the forward arm's
     /// documentation, differing only in the composition through
@@ -9790,7 +9790,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// any typed variant and expect the same [`Option`]-typed answer
     /// at every crate boundary.
     ///
-    /// THEORY.md §III — the typescape; the (variant → forward-
+    /// The typescape; the (variant → forward-
     /// neighbor index) projection becomes a TYPE projection on the
     /// trait rather than a per-consumer inline
     /// `self.next().map(|v| v.index_of())` composition at every
@@ -9803,14 +9803,14 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// dimension into {`Self`, label, index} 3×2 makes the array-
     /// position projection a first-class typed sibling of the typed-
     /// variant and canonical-label siblings on the same axis.
-    /// THEORY.md §V.1 — knowable platform; the (variant → forward-
+    /// Knowable platform; the (variant → forward-
     /// neighbor index) projection was an unnamed compound of
     /// [`Self::next`] + [`Self::index_of`] + `Option::map` pre-lift;
     /// naming it on the trait makes the projection a TYPED
     /// CONSEQUENCE of the two substrate primitives — generic
     /// consumers see ONE method, not one forward-neighbor-index-
     /// shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the (variant →
+    /// Generation over composition; the (variant →
     /// forward-neighbor index) projection emerges from the
     /// composition of TWO substrate primitives ([`Self::next`],
     /// [`Self::index_of`]) via `Option::map` rather than as a per-
@@ -9852,7 +9852,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// index, this method returns the declaration-order predecessor
     /// index. See [`Self::next_index`] for the shared design
     /// rationale, the (return-type × direction) 3×2 matrix, override
-    /// axis, future-consumer inventory, THEORY.md grounding, and
+    /// axis, future-consumer inventory, grounding, and
     /// frontier inspiration — this method is the backward-direction
     /// arm of the same axis and inherits every property from the
     /// forward arm's documentation, differing only in the composition
@@ -9970,7 +9970,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// fixpoint one return-type axis over AND the
     /// `T::last().next_index() == None` fixpoint one ordering axis over.
     ///
-    /// THEORY.md §III — the typescape; the (variant → lex-forward-
+    /// The typescape; the (variant → lex-forward-
     /// neighbor lex-slot) projection becomes a TYPE projection on the
     /// trait rather than a per-consumer inline
     /// `self.sorted_next().map(|v| v.sorted_index_of())` composition at
@@ -9984,14 +9984,14 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// the lex-slot projection a first-class typed sibling of the
     /// typed-variant and canonical-label siblings on the lex-forward
     /// axis.
-    /// THEORY.md §V.1 — knowable platform; the (variant → lex-forward-
+    /// Knowable platform; the (variant → lex-forward-
     /// neighbor lex-slot) projection was an unnamed compound of
     /// [`Self::sorted_next`] + [`Self::sorted_index_of`] + `Option::map`
     /// pre-lift; naming it on the trait makes the projection a TYPED
     /// CONSEQUENCE of the two substrate primitives — generic consumers
     /// see ONE method, not one lex-forward-neighbor-lex-slot-shape-per-
     /// crate.
-    /// THEORY.md §VI.1 — generation over composition; the (variant →
+    /// Generation over composition; the (variant →
     /// lex-forward-neighbor lex-slot) projection emerges from the
     /// composition of TWO substrate primitives ([`Self::sorted_next`],
     /// [`Self::sorted_index_of`]) via `Option::map` rather than as a
@@ -10038,7 +10038,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// [`Self::sorted_next_index`] for the shared design rationale, the
     /// (declaration, lex) × (forward, backward) × (`Self`-return,
     /// `&'static str`-return, `usize`-return) 2×2×3 = 12-corner
-    /// hypercube, override axis, future-consumer inventory, THEORY.md
+    /// hypercube, override axis, future-consumer inventory,
     /// grounding, and frontier inspiration — this method is the
     /// backward-direction arm of the same lex-axis and inherits every
     /// property from the forward arm's documentation, differing only in
@@ -10148,7 +10148,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// axis over AND the `T::last().next_label() == None` fixpoint one
     /// ordering axis over.
     ///
-    /// THEORY.md §III — the typescape; the (variant → lex-forward-
+    /// The typescape; the (variant → lex-forward-
     /// neighbor label) projection becomes a TYPE projection on the trait
     /// rather than a per-consumer inline
     /// `self.sorted_next().map(|v| v.label())` composition at every
@@ -10157,13 +10157,13 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// `&'static str`-return) 2×2×2 = 8-corner label-and-variant
     /// neighbor hypercube partitions exhaustively into EIGHT typed
     /// projections, each with a distinct load-bearing consumer surface.
-    /// THEORY.md §V.1 — knowable platform; the (variant → lex-forward-
+    /// Knowable platform; the (variant → lex-forward-
     /// neighbor label) projection was an unnamed compound of
     /// [`Self::sorted_next`] + [`Self::label`] + `Option::map` pre-lift;
     /// naming it on the trait makes the projection a TYPED CONSEQUENCE
     /// of the two substrate primitives — generic consumers see ONE
     /// method, not one lex-forward-neighbor-label-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the (variant →
+    /// Generation over composition; the (variant →
     /// lex-forward-neighbor label) projection emerges from the
     /// composition of TWO substrate primitives ([`Self::sorted_next`],
     /// [`Self::label`]) via `Option::map` rather than as a per-
@@ -10206,7 +10206,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// predecessor label. See [`Self::sorted_next_label`] for the shared
     /// design rationale, the (declaration × lex) × (forward, backward)
     /// × (`Self`-return, `&'static str`-return) 2×2×2 = 8-corner
-    /// hypercube, override axis, future-consumer inventory, THEORY.md
+    /// hypercube, override axis, future-consumer inventory,
     /// grounding, and frontier inspiration — this method is the
     /// backward-direction arm of the same lex-axis and inherits every
     /// property from the forward arm's documentation, differing only in
@@ -10318,7 +10318,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// call [`Self::sorted_next`] on any typed variant and expect the
     /// same [`Option`]-typed answer at every crate boundary.
     ///
-    /// THEORY.md §III — the typescape; the (variant → forward
+    /// The typescape; the (variant → forward
     /// lex-neighbor) projection becomes a TYPE projection on the trait
     /// rather than a per-consumer inline
     /// `Self::from_sorted_index(self.sorted_index_of() + 1)` composition
@@ -10327,14 +10327,14 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// closed-set traversal surface partitions exhaustively into FOUR
     /// typed projections, each with a distinct load-bearing consumer
     /// surface.
-    /// THEORY.md §V.1 — knowable platform; the (variant → forward
+    /// Knowable platform; the (variant → forward
     /// lex-neighbor) projection was an unnamed compound of
     /// [`Self::sorted_index_of`] + [`Self::from_sorted_index`] + `+ 1`
     /// arithmetic pre-lift; naming it on the trait makes the
     /// projection a TYPED CONSEQUENCE of the two lex-axis substrate
     /// primitives — generic consumers see ONE method, not one
     /// lex-forward-neighbor-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the (variant →
+    /// Generation over composition; the (variant →
     /// forward lex-neighbor) projection emerges from the composition
     /// of TWO substrate primitives ([`Self::sorted_index_of`],
     /// [`Self::from_sorted_index`]) via `usize` `+ 1` arithmetic rather
@@ -10374,7 +10374,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// neighbor surface: [`Self::sorted_next`] returns the lex-order
     /// successor, this method returns the lex-order predecessor. See
     /// [`Self::sorted_next`] for the shared design rationale, sibling
-    /// 2×2 matrix, override axis, future-consumer inventory, THEORY.md
+    /// 2×2 matrix, override axis, future-consumer inventory,
     /// grounding, and frontier inspiration — this method is the
     /// backward-direction arm of the same lex-axis and inherits every
     /// property from the forward arm's documentation, differing only
@@ -10504,7 +10504,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// [`Self::cycle_next`] on any typed variant and expect the same
     /// [`Self`]-typed answer at every crate boundary.
     ///
-    /// THEORY.md §III — the typescape; the (variant → wrapping-forward
+    /// The typescape; the (variant → wrapping-forward
     /// neighbor) projection becomes a TYPE projection on the trait
     /// rather than a per-consumer inline
     /// `self.next().unwrap_or(T::first())` composition at every
@@ -10512,13 +10512,13 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// × (forward, backward) 2×2 matrix on the declaration-axis
     /// neighbor surface partitions exhaustively into FOUR typed
     /// projections, each with a distinct load-bearing consumer surface.
-    /// THEORY.md §V.1 — knowable platform; the wrapping-neighbor
+    /// Knowable platform; the wrapping-neighbor
     /// projections were unnamed compounds of [`Self::next`] +
     /// [`Self::first`] + [`Option::unwrap_or`] pre-lift; naming them on
     /// the trait makes the projections TYPED CONSEQUENCES of the two
     /// bounded-arm primitives — generic consumers see ONE wrapping
     /// method per direction, not one wrapping-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the wrapping-
+    /// Generation over composition; the wrapping-
     /// neighbor projection emerges from the composition of TWO
     /// substrate primitives ([`Self::next`], [`Self::first`]) via
     /// [`Option::unwrap_or`] rather than as a per-implementor `match
@@ -10565,7 +10565,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// this method returns the declaration-order predecessor with
     /// head-wrap-to-tail. See [`Self::cycle_next`] for the shared
     /// design rationale, sibling 2×2 matrix, override axis, future-
-    /// consumer inventory, THEORY.md grounding, and frontier
+    /// consumer inventory, grounding, and frontier
     /// inspiration — this method is the backward-direction arm of
     /// the same axis and inherits every property from the forward
     /// arm's documentation, differing only in the [`Self::prev`] /
@@ -10691,7 +10691,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// can call [`Self::cycle_sorted_next`] on any typed variant and
     /// expect the same [`Self`]-typed answer at every crate boundary.
     ///
-    /// THEORY.md §III — the typescape; the (variant → wrapping-forward
+    /// The typescape; the (variant → wrapping-forward
     /// lex-neighbor) projection becomes a TYPE projection on the trait
     /// rather than a per-consumer inline
     /// `self.sorted_next().unwrap_or(T::sorted_first())` composition at
@@ -10702,14 +10702,14 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// surface — closing the (Option-typed, wrapping) × (declaration,
     /// lex) × (forward, backward) 2×2×2 = 8-corner neighbor cube at
     /// EVERY corner.
-    /// THEORY.md §V.1 — knowable platform; the wrapping-lex-neighbor
+    /// Knowable platform; the wrapping-lex-neighbor
     /// projections were unnamed compounds of [`Self::sorted_next`] +
     /// [`Self::sorted_first`] + [`Option::unwrap_or`] pre-lift; naming
     /// them on the trait makes the projections TYPED CONSEQUENCES of the
     /// two lex-bounded-arm primitives — generic consumers see ONE
     /// wrapping method per direction per ordering axis, not one
     /// wrapping-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the wrapping-
+    /// Generation over composition; the wrapping-
     /// lex-neighbor projection emerges from the composition of TWO
     /// substrate primitives ([`Self::sorted_next`],
     /// [`Self::sorted_first`]) via [`Option::unwrap_or`] rather than as
@@ -10758,7 +10758,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// this method returns the lex-order predecessor with
     /// lex-head-wrap-to-lex-tail. See [`Self::cycle_sorted_next`] for
     /// the shared design rationale, sibling 2×2 matrix, override axis,
-    /// future-consumer inventory, THEORY.md grounding, and frontier
+    /// future-consumer inventory, grounding, and frontier
     /// inspiration — this method is the backward-direction arm of the
     /// same axis and inherits every property from the forward arm's
     /// documentation, differing only in the [`Self::sorted_prev`] /
@@ -10870,7 +10870,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// tail-endpoint anchor share, mirroring
     /// `T::last().cycle_next() == T::first()` one return-type axis over.
     ///
-    /// THEORY.md §III — the typescape; the (variant → wrapping-forward
+    /// The typescape; the (variant → wrapping-forward
     /// declaration-neighbor label) projection becomes a TYPE projection
     /// on the trait rather than a per-consumer inline
     /// `self.cycle_next().label()` composition at every downstream
@@ -10880,14 +10880,14 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// (Option-typed-bounded, wrapping) × (`Self`-return,
     /// `&'static str`-return) 2×2×2×2 = 16-corner label-and-variant
     /// bounded-plus-wrapping traversal hypercube.
-    /// THEORY.md §V.1 — knowable platform; the wrapping-declaration-
+    /// Knowable platform; the wrapping-declaration-
     /// neighbor-label projections were unnamed compounds of
     /// [`Self::cycle_next`] + [`Self::label`] pre-lift; naming them on
     /// the trait makes the projections TYPED CONSEQUENCES of the two
     /// substrate primitives — generic consumers see ONE wrapping-label
     /// method per direction per ordering axis, not one wrapping-label-
     /// shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the wrapping-
+    /// Generation over composition; the wrapping-
     /// declaration-neighbor-label projection emerges from composition
     /// of substrate primitives rather than as a per-implementor
     /// `match self { A => "b-label", B => "c-label", C => "a-label" }`
@@ -10921,7 +10921,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// this method returns the declaration-order predecessor label with
     /// head-wrap-to-tail-label. See [`Self::cycle_next_label`] for the
     /// shared design rationale, sibling 2×2 matrix, override axis,
-    /// future-consumer inventory, THEORY.md grounding, and frontier
+    /// future-consumer inventory, grounding, and frontier
     /// inspiration — this method is the backward-direction arm of the
     /// same axis and inherits every property from the forward arm's
     /// documentation, differing only in the [`Self::cycle_prev`] /
@@ -11005,7 +11005,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// set wrapping-lex-label-neighbor surface. See
     /// [`Self::cycle_sorted_next_label`] for the shared design rationale,
     /// sibling 2×2 matrix, override axis, future-consumer inventory,
-    /// THEORY.md grounding, and frontier inspiration.
+    /// grounding, and frontier inspiration.
     ///
     /// Default body composes [`Self::cycle_sorted_prev`] with
     /// [`Self::label`] verbatim. The wrapping-lex-neighbor-label contract
@@ -11106,7 +11106,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// return-type axis over AND `T::last().cycle_next_label() ==
     /// T::first_label()` one return-type axis over.
     ///
-    /// THEORY.md §III — the typescape; the (variant → wrapping-forward
+    /// The typescape; the (variant → wrapping-forward
     /// declaration-neighbor slot) projection becomes a TYPE projection
     /// on the trait rather than a per-consumer inline
     /// `self.cycle_next().index_of()` composition at every downstream
@@ -11120,14 +11120,14 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// index} 3×2×2×2 makes the declaration-cyclic-index projection a
     /// first-class typed sibling of the typed-variant and canonical-
     /// label siblings on the declaration-cyclic-forward corner.
-    /// THEORY.md §V.1 — knowable platform; the wrapping-forward-
+    /// Knowable platform; the wrapping-forward-
     /// neighbor-index projection was an unnamed compound of
     /// [`Self::cycle_next`] + [`Self::index_of`] pre-lift; naming it on
     /// the trait makes the projection a TYPED CONSEQUENCE of the two
     /// substrate primitives — generic consumers see ONE wrapping-
     /// forward-index method per ordering axis, not one wrapping-index-
     /// shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the wrapping-
+    /// Generation over composition; the wrapping-
     /// forward-neighbor-index projection emerges from composition of
     /// substrate primitives rather than as a per-implementor
     /// `match self { A => 1, B => 2, C => 0 }` block keyed on the
@@ -11169,7 +11169,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// to-tail-slot `T::CARDINALITY - 1`. See
     /// [`Self::cycle_next_index`] for the shared design rationale, the
     /// 3×2×2×2 = 24-corner hypercube, override axis, future-consumer
-    /// inventory, THEORY.md grounding, and frontier inspiration — this
+    /// inventory, grounding, and frontier inspiration — this
     /// method is the backward-direction arm of the same axis and
     /// inherits every property from the forward arm's documentation,
     /// differing only in the composition through [`Self::cycle_prev`]
@@ -11267,7 +11267,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// the closed-set wrapping-lex-index-neighbor surface. See
     /// [`Self::cycle_sorted_next_index`] for the shared design
     /// rationale, sibling 2×2×2×3 = 24-corner hypercube, override axis,
-    /// future-consumer inventory, THEORY.md grounding, and frontier
+    /// future-consumer inventory, grounding, and frontier
     /// inspiration.
     ///
     /// Default body composes [`Self::cycle_sorted_prev`] with
@@ -11387,18 +11387,18 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// comparison predicate rather than re-deriving the
     /// `index_of` composition inline per callsite.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the
+    /// Anchor: the typescape; the
     /// pairwise-comparison predicate becomes a TYPE-level primitive
     /// on the closed-set trait rather than a per-consumer inline
     /// `index_of(self) < index_of(other)` composition at every
-    /// downstream generic site. THEORY.md §V.1 — knowable platform;
+    /// downstream generic site. Knowable platform;
     /// the pairwise-comparison surface was an unnamed inline
     /// composition recurring at every prospective downstream
     /// pairwise-ordering site pre-lift. Naming it on the trait makes
     /// the predicate a TYPED CONSEQUENCE of the declaration-axis
     /// index bijection — generic consumers see ONE typed predicate,
-    /// not ONE inline-composition-shape-per-crate. THEORY.md §VI.1 —
-    /// generation over composition; the pairwise-precedence
+    /// not ONE inline-composition-shape-per-crate.
+    /// Generation over composition; the pairwise-precedence
     /// predicate emerges from the composition of TWO substrate
     /// primitives ([`Self::index_of`] on both operands + the
     /// standard-library `<` on `usize`) rather than as a per-
@@ -11432,7 +11432,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// `self` sits strictly later. See [`Self::precedes`] for the
     /// shared strict-order laws (irreflexivity, asymmetry,
     /// transitivity, trichotomy), the cross-axis composition through
-    /// [`Self::index_of`], the future-consumer inventory, THEORY.md
+    /// [`Self::index_of`], the future-consumer inventory,
     /// grounding, and frontier inspiration — this method is the
     /// reverse-direction arm of the same pairwise-comparison surface
     /// and inherits every property from the forward arm's
@@ -11477,7 +11477,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// [`Self::precedes`] for the shared strict-order laws
     /// (irreflexivity, asymmetry, transitivity, trichotomy), the
     /// cross-axis composition, the future-consumer inventory,
-    /// THEORY.md grounding, and frontier inspiration — this method
+    /// grounding, and frontier inspiration — this method
     /// is the lex-axis arm of the same pairwise-comparison surface
     /// and inherits every property from the declaration arm's
     /// documentation, differing only in the projection method the
@@ -11667,16 +11667,16 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// pairwise-comparison predicate rather than re-deriving the
     /// `precedes(x, y) || x == y` composition inline per callsite.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the non-strict
+    /// Anchor: the typescape; the non-strict
     /// pairwise-comparison predicate becomes a TYPE-level primitive
     /// on the closed-set trait rather than a per-consumer inline
     /// `index_of(self) <= index_of(other)` composition at every
-    /// downstream generic site. THEORY.md §V.1 — knowable platform;
+    /// downstream generic site. Knowable platform;
     /// the strictness axis was an unnamed inline composition
     /// (`precedes(x, y) || x == y`) recurring at every prospective
     /// downstream non-strict-pairwise-ordering site pre-lift. Naming
     /// it on the trait makes the predicate a TYPED CONSEQUENCE of the
-    /// declaration-axis index bijection. THEORY.md §VI.1 — generation
+    /// declaration-axis index bijection. Generation
     /// over composition; the non-strict pairwise-precedence predicate
     /// emerges from the composition of TWO substrate primitives
     /// ([`Self::index_of`] on both operands + the standard-library
@@ -11715,7 +11715,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// non-strict-order laws (reflexivity, antisymmetry, transitivity,
     /// totality), the cross-axis composition through [`Self::index_of`],
     /// the cross-strictness composition through [`Self::succeeds`] on
-    /// the strict axis, the future-consumer inventory, THEORY.md
+    /// the strict axis, the future-consumer inventory,
     /// grounding, and frontier inspiration — this method is the
     /// reverse-direction arm of the same non-strict pairwise-comparison
     /// surface and inherits every property from the forward arm's
@@ -11756,7 +11756,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// (reflexivity, antisymmetry, transitivity, totality), the
     /// cross-axis composition, the cross-strictness composition
     /// through [`Self::sorted_precedes`] on the strict axis, the
-    /// future-consumer inventory, THEORY.md grounding, and frontier
+    /// future-consumer inventory, grounding, and frontier
     /// inspiration — this method is the lex-axis arm of the same
     /// non-strict pairwise-comparison surface and inherits every
     /// property from the declaration arm's documentation, differing
@@ -11915,11 +11915,11 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// overrides exist — a typed escape hatch rather than forcing
     /// the implementor to hand-roll the impl).
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the binary
+    /// Anchor: the typescape; the binary
     /// pairwise MIN projection becomes a TYPE-level primitive on the
     /// closed-set trait rather than a per-consumer inline
     /// `if a <= b { a } else { b }` shape at every downstream
-    /// generic site. THEORY.md §V.1 — knowable platform; the min
+    /// generic site. Knowable platform; the min
     /// projection was an unnamed inline composition
     /// (`if a.precedes_or_equal(b) { a } else { b }`) recurring at
     /// every prospective downstream pairwise-selection site pre-
@@ -11928,7 +11928,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// symmetric to how [`Self::clamp`] emerges as a typed
     /// consequence of the strict pairwise-precedence predicate at
     /// both range endpoints one arity level up on the (arity) axis.
-    /// THEORY.md §VI.1 — generation over composition; the binary MIN
+    /// Generation over composition; the binary MIN
     /// projection emerges from the composition of ONE substrate
     /// primitive ([`Self::precedes_or_equal`]) with the standard-
     /// library `if`/`else` on `bool` rather than as a per-implementor
@@ -11980,7 +11980,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// shared design rationale, sibling matrix, bracket / membership
     /// / idempotence / tie-break contracts, the cross-primitive
     /// composition into [`Self::clamp`], the future-consumer
-    /// inventory, THEORY.md grounding, and frontier inspiration —
+    /// inventory, grounding, and frontier inspiration —
     /// this method is the direction-complement arm of the same
     /// binary pairwise-selection surface and inherits every property
     /// from the min arm's documentation, differing only in the
@@ -12029,7 +12029,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// See [`Self::min`] for the shared bracket / membership /
     /// idempotence / tie-break contracts, the cross-primitive
     /// composition into [`Self::sorted_clamp`], the future-consumer
-    /// inventory, THEORY.md grounding, and frontier inspiration —
+    /// inventory, grounding, and frontier inspiration —
     /// this method is the lex-axis arm of the same binary pairwise-
     /// selection surface and inherits every property from the
     /// declaration arm's documentation, differing only in the
@@ -12092,7 +12092,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// membership / idempotence / tie-break contracts, the cross-
     /// primitive composition into [`Self::sorted_clamp`] via the
     /// `sorted_clamp = sorted_max ∘ sorted_min` factoring, the
-    /// future-consumer inventory, THEORY.md grounding, and frontier
+    /// future-consumer inventory, grounding, and frontier
     /// inspiration — this method is the lex-order arm of the max
     /// direction column and inherits every property from the min
     /// arm's documentation, differing only in the projection method
@@ -12186,7 +12186,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// (min, max) direction axis of the closed-set label-return
     /// binary pairwise-selection surface. See [`Self::min_label`]
     /// for the shared design rationale, sibling matrix, override
-    /// axis, future-consumer inventory, THEORY.md grounding, and
+    /// axis, future-consumer inventory, grounding, and
     /// frontier inspiration — this method is the max-direction arm
     /// of the same label-return binary-selection surface and
     /// inherits every property from the min arm's documentation,
@@ -12214,7 +12214,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// (declaration, lex) ordering axis of the closed-set label-return
     /// binary pairwise-MIN surface. See [`Self::min_label`] for the
     /// shared design rationale, sibling matrix, override axis,
-    /// future-consumer inventory, THEORY.md grounding, and frontier
+    /// future-consumer inventory, grounding, and frontier
     /// inspiration — this method is the lex-axis arm of the same
     /// label-return binary-min surface and inherits every property
     /// from the declaration arm's documentation, differing only in
@@ -12262,7 +12262,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     ///
     /// See [`Self::min_label`] for the shared design rationale,
     /// sibling matrix, override axis, future-consumer inventory,
-    /// THEORY.md grounding, and frontier inspiration — this method
+    /// grounding, and frontier inspiration — this method
     /// is the lex-order arm of the max direction column on the
     /// label-return surface and inherits every property from the
     /// declaration arm's documentation, differing only in the
@@ -12365,7 +12365,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// (min, max) direction axis of the closed-set index-return binary
     /// pairwise-selection surface. See [`Self::min_index`] for the
     /// shared design rationale, sibling matrix, override axis, future-
-    /// consumer inventory, THEORY.md grounding, and frontier
+    /// consumer inventory, grounding, and frontier
     /// inspiration — this method is the max-direction arm of the same
     /// index-return binary-selection surface and inherits every
     /// property from the min arm's documentation, differing only in
@@ -12393,7 +12393,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// (declaration, lex) ordering axis of the closed-set index-return
     /// binary pairwise-MIN surface. See [`Self::min_index`] for the
     /// shared design rationale, sibling matrix, override axis, future-
-    /// consumer inventory, THEORY.md grounding, and frontier
+    /// consumer inventory, grounding, and frontier
     /// inspiration — this method is the lex-axis arm of the same
     /// index-return binary-min surface and inherits every property
     /// from the declaration arm's documentation, differing only in
@@ -12446,7 +12446,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     ///
     /// See [`Self::min_index`] for the shared design rationale,
     /// sibling matrix, override axis, future-consumer inventory,
-    /// THEORY.md grounding, and frontier inspiration — this method is
+    /// grounding, and frontier inspiration — this method is
     /// the lex-order arm of the max direction column on the index-
     /// return surface and inherits every property from the declaration
     /// arm's documentation, differing only in the substrate primitive
@@ -12561,17 +12561,17 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// typed escape hatch rather than forcing the implementor to
     /// hand-roll the impl).
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary min
+    /// Anchor: the typescape; the N-ary min
     /// projection becomes a TYPE-level primitive on the closed-set
     /// trait rather than a per-consumer inline `items.iter().copied()
     /// .reduce(T::min)` composition at every downstream generic site.
-    /// THEORY.md §V.1 — knowable platform; the N-ary min axis was an
+    /// Knowable platform; the N-ary min axis was an
     /// unnamed inline composition (`.copied().reduce(min)`) that
     /// would recur at every prospective downstream slice-reduction
     /// site pre-lift. Naming it on the trait makes the projection a
     /// TYPED CONSEQUENCE of the binary min primitive folded through
     /// the standard-library `Iterator::reduce` at ONE composition
-    /// site. THEORY.md §VI.1 — generation over composition; the N-ary
+    /// site. Generation over composition; the N-ary
     /// min projection emerges from the composition of ONE substrate
     /// primitive ([`Self::min`]) with the standard-library
     /// [`Iterator::reduce`] rather than as a per-implementor hand-
@@ -12611,7 +12611,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// reduction surface. See [`Self::min_of`] for the shared design
     /// rationale, empty-slice / singleton / binary-agreement / fold-
     /// left / permutation-invariance contracts, the future-consumer
-    /// inventory, THEORY.md grounding, and frontier inspiration —
+    /// inventory, grounding, and frontier inspiration —
     /// this method is the max-direction arm of the same N-ary
     /// variadic reduction surface and inherits every property from
     /// the min arm's documentation, differing only in the substrate
@@ -12646,7 +12646,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// variadic reduction surface. See [`Self::min_of`] for the
     /// shared design rationale, empty-slice / singleton / binary-
     /// agreement / fold-left / permutation-invariance contracts, the
-    /// future-consumer inventory, THEORY.md grounding, and frontier
+    /// future-consumer inventory, grounding, and frontier
     /// inspiration — this method is the lex-axis arm of the same
     /// N-ary variadic reduction surface and inherits every property
     /// from the declaration arm's documentation, differing only in
@@ -12694,7 +12694,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     ///
     /// See [`Self::min_of`] for the shared design rationale, empty-
     /// slice / singleton / binary-agreement / fold-left / permutation-
-    /// invariance contracts, the future-consumer inventory, THEORY.md
+    /// invariance contracts, the future-consumer inventory,
     /// grounding, and frontier inspiration — this method is the lex-
     /// order arm of the max direction column on the N-ary variadic
     /// reduction surface and inherits every property from the
@@ -12782,15 +12782,15 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// Self-return composition through the pre-existing label
     /// projection (no production implementor reaches for this today).
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary min-
+    /// Anchor: the typescape; the N-ary min-
     /// label projection becomes a TYPE-level primitive on the closed-
     /// set trait rather than a per-consumer inline `.reduce(T::min)
-    /// .map(T::label)` composition. THEORY.md §V.1 — knowable platform;
+    /// .map(T::label)` composition. Knowable platform;
     /// the N-ary label-return axis was an unnamed inline composition
     /// pre-lift. Naming it on the trait makes the projection a TYPED
     /// CONSEQUENCE of TWO substrate primitives ([`Self::min_of`] +
     /// [`Self::label`]) composed through [`Option::map`] at ONE
-    /// composition site. THEORY.md §VI.1 — generation over composition;
+    /// composition site. Generation over composition;
     /// the N-ary min-label projection emerges from the composition of
     /// TWO substrate primitives rather than a per-implementor hand-
     /// rolled body.
@@ -12819,7 +12819,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// variadic-reduction surface. See [`Self::min_label_of`] for the
     /// shared design rationale, empty-slice / singleton / composition /
     /// full-set / permutation-invariance contracts, the future-consumer
-    /// inventory, THEORY.md grounding, and frontier inspiration — this
+    /// inventory, grounding, and frontier inspiration — this
     /// method is the max-direction arm of the same label-return N-ary
     /// surface and inherits every property from the min arm's
     /// documentation, differing only in the substrate primitive the
@@ -12844,7 +12844,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// (declaration, lex) ordering axis of the closed-set label-return
     /// N-ary variadic-reduction surface. See [`Self::min_label_of`] for
     /// the shared design rationale, contracts, future-consumer
-    /// inventory, THEORY.md grounding, and frontier inspiration — this
+    /// inventory, grounding, and frontier inspiration — this
     /// method is the lex-axis arm of the same label-return N-ary
     /// surface and inherits every property from the declaration arm's
     /// documentation, differing only in the substrate primitive the
@@ -12887,7 +12887,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     ///
     /// See [`Self::min_label_of`] for the shared design rationale, the
     /// empty-slice / singleton / composition / full-set / permutation-
-    /// invariance contracts, the future-consumer inventory, THEORY.md
+    /// invariance contracts, the future-consumer inventory,
     /// grounding, and frontier inspiration — this method is the lex-
     /// order arm of the max direction column on the label-return N-ary
     /// surface and inherits every property from the declaration arm's
@@ -12989,16 +12989,16 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// natural Self-return composition through the pre-existing index
     /// projection (no production implementor reaches for this today).
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary min-
+    /// Anchor: the typescape; the N-ary min-
     /// index projection becomes a TYPE-level primitive on the closed-
     /// set trait rather than a per-consumer inline `.reduce(T::min)
-    /// .map(T::index_of)` composition. THEORY.md §V.1 — knowable
+    /// .map(T::index_of)` composition. Knowable
     /// platform; the N-ary index-return axis was an unnamed inline
     /// composition pre-lift. Naming it on the trait makes the
     /// projection a TYPED CONSEQUENCE of TWO substrate primitives
     /// ([`Self::min_of`] + [`Self::index_of`]) composed through
-    /// [`Option::map`] at ONE composition site. THEORY.md §VI.1 —
-    /// generation over composition; the N-ary min-index projection
+    /// [`Option::map`] at ONE composition site.
+    /// Generation over composition; the N-ary min-index projection
     /// emerges from the composition of TWO substrate primitives rather
     /// than a per-implementor hand-rolled body. A future tightening of
     /// the underlying Self-return `min_of` (a perfect-hash reduction, a
@@ -13031,7 +13031,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// variadic-reduction surface. See [`Self::min_index_of`] for the
     /// shared design rationale, empty-slice / singleton / composition /
     /// full-set / permutation-invariance / binary-agreement contracts,
-    /// the future-consumer inventory, THEORY.md grounding, and frontier
+    /// the future-consumer inventory, grounding, and frontier
     /// inspiration — this method is the max-direction arm of the same
     /// index-return N-ary surface and inherits every property from the
     /// min arm's documentation, differing only in the substrate
@@ -13056,7 +13056,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// (declaration, lex) ordering axis of the closed-set index-return
     /// N-ary variadic-reduction surface. See [`Self::min_index_of`] for
     /// the shared design rationale, contracts, future-consumer
-    /// inventory, THEORY.md grounding, and frontier inspiration — this
+    /// inventory, grounding, and frontier inspiration — this
     /// method is the lex-axis arm of the same index-return N-ary
     /// surface and inherits every property from the declaration arm's
     /// documentation, differing only in the substrate primitive the
@@ -13108,7 +13108,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// See [`Self::min_index_of`] for the shared design rationale, the
     /// empty-slice / singleton / composition / full-set / permutation-
     /// invariance / binary-agreement contracts, the future-consumer
-    /// inventory, THEORY.md grounding, and frontier inspiration — this
+    /// inventory, grounding, and frontier inspiration — this
     /// method is the lex-order arm of the max direction column on the
     /// index-return N-ary surface and inherits every property from the
     /// declaration arm's documentation, differing only in the substrate
@@ -13231,18 +13231,18 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// than re-deriving `pairs.all(|(a, b)| a.precedes_or_equal(b))`
     /// inline per callsite.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// monotonicity predicate becomes a TYPE-level primitive on the
     /// closed-set trait rather than a per-consumer inline
     /// `windows(2).all(…)` composition at every downstream generic
-    /// site. THEORY.md §V.1 — knowable platform; the N-ary-arity
+    /// site. Knowable platform; the N-ary-arity
     /// monotonicity axis was an unnamed inline composition
     /// (`items.windows(2).all(|w| w[0].precedes_or_equal(w[1]))`)
     /// recurring at every prospective downstream monotonicity-check
     /// site pre-lift. Naming it on the trait makes the predicate a
     /// TYPED CONSEQUENCE of the non-strict pairwise-precedence
     /// predicate applied across every adjacent operand window.
-    /// THEORY.md §VI.1 — generation over composition; the N-ary
+    /// Generation over composition; the N-ary
     /// monotonicity predicate emerges from the composition of TWO
     /// substrate primitives ([`Self::precedes_or_equal`] at every
     /// adjacent pair + the standard-library [`Iterator::all`] on
@@ -13283,7 +13283,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// See [`Self::is_ascending`] for the shared design rationale,
     /// empty-slice / singleton / binary-agreement / full-set /
     /// direction-reversal contracts, the future-consumer inventory,
-    /// THEORY.md grounding, and frontier inspiration — this method is
+    /// grounding, and frontier inspiration — this method is
     /// the reverse-direction arm of the same N-ary monotonicity
     /// surface and inherits every property from the forward arm's
     /// documentation, differing only in the substrate primitive the
@@ -13319,7 +13319,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// See [`Self::is_ascending`] for the shared design rationale,
     /// empty-slice / singleton / binary-agreement / full-set /
     /// direction-reversal contracts, the future-consumer inventory,
-    /// THEORY.md grounding, and frontier inspiration — this method is
+    /// grounding, and frontier inspiration — this method is
     /// the lex-axis arm of the same N-ary monotonicity surface and
     /// inherits every property from the declaration arm's
     /// documentation, differing only in the substrate primitive the
@@ -13358,7 +13358,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// predicate. See [`Self::is_ascending`] for the shared design
     /// rationale, empty-slice / singleton / binary-agreement /
     /// full-set / direction-reversal contracts, the future-consumer
-    /// inventory, THEORY.md grounding, and frontier inspiration —
+    /// inventory, grounding, and frontier inspiration —
     /// this method is the lex-axis reverse-direction arm of the same
     /// N-ary monotonicity surface and inherits every property from
     /// the three prior arms' documentation, differing only in the
@@ -13399,7 +13399,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// See [`Self::is_ascending`] for the shared design rationale,
     /// empty-slice / singleton / binary-agreement / full-set /
     /// direction-reversal contracts, the future-consumer inventory,
-    /// THEORY.md grounding, and frontier inspiration — this method is
+    /// grounding, and frontier inspiration — this method is
     /// the strictness-complement arm of the same N-ary monotonicity
     /// surface and inherits every property from the non-strict arm's
     /// documentation, differing only in the substrate primitive the
@@ -13455,7 +13455,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// See [`Self::is_strictly_ascending`] for the shared design
     /// rationale, empty-slice / singleton / binary-agreement / full-
     /// set / direction-reversal / constant-slice / strict-implies-
-    /// non-strict contracts, the future-consumer inventory, THEORY.md
+    /// non-strict contracts, the future-consumer inventory,
     /// grounding, and frontier inspiration — this method is the
     /// reverse-direction arm of the same N-ary strict-monotonicity
     /// surface and inherits every property from the forward arm's
@@ -13493,7 +13493,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// See [`Self::is_strictly_ascending`] for the shared design
     /// rationale, empty-slice / singleton / binary-agreement / full-
     /// set / direction-reversal / constant-slice / strict-implies-
-    /// non-strict contracts, the future-consumer inventory, THEORY.md
+    /// non-strict contracts, the future-consumer inventory,
     /// grounding, and frontier inspiration — this method is the lex-
     /// axis arm of the same N-ary strict-monotonicity surface and
     /// inherits every property from the declaration arm's
@@ -13537,7 +13537,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// [`Self::is_strictly_ascending`] for the shared design
     /// rationale, empty-slice / singleton / binary-agreement / full-
     /// set / direction-reversal / constant-slice / strict-implies-
-    /// non-strict contracts, the future-consumer inventory, THEORY.md
+    /// non-strict contracts, the future-consumer inventory,
     /// grounding, and frontier inspiration — this method is the lex-
     /// axis reverse-direction arm of the same N-ary strict-
     /// monotonicity surface and inherits every property from the
@@ -13656,19 +13656,19 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// re-deriving `T::is_ascending(items) || T::is_descending(items)`
     /// inline per callsite.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the direction-
+    /// Anchor: the typescape; the direction-
     /// collapsed N-ary monotonicity predicate becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline `T::is_ascending(items) || T::is_descending(items)`
     /// disjunction at every downstream generic site.
-    /// THEORY.md §V.1 — knowable platform; the direction-collapsed
+    /// Knowable platform; the direction-collapsed
     /// axis was an unnamed inline composition
     /// (`T::is_ascending(items) || T::is_descending(items)`) recurring
     /// at every prospective downstream direction-agnostic monotonicity
     /// site pre-lift. Naming it on the trait makes the predicate a
     /// TYPED CONSEQUENCE of the direction-split arms disjoined through
     /// the standard-library `||`.
-    /// THEORY.md §VI.1 — generation over composition; the direction-
+    /// Generation over composition; the direction-
     /// collapsed predicate emerges from the composition of TWO
     /// substrate primitives ([`Self::is_ascending`] +
     /// [`Self::is_descending`] joined via the standard-library `||`
@@ -13708,7 +13708,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     ///
     /// See [`Self::is_monotonic`] for the shared design rationale,
     /// empty-slice / singleton / direction-reversal / full-set
-    /// contracts, the future-consumer inventory, THEORY.md grounding,
+    /// contracts, the future-consumer inventory, grounding,
     /// and frontier inspiration — this method is the strictness-
     /// complement arm of the same direction-collapsed N-ary
     /// monotonicity surface and inherits every property from the non-
@@ -13747,7 +13747,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     ///
     /// See [`Self::is_monotonic`] for the shared design rationale,
     /// empty-slice / singleton / direction-reversal / constant-slice /
-    /// full-set contracts, the future-consumer inventory, THEORY.md
+    /// full-set contracts, the future-consumer inventory,
     /// grounding, and frontier inspiration — this method is the lex-
     /// axis arm of the same direction-collapsed N-ary monotonicity
     /// surface and inherits every property from the declaration arm's
@@ -13787,7 +13787,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// collapsed predicate. See [`Self::is_monotonic`] for the shared
     /// design rationale, empty-slice / singleton / direction-reversal /
     /// constant-slice / full-set contracts, the future-consumer
-    /// inventory, THEORY.md grounding, and frontier inspiration —
+    /// inventory, grounding, and frontier inspiration —
     /// this method is the lex-axis strictness-complement arm of the
     /// same direction-collapsed N-ary monotonicity surface and
     /// inherits every property from the three prior arms' documentation,
@@ -13926,12 +13926,12 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// predicate on the trait rather than re-deriving `T::is_ascending(items)
     /// && T::is_descending(items)` inline per callsite.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the direction-
+    /// Anchor: the typescape; the direction-
     /// joined N-ary "all elements equal" predicate becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline `T::is_ascending(items) && T::is_descending(items)`
     /// conjunction at every downstream generic site.
-    /// THEORY.md §V.1 — knowable platform; the direction-joined axis
+    /// Knowable platform; the direction-joined axis
     /// was an unnamed inline composition
     /// (`T::is_ascending(items) && T::is_descending(items)`) recurring
     /// at every prospective downstream "is-this-slice-a-constant"
@@ -13940,7 +13940,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// test's inline conjunction. Naming it on the trait makes the
     /// predicate a TYPED CONSEQUENCE of the direction-split arms
     /// joined through the standard-library `&&`.
-    /// THEORY.md §VI.1 — generation over composition; the direction-
+    /// Generation over composition; the direction-
     /// joined predicate emerges from the composition of TWO substrate
     /// primitives ([`Self::is_ascending`] + [`Self::is_descending`]
     /// joined via the standard-library `&&` short-circuit) rather
@@ -14092,18 +14092,18 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// predicate on the trait rather than re-deriving the pairwise
     /// sweep inline per callsite.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// distinctness predicate becomes a TYPE-level primitive on the
     /// closed-set trait rather than a per-consumer inline nested
-    /// `for` loop at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the N-ary distinctness axis was an unnamed
+    /// `for` loop at every downstream generic site.
+    /// Knowable platform; the N-ary distinctness axis was an unnamed
     /// inline composition recurring at every prospective downstream
     /// "does-this-slice-repeat-a-variant" site pre-lift. Naming it
     /// on the trait makes the predicate a TYPED CONSEQUENCE of the
     /// substrate's total-ordering discriminator ([`Self::index_of`])
     /// projected through the standard-library `.iter().enumerate().all(…)`
     /// combinator.
-    /// THEORY.md §VI.1 — generation over composition; the pairwise-
+    /// Generation over composition; the pairwise-
     /// distinctness predicate emerges from the composition of ONE
     /// substrate primitive ([`Self::index_of`]) with the standard-
     /// library `.iter().enumerate().all(…)` combinator rather than
@@ -14276,11 +14276,11 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// trait rather than re-deriving the first-occurrence sweep
     /// inline per callsite.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// distinct-count projection becomes a TYPE-level primitive
     /// on the closed-set trait rather than a per-consumer inline
-    /// dedup sweep at every downstream generic site. THEORY.md
-    /// §V.1 — knowable platform; the N-ary distinct-count axis
+    /// dedup sweep at every downstream generic site.
+    /// Knowable platform; the N-ary distinct-count axis
     /// was an unnamed inline composition recurring at every
     /// prospective downstream "how many distinct variants does
     /// this slice hit" site pre-lift. Naming it on the trait
@@ -14288,7 +14288,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// substrate's total-ordering discriminator
     /// ([`Self::index_of`]) projected through the standard-
     /// library `.iter().enumerate().filter(…).count()` combinator.
-    /// THEORY.md §VI.1 — generation over composition; the
+    /// Generation over composition; the
     /// distinct-count projection emerges from the composition of
     /// ONE substrate primitive ([`Self::index_of`]) with the
     /// standard-library first-occurrence filter combinator rather
@@ -14442,18 +14442,18 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// distinct, permutation) triangle then closes at three typed
     /// primitives on the same equivalence-partition surface.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// surjectivity predicate becomes a TYPE-level primitive on the
     /// closed-set trait rather than a per-consumer inline
     /// `T::count_distinct(items) == T::CARDINALITY` composition at
-    /// every downstream generic site. THEORY.md §V.1 — knowable
+    /// every downstream generic site. Knowable
     /// platform; the covering axis was an unnamed inline composition
     /// recurring at every prospective downstream "did we hit every
     /// variant?" site pre-lift. Naming it makes the predicate a TYPED
     /// CONSEQUENCE of the substrate's total-ordering discriminator
     /// ([`Self::index_of`] via [`Self::count_distinct`]) compared
-    /// against the trait-level cardinality constant. THEORY.md §VI.1
-    /// — generation over composition; the covering predicate emerges
+    /// against the trait-level cardinality constant.
+    /// Generation over composition; the covering predicate emerges
     /// from the composition of ONE substrate primitive
     /// ([`Self::count_distinct`]) with the trait-level constant
     /// ([`Self::CARDINALITY`]) via a single `==` on `usize`, not as a
@@ -14634,12 +14634,12 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// distinct)` is degenerate (holds iff `items.len() <= 1`);
     /// permutation is the load-bearing NON-DEGENERATE conjunction.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// permutation predicate becomes a TYPE-level primitive on the
     /// closed-set trait rather than a per-consumer inline
     /// `T::is_covering(items) && T::is_pairwise_distinct(items)`
-    /// composition at every downstream generic site. THEORY.md
-    /// §V.1 — knowable platform; the permutation-of-all axis was an
+    /// composition at every downstream generic site.
+    /// Knowable platform; the permutation-of-all axis was an
     /// unnamed inline two-primitive conjunction pre-lift. Naming it
     /// makes the predicate a TYPED CONSEQUENCE of two substrate
     /// projections on the SAME equivalence-partition surface, so
@@ -14647,7 +14647,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// the ambient set?" binds against a NAMED predicate rather than
     /// against an inline conjunction that could silently drift if
     /// either building-block projection's semantics changes.
-    /// THEORY.md §VI.1 — generation over composition; the
+    /// Generation over composition; the
     /// permutation predicate emerges from the composition of TWO
     /// substrate primitives ([`Self::is_covering`] +
     /// [`Self::is_pairwise_distinct`]) via a single `&&` on `bool`,
@@ -14832,18 +14832,18 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// and the (any-missing) predicate is a trivial future
     /// composition on THIS count.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// absent-count projection becomes a TYPE-level primitive on
     /// the closed-set trait rather than a per-consumer inline
     /// `T::CARDINALITY - T::count_distinct(items)` subtraction at
-    /// every downstream generic site. THEORY.md §V.1 — knowable
+    /// every downstream generic site. Knowable
     /// platform; the (absent) column was an unnamed inline
     /// composition recurring at every prospective downstream "how
     /// many variants did we miss?" site pre-lift. Naming it on the
     /// trait makes the projection a TYPED CONSEQUENCE of the
     /// substrate's total-ordering discriminator ([`Self::index_of`]
     /// via [`Self::count_distinct`]) subtracted from the trait-level
-    /// [`Self::CARDINALITY`] constant. THEORY.md §VI.1 — generation
+    /// [`Self::CARDINALITY`] constant. Generation
     /// over composition; the missing-count projection emerges from
     /// the composition of ONE substrate primitive
     /// ([`Self::count_distinct`]) with the trait-level constant
@@ -15023,17 +15023,17 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// square that composes on [`Self::ALL`] filtered by hit/miss
     /// membership.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// any-missing predicate becomes a TYPE-level primitive on the
     /// closed-set trait rather than a per-consumer inline `!T::is_
     /// covering(items)` negation at every downstream generic site.
-    /// THEORY.md §V.1 — knowable platform; the (absent-bool) corner
+    /// Knowable platform; the (absent-bool) corner
     /// was an unnamed inline composition recurring at every
     /// prospective downstream "did we miss any?" site pre-lift.
     /// Naming it on the trait makes the projection a TYPED
     /// CONSEQUENCE of the substrate's absent-count projection
     /// ([`Self::count_missing`]) compared strictly-positively to
-    /// `0`. THEORY.md §VI.1 — generation over composition; the
+    /// `0`. Generation over composition; the
     /// any-missing predicate emerges from the composition of ONE
     /// substrate primitive ([`Self::count_missing`]) with a `> 0`
     /// comparison on `usize`, not as a per-implementor hand-rolled
@@ -15227,19 +15227,19 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// [`Self::ALL`] iteration without an additional substrate
     /// primitive.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary per-
+    /// Anchor: the typescape; the N-ary per-
     /// target multiplicity projection becomes a TYPE-level primitive
     /// on the closed-set trait rather than a per-consumer inline
     /// `items.iter().filter(|&&v| T::index_of(v) == T::index_of(target)).count()`
-    /// composition at every downstream generic site. THEORY.md §V.1
-    /// — knowable platform; the (per-target × usize) multiplicity
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (per-target × usize) multiplicity
     /// corner was an unnamed inline composition recurring at every
     /// prospective downstream "how many times did we hit THIS
     /// variant?" site pre-lift. Naming it on the trait makes the
     /// projection a TYPED CONSEQUENCE of the substrate's total-
     /// ordering discriminator ([`Self::index_of`]) filtered through
     /// the standard-library `.filter().count()` combinator.
-    /// THEORY.md §VI.1 — generation over composition; the per-target
+    /// Generation over composition; the per-target
     /// multiplicity projection emerges from the composition of ONE
     /// substrate primitive ([`Self::index_of`]) with an
     /// `iter().filter().count()` combinator on slice arity `n`, not
@@ -15447,19 +15447,19 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// fresh `Option<usize>`-return column on the (per-target)
     /// arity axis past the (bool, usize) columns this square closes.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary per-
+    /// Anchor: the typescape; the N-ary per-
     /// target membership predicate becomes a TYPE-level primitive on
     /// the closed-set trait rather than a per-consumer inline
     /// `T::count_occurrences_of(v, items) > 0` or
     /// `items.contains(&target)` composition at every downstream
-    /// generic site. THEORY.md §V.1 — knowable platform; the (per-
+    /// generic site. Knowable platform; the (per-
     /// target × bool) membership corner was an unnamed inline
     /// composition recurring at every prospective downstream "did we
     /// hit THIS variant?" site pre-lift. Naming it on the trait makes
     /// the projection a TYPED CONSEQUENCE of the substrate's per-
     /// target multiplicity projection ([`Self::count_occurrences_of`])
-    /// compared strictly-positively to `0`. THEORY.md §VI.1 —
-    /// generation over composition; the per-target membership
+    /// compared strictly-positively to `0`.
+    /// Generation over composition; the per-target membership
     /// predicate emerges from the composition of ONE substrate
     /// primitive ([`Self::count_occurrences_of`]) with a `> 0`
     /// comparison on `usize`, not as a per-implementor hand-rolled
@@ -15615,15 +15615,15 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// position of `target` — opens a fresh `Vec<usize>`-return column
     /// on the (per-target) arity axis past the endpoint-anchor pair.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary per-
+    /// Anchor: the typescape; the N-ary per-
     /// target head-position primitive becomes a TYPE-level primitive
     /// on the closed-set trait rather than a per-consumer inline
     /// `items.iter().position(…)` composition at every downstream
-    /// generic site. THEORY.md §V.1 — knowable platform; naming the
+    /// generic site. Knowable platform; naming the
     /// (per-target × `Option<usize>` × head) corner on the trait makes
     /// the projection a TYPED CONSEQUENCE of the substrate's
     /// [`Self::index_of`] discriminator threaded through
-    /// [`Iterator::position`]. THEORY.md §VI.1 — generation over
+    /// [`Iterator::position`]. Generation over
     /// composition; the head-position primitive emerges from one
     /// composition ([`Iterator::position`] on [`Self::index_of`]-
     /// equality) rather than as a per-implementor hand-rolled body.
@@ -15663,7 +15663,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     ///
     /// See [`Self::first_occurrence_of`] for the shared design
     /// rationale, sibling matrix, override axis, future-consumer
-    /// inventory, THEORY.md grounding, and frontier inspiration — this
+    /// inventory, grounding, and frontier inspiration — this
     /// method is the tail-direction arm of the same axis and inherits
     /// every property from the head arm's documentation, differing only
     /// in the composition through [`Iterator::rposition`] rather than
@@ -15855,17 +15855,17 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// (set-level × bool × multiplicity-shape) corner past the
     /// membership arm on the equivalence-partition surface.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary per-
+    /// Anchor: the typescape; the N-ary per-
     /// target every-position primitive becomes a TYPE-level primitive
     /// on the closed-set trait rather than a per-consumer inline
     /// `items.iter().enumerate().filter(…).map(|(i, _)| i).collect()`
-    /// composition at every downstream generic site. THEORY.md §V.1
-    /// — knowable platform; naming the (per-target × `Vec<usize>`)
+    /// composition at every downstream generic site.
+    /// Knowable platform; naming the (per-target × `Vec<usize>`)
     /// every-position corner on the trait makes the projection a
     /// TYPED CONSEQUENCE of the substrate's [`Self::index_of`]
     /// discriminator threaded through
     /// [`Iterator::enumerate`] + [`Iterator::filter`] + [`Iterator::map`].
-    /// THEORY.md §VI.1 — generation over composition; the every-
+    /// Generation over composition; the every-
     /// position primitive emerges from one composition
     /// (`enumerate().filter().map()` on [`Self::index_of`]-equality),
     /// not as a per-implementor hand-rolled body.
@@ -16050,16 +16050,16 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// closing the pair-return column on the per-target arity axis
     /// past the five prior return-shape columns.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary per-
+    /// Anchor: the typescape; the N-ary per-
     /// target endpoint-pair primitive becomes a TYPE-level primitive
     /// on the closed-set trait rather than a per-consumer inline
     /// `T::first_occurrence_of(v, items).zip(T::last_occurrence_of(v, items))`
-    /// composition at every downstream generic site. THEORY.md §V.1
-    /// — knowable platform; naming the (per-target ×
+    /// composition at every downstream generic site.
+    /// Knowable platform; naming the (per-target ×
     /// `Option<(usize, usize)>`) endpoint-pair column on the trait
     /// makes the projection a TYPED CONSEQUENCE of the substrate's
     /// two endpoint-anchor primitives packaged as one atomic
-    /// `Option::zip`. THEORY.md §VI.1 — generation over composition;
+    /// `Option::zip`. Generation over composition;
     /// the endpoint-pair primitive emerges from one composition
     /// (`Option::zip` on the two endpoint-anchor projections), not
     /// as a per-implementor hand-rolled body.
@@ -16238,16 +16238,16 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// difference) 2×2 = 4-corner face now closes at both arity
     /// columns.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary per-
+    /// Anchor: the typescape; the N-ary per-
     /// target scalar-difference primitive becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline `T::occurrence_endpoints_of(v, items).map(|(f, l)| l - f)`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; naming the (per-target × `Option<usize>`)
+    /// composition at every downstream generic site.
+    /// Knowable platform; naming the (per-target × `Option<usize>`)
     /// scalar-difference column on the trait makes the projection a
     /// TYPED CONSEQUENCE of the substrate's endpoint-pair primitive
     /// packaged as one atomic `Option::map` on slot-subtraction.
-    /// THEORY.md §VI.1 — generation over composition; the scalar-
+    /// Generation over composition; the scalar-
     /// difference primitive emerges from one composition (`Option::map`
     /// on the pair-return corner through slot-subtraction), not as a
     /// per-implementor hand-rolled body.
@@ -16420,15 +16420,15 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// past the (set-level × bool × modal-equality) uniformity corner
     /// [`Self::is_uniform`] one multiplicity-band axis over.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary per-
+    /// Anchor: the typescape; the N-ary per-
     /// target multiplicity-1 primitive becomes a TYPE-level primitive
     /// on the closed-set trait rather than a per-consumer inline
     /// `T::count_occurrences_of(v, items) == 1` composition at every
-    /// downstream generic site. THEORY.md §V.1 — knowable platform;
+    /// downstream generic site. Knowable platform;
     /// naming the (per-target × bool × `== 1`) corner on the trait
     /// makes the projection a TYPED CONSEQUENCE of the substrate's
     /// [`Self::count_occurrences_of`] primitive packaged as one
-    /// atomic strict-equality test. THEORY.md §VI.1 — generation over
+    /// atomic strict-equality test. Generation over
     /// composition; the multiplicity-1 predicate emerges from one
     /// composition (strict-equality against `1` on the multiplicity
     /// primitive), not as a per-implementor hand-rolled body.
@@ -16619,18 +16619,18 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// lift would simply expose the NEGATION as a typed alias — a
     /// distinct question but not a fresh compounding closure.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary per-
+    /// Anchor: the typescape; the N-ary per-
     /// target multiplicity-≥2 primitive becomes a TYPE-level primitive
     /// on the closed-set trait rather than a per-consumer inline
     /// `T::count_occurrences_of(v, items) >= 2` composition at every
-    /// downstream generic site. THEORY.md §V.1 — knowable platform;
+    /// downstream generic site. Knowable platform;
     /// naming the (per-target × bool × `>= 2`) corner on the trait
     /// makes the projection a TYPED CONSEQUENCE of the substrate's
     /// [`Self::count_occurrences_of`] primitive packaged as one
     /// atomic lower-bound test — AND completes the trichotomy
     /// partition on the per-target multiplicity axis as a TYPED
-    /// THEOREM the substrate proves once. THEORY.md §VI.1 —
-    /// generation over composition; the multiplicity-≥2 predicate
+    /// THEOREM the substrate proves once.
+    /// Generation over composition; the multiplicity-≥2 predicate
     /// emerges from one composition (lower-bound against `2` on the
     /// multiplicity primitive), not as a per-implementor hand-rolled
     /// body.
@@ -16829,18 +16829,18 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// `is_constant` holds on a non-empty slice) opening the (return-
     /// shape × arity) face on the saturation axis.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary per-
+    /// Anchor: the typescape; the N-ary per-
     /// target ∀-position saturation predicate becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline `T::count_occurrences_of(v, items) == items.len()`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; naming the (per-target × bool × ∀-position)
+    /// composition at every downstream generic site.
+    /// Knowable platform; naming the (per-target × bool × ∀-position)
     /// corner on the trait makes the projection a TYPED CONSEQUENCE of
     /// the substrate's per-target multiplicity primitive packaged as
     /// one atomic strict-equality test against the slice arity — AND
     /// opens the ∀-arm peer to [`Self::occurs_in`] on the per-target
     /// per-position-quantifier axis as a TYPED THEOREM the substrate
-    /// proves once. THEORY.md §VI.1 — generation over composition; the
+    /// proves once. Generation over composition; the
     /// saturation predicate emerges from one composition (strict-
     /// equality against `items.len()` on the multiplicity primitive),
     /// not as a per-implementor hand-rolled body.
@@ -16983,19 +16983,19 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// (argmin) compose on this projection through iterator sweep
     /// without an additional substrate primitive.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary per-
+    /// Anchor: the typescape; the N-ary per-
     /// slot histogram projection becomes a TYPE-level primitive on
     /// the closed-set trait rather than a per-consumer inline
     /// `T::ALL.iter().map(|v| T::count_occurrences_of(v, items)).collect()`
-    /// composition at every downstream generic site. THEORY.md §V.1
-    /// — knowable platform; the (per-slot × Vec) histogram corner
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (per-slot × Vec) histogram corner
     /// was an unnamed inline composition recurring at every
     /// prospective downstream "what does the full per-variant
     /// histogram look like?" site pre-lift. Naming it on the trait
     /// makes the projection a TYPED CONSEQUENCE of the substrate's
     /// per-target multiplicity primitive
     /// [`Self::count_occurrences_of`] mapped over
-    /// [`Self::ALL`]. THEORY.md §VI.1 — generation over composition;
+    /// [`Self::ALL`]. Generation over composition;
     /// the per-slot histogram projection emerges from the composition
     /// of ONE substrate primitive
     /// ([`Self::count_occurrences_of`]) with an
@@ -17175,19 +17175,19 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// variant (argmin in lex order on ties) compose on this projection
     /// through iterator sweep without an additional substrate primitive.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary lex-
+    /// Anchor: the typescape; the N-ary lex-
     /// order per-slot histogram projection becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline
     /// `T::sorted_variants().into_iter().map(|v| T::count_occurrences_of(v, items)).collect()`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (per-slot × Vec × lex) histogram corner
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (per-slot × Vec × lex) histogram corner
     /// was an unnamed inline composition recurring at every prospective
     /// downstream "what does the full per-variant histogram look like,
     /// in lex order?" site pre-lift. Naming it on the trait makes the
     /// projection a TYPED CONSEQUENCE of the substrate's per-target
     /// multiplicity primitive [`Self::count_occurrences_of`] mapped
-    /// over [`Self::sorted_variants`]. THEORY.md §VI.1 — generation
+    /// over [`Self::sorted_variants`]. Generation
     /// over composition; the per-slot lex-order histogram projection
     /// emerges from the composition of TWO substrate primitives
     /// ([`Self::sorted_variants`] + [`Self::count_occurrences_of`])
@@ -17364,12 +17364,12 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// projection through iterator sweep without an additional
     /// substrate primitive.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// scalar modal-count aggregate becomes a TYPE-level primitive on
     /// the closed-set trait rather than a per-consumer inline
     /// `T::variant_counts(items).iter().copied().max().unwrap_or(0)`
-    /// composition at every downstream generic site. THEORY.md §V.1
-    /// — knowable platform; the (set-level × usize × statistical-
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (set-level × usize × statistical-
     /// aggregate) modal-count corner was an unnamed inline
     /// composition recurring at every prospective downstream "what is
     /// the largest per-variant occurrence count?" site pre-lift.
@@ -17377,7 +17377,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// CONSEQUENCE of the substrate's per-target multiplicity
     /// primitive [`Self::count_occurrences_of`] folded over
     /// [`Self::ALL`] under the standard-library `max` reduction.
-    /// THEORY.md §VI.1 — generation over composition; the scalar
+    /// Generation over composition; the scalar
     /// modal-count aggregate emerges from the composition of ONE
     /// substrate primitive ([`Self::count_occurrences_of`]) with an
     /// `iter().copied().map().max()` combinator, not as a per-
@@ -17562,13 +17562,13 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// range; the mean / total / variance shapes compose on the same
     /// per-target multiplicity primitive under `sum` / `fold`.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// scalar least-common-multiplicity aggregate becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline
     /// `T::variant_counts(items).iter().copied().min().unwrap_or(0)`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (set-level × usize × statistical-
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (set-level × usize × statistical-
     /// aggregate) min-bar corner was an unnamed inline composition
     /// recurring at every prospective downstream "what is the smallest
     /// per-variant occurrence count?" or "is every variant hit at
@@ -17576,7 +17576,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// projection a TYPED CONSEQUENCE of the substrate's per-target
     /// multiplicity primitive [`Self::count_occurrences_of`] folded
     /// over [`Self::ALL`] under the standard-library `min` reduction.
-    /// THEORY.md §VI.1 — generation over composition; the scalar
+    /// Generation over composition; the scalar
     /// least-common-multiplicity aggregate emerges from the
     /// composition of ONE substrate primitive
     /// ([`Self::count_occurrences_of`]) with an
@@ -17767,17 +17767,17 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// composition through `sorted_endpoints` /
     /// `endpoint_indices` / `endpoint_labels`.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// pair-return endpoint-anchor projection becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline `(T::min_variant_count(items), T::max_variant_count
     /// (items))` composition at every downstream generic site.
-    /// THEORY.md §V.1 — knowable platform; the (pair-return endpoint-
+    /// Knowable platform; the (pair-return endpoint-
     /// anchor) corner was an unnamed inline composition recurring at
     /// every prospective downstream "what is the histogram's range?"
     /// site pre-lift. Naming it on the trait makes the projection a
     /// TYPED CONSEQUENCE of the substrate's two direction corners
-    /// packaged as one pair-return tuple. THEORY.md §VI.1 — generation
+    /// packaged as one pair-return tuple. Generation
     /// over composition; the pair-return endpoint-anchor projection
     /// emerges from the composition of TWO substrate primitives
     /// ([`Self::min_variant_count`] + [`Self::max_variant_count`])
@@ -17953,18 +17953,18 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// T::is_covering`) both bind through the same bool-return
     /// primitive under standard boolean combinators.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// bool-return uniformity predicate becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline `T::variant_count_range(items).0 ==
     /// T::variant_count_range(items).1` composition at every
-    /// downstream generic site. THEORY.md §V.1 — knowable platform;
+    /// downstream generic site. Knowable platform;
     /// the (bool-return uniformity) corner was an unnamed inline
     /// composition recurring at every prospective downstream "is
     /// this histogram flat?" site pre-lift. Naming it on the trait
     /// makes the predicate a TYPED CONSEQUENCE of the substrate's
     /// pair-return endpoint-anchor projection packaged as one bool
-    /// scalar. THEORY.md §VI.1 — generation over composition; the
+    /// scalar. Generation over composition; the
     /// bool-return uniformity predicate emerges from the composition
     /// of ONE substrate primitive ([`Self::variant_count_range`])
     /// with the standard-library `usize`-equality combinator on the
@@ -18149,19 +18149,19 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// (bool, usize) surface for both the DEGENERACY witness and
     /// the DEGREE-OF-DEGENERACY witness of the histogram.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// scalar-difference range-width projection becomes a TYPE-
     /// level primitive on the closed-set trait rather than a per-
     /// consumer inline `T::variant_count_range(items).1 -
     /// T::variant_count_range(items).0` composition at every
-    /// downstream generic site. THEORY.md §V.1 — knowable platform;
+    /// downstream generic site. Knowable platform;
     /// the (scalar-difference range-width) corner was an unnamed
     /// inline composition recurring at every prospective downstream
     /// "how far apart are the histogram's endpoints?" site pre-
     /// lift. Naming it on the trait makes the projection a TYPED
     /// CONSEQUENCE of the substrate's pair-return endpoint-anchor
-    /// projection packaged as one scalar. THEORY.md §VI.1 —
-    /// generation over composition; the scalar-difference range-
+    /// projection packaged as one scalar.
+    /// Generation over composition; the scalar-difference range-
     /// width projection emerges from the composition of ONE
     /// substrate primitive ([`Self::variant_count_range`]) with the
     /// standard-library `usize`-subtraction combinator on the
@@ -18382,13 +18382,13 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// ordering-axis over; the count of variants achieving the modal
     /// multiplicity as a `usize` scalar past the argmax.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// `Option<Self>`-return argmax aggregate becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline `T::ALL.iter().copied().find(|&v|
     /// T::count_occurrences_of(v, items) == T::max_variant_count(items))`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (`Option<Self>` × statistical-aggregate)
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (`Option<Self>` × statistical-aggregate)
     /// argmax corner was an unnamed inline composition recurring at
     /// every prospective downstream "which variant is the histogram's
     /// peak?" site pre-lift. Naming it on the trait makes the
@@ -18396,7 +18396,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// multiplicity primitive [`Self::count_occurrences_of`] folded
     /// over [`Self::ALL`] under the standard-library `find` reduction
     /// against the substrate's just-lifted [`Self::max_variant_count`]
-    /// scalar. THEORY.md §VI.1 — generation over composition; the
+    /// scalar. Generation over composition; the
     /// argmax aggregate emerges from the composition of TWO substrate
     /// primitives ([`Self::count_occurrences_of`] +
     /// [`Self::max_variant_count`]) with an `iter().copied().find()`
@@ -18646,13 +18646,13 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// past the argmax corner on the (set-level × `Option<Self>` ×
     /// statistical-aggregate × direction) face.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary lex-
+    /// Anchor: the typescape; the N-ary lex-
     /// order-first `Option<Self>`-return argmax aggregate becomes a
     /// TYPE-level primitive on the closed-set trait rather than a
     /// per-consumer inline `T::sorted_variants().into_iter().find(|&v|
     /// T::count_occurrences_of(v, items) ==
     /// T::max_variant_count(items))` composition at every downstream
-    /// generic site. THEORY.md §V.1 — knowable platform; the
+    /// generic site. Knowable platform; the
     /// (`Option<Self>` × statistical-aggregate × lex-order) argmax
     /// corner was an unnamed inline composition recurring at every
     /// prospective downstream "which variant is the histogram's peak
@@ -18662,8 +18662,8 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// [`Self::count_occurrences_of`] folded over
     /// [`Self::sorted_variants`] under the standard-library `find`
     /// reduction against the substrate's just-lifted
-    /// [`Self::max_variant_count`] scalar. THEORY.md §VI.1 —
-    /// generation over composition; the lex-order argmax aggregate
+    /// [`Self::max_variant_count`] scalar.
+    /// Generation over composition; the lex-order argmax aggregate
     /// emerges from the composition of THREE substrate primitives
     /// ([`Self::sorted_variants`] + [`Self::count_occurrences_of`] +
     /// [`Self::max_variant_count`]) with an `into_iter().find()`
@@ -18844,15 +18844,15 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// the LEX-ORDER-FIRST argmin one ordering-axis over, CLOSING the
     /// (direction × ordering) 4-corner face at its fourth corner.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// declaration-order-first `Option<Self>`-return argmin aggregate
     /// becomes a TYPE-level primitive on the closed-set trait rather
     /// than a per-consumer inline `T::ALL.iter().copied().find(|&v|
     /// T::count_occurrences_of(v, items) == T::min_variant_count(items))`
-    /// composition. THEORY.md §V.1 — knowable platform; the argmin
+    /// composition. Knowable platform; the argmin
     /// corner was an unnamed inline composition recurring at every
     /// prospective downstream "which variant is the histogram's
-    /// trough?" site pre-lift. THEORY.md §VI.1 — generation over
+    /// trough?" site pre-lift. Generation over
     /// composition; the argmin aggregate emerges from the composition
     /// of TWO substrate primitives ([`Self::count_occurrences_of`] +
     /// [`Self::min_variant_count`]) with an `iter().copied().find()`
@@ -19074,16 +19074,16 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// achieving the min-bar (mirroring
     /// [`Self::repeating_variants`] one multiplicity-band axis over).
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// lex-order-first `Option<Self>`-return argmin aggregate becomes a
     /// TYPE-level primitive on the closed-set trait rather than a
     /// per-consumer inline `T::sorted_variants().into_iter().find(|&v|
     /// T::count_occurrences_of(v, items) == T::min_variant_count(items))`
-    /// composition. THEORY.md §V.1 — knowable platform; the lex-order
+    /// composition. Knowable platform; the lex-order
     /// argmin corner was an unnamed inline composition recurring at
     /// every prospective downstream "which variant is the histogram's
-    /// trough, with the lex tie-break?" site pre-lift. THEORY.md §VI.1 —
-    /// generation over composition; the argmin aggregate emerges from
+    /// trough, with the lex tie-break?" site pre-lift.
+    /// Generation over composition; the argmin aggregate emerges from
     /// the composition of TWO substrate primitives
     /// ([`Self::count_occurrences_of`] + [`Self::min_variant_count`])
     /// with an `into_iter().find()` combinator over
@@ -19281,20 +19281,20 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// on this projection through `.len()` without an additional
     /// substrate primitive.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// `Vec<Self>`-return argmax witness-collection becomes a TYPE-
     /// level primitive on the closed-set trait rather than a per-
     /// consumer inline
     /// `T::ALL.iter().copied().filter(|&v| T::count_occurrences_of(v, items) == T::max_variant_count(items)).collect()`
-    /// composition. THEORY.md §V.1 — knowable platform; the (set-
+    /// composition. Knowable platform; the (set-
     /// level × `Vec<Self>` × argmax) witness-collection corner was an
     /// unnamed inline composition recurring at every prospective
     /// downstream "which variants ALL tie for the histogram's peak?"
     /// site pre-lift. Naming it on the trait makes the projection a
     /// TYPED CONSEQUENCE of the substrate's per-target multiplicity
     /// primitive [`Self::count_occurrences_of`] filtered over
-    /// [`Self::ALL`] against [`Self::max_variant_count`]. THEORY.md
-    /// §VI.1 — generation over composition; the argmax witness-
+    /// [`Self::ALL`] against [`Self::max_variant_count`].
+    /// Generation over composition; the argmax witness-
     /// collection emerges from the composition of TWO substrate
     /// primitives ([`Self::count_occurrences_of`] +
     /// [`Self::max_variant_count`]) with an
@@ -19533,12 +19533,12 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// this projection through `.len()` without an additional
     /// substrate primitive.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// `Vec<Self>`-return lex-order argmax witness-collection
     /// becomes a TYPE-level primitive on the closed-set trait
     /// rather than a per-consumer inline
     /// `T::sorted_variants().into_iter().filter(|&v| T::count_occurrences_of(v, items) == T::max_variant_count(items)).collect()`
-    /// composition. THEORY.md §V.1 — knowable platform; the (set-
+    /// composition. Knowable platform; the (set-
     /// level × `Vec<Self>` × argmax × lex-order) witness-collection
     /// corner was an unnamed inline composition recurring at every
     /// prospective downstream "which variants ALL tie for the
@@ -19547,7 +19547,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// projection a TYPED CONSEQUENCE of the substrate's per-target
     /// multiplicity primitive [`Self::count_occurrences_of`]
     /// filtered over [`Self::sorted_variants`] against
-    /// [`Self::max_variant_count`]. THEORY.md §VI.1 — generation
+    /// [`Self::max_variant_count`]. Generation
     /// over composition; the lex-order argmax witness-collection
     /// emerges from the composition of THREE substrate primitives
     /// ([`Self::sorted_variants`] +
@@ -19781,16 +19781,16 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// composition idiom without re-deriving the empty-guard + filter
     /// shape.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the (Vec<Self>,
+    /// Anchor: the typescape; the (Vec<Self>,
     /// argmin, declaration) witness-collection corner becomes a
     /// TYPE-level primitive on the closed-set trait rather than a per-
     /// consumer inline `T::ALL.iter().copied().filter(|&v|
     /// T::count_occurrences_of(v, items) == T::min_variant_count(items))
-    /// .collect()` composition. THEORY.md §V.1 — knowable platform;
+    /// .collect()` composition. Knowable platform;
     /// naming the corner on the trait makes the projection a TYPED
     /// CONSEQUENCE of the substrate's `count_occurrences_of` primitive
-    /// filtered over `T::ALL` against `min_variant_count`. THEORY.md
-    /// §VI.1 — generation over composition; the declaration-order
+    /// filtered over `T::ALL` against `min_variant_count`.
+    /// Generation over composition; the declaration-order
     /// argmin witness-collection emerges from the composition of TWO
     /// substrate primitives ([`Self::count_occurrences_of`] +
     /// [`Self::min_variant_count`]) with an `iter().filter().collect()`
@@ -20047,12 +20047,12 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// projection through `.len()` without an additional substrate
     /// primitive.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// `Vec<Self>`-return lex-order argmin witness-collection becomes a
     /// TYPE-level primitive on the closed-set trait rather than a per-
     /// consumer inline
     /// `T::sorted_variants().into_iter().filter(|&v| T::count_occurrences_of(v, items) == T::min_variant_count(items)).collect()`
-    /// composition. THEORY.md §V.1 — knowable platform; the (set-level
+    /// composition. Knowable platform; the (set-level
     /// × `Vec<Self>` × argmin × lex-order) witness-collection corner was
     /// an unnamed inline composition recurring at every prospective
     /// downstream "which variants ALL tie for the histogram's floor
@@ -20061,7 +20061,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// of the substrate's per-target multiplicity primitive
     /// [`Self::count_occurrences_of`] filtered over
     /// [`Self::sorted_variants`] against [`Self::min_variant_count`].
-    /// THEORY.md §VI.1 — generation over composition; the lex-order
+    /// Generation over composition; the lex-order
     /// argmin witness-collection emerges from the composition of THREE
     /// substrate primitives ([`Self::sorted_variants`] +
     /// [`Self::count_occurrences_of`] + [`Self::min_variant_count`])
@@ -20291,19 +20291,19 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// equality test against `1` without an additional substrate
     /// primitive.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary set-
+    /// Anchor: the typescape; the N-ary set-
     /// level count of modal-tie variants becomes a TYPE-level primitive
     /// on the closed-set trait rather than a per-consumer inline
     /// `T::ALL.iter().filter(|v| T::count_occurrences_of(*v, items) == T::max_variant_count(items)).count()`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (set-level × usize × modal-tie) corner was
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (set-level × usize × modal-tie) corner was
     /// an unnamed inline composition recurring at every prospective
     /// downstream "how many variants tie for the peak?" site pre-lift.
     /// Naming it on the trait makes the count a TYPED CONSEQUENCE of the
     /// substrate's per-target multiplicity primitive
     /// [`Self::count_occurrences_of`] filtered through [`Self::ALL`]
     /// against [`Self::max_variant_count`] and reduced via `.count()`.
-    /// THEORY.md §VI.1 — generation over composition; the count emerges
+    /// Generation over composition; the count emerges
     /// from the composition of TWO substrate primitives
     /// ([`Self::count_occurrences_of`] + [`Self::max_variant_count`])
     /// with an `iter().copied().filter(…).count()` combinator over
@@ -20590,12 +20590,12 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// on the argmin arm, peer to the argmax `has_unique_mode` predicate
     /// one DIRECTION axis over.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary set-
+    /// Anchor: the typescape; the N-ary set-
     /// level count of antimodal-tie variants becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline `T::ALL.iter().filter(|v| T::count_occurrences_of(*v,
     /// items) == T::min_variant_count(items)).count()` composition at
-    /// every downstream generic site. THEORY.md §V.1 — knowable
+    /// every downstream generic site. Knowable
     /// platform; the (set-level × usize × antimodal-tie) corner was an
     /// unnamed inline composition recurring at every prospective
     /// downstream "how many variants tie for the trough?" site pre-lift.
@@ -20603,7 +20603,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// the substrate's per-target multiplicity primitive
     /// [`Self::count_occurrences_of`] filtered through [`Self::ALL`]
     /// against [`Self::min_variant_count`] and reduced via `.count()`.
-    /// THEORY.md §VI.1 — generation over composition; the count emerges
+    /// Generation over composition; the count emerges
     /// from the composition of TWO substrate primitives
     /// ([`Self::count_occurrences_of`] + [`Self::min_variant_count`])
     /// with an `iter().copied().filter(…).count()` combinator over
@@ -20820,18 +20820,18 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// statistical-aggregate × direction) 2-corner face at its argmin
     /// arm past THIS argmax corner.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary per-
+    /// Anchor: the typescape; the N-ary per-
     /// target modal-membership predicate becomes a TYPE-level primitive
     /// on the closed-set trait rather than a per-consumer inline
     /// `T::count_occurrences_of(v, items) == T::max_variant_count(items) && !items.is_empty()`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (per-target × bool × argmax) corner was an
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (per-target × bool × argmax) corner was an
     /// unnamed inline composition recurring at every prospective
     /// downstream "is this target the histogram's peak?" site pre-lift.
     /// Naming it on the trait makes the predicate a TYPED CONSEQUENCE of
     /// the substrate's per-target multiplicity primitive against the
-    /// modal-count aggregate under a non-emptiness guard. THEORY.md
-    /// §VI.1 — generation over composition; the predicate emerges from
+    /// modal-count aggregate under a non-emptiness guard.
+    /// Generation over composition; the predicate emerges from
     /// the composition of TWO substrate primitives
     /// ([`Self::count_occurrences_of`] + [`Self::max_variant_count`])
     /// with an `&&`-guarded strict-equality test on `usize`, not as a
@@ -21039,19 +21039,19 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// against the `1` threshold on the argmin arm, peer to the argmax
     /// `has_unique_mode` predicate one DIRECTION axis over.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary per-
+    /// Anchor: the typescape; the N-ary per-
     /// target antimodal-membership predicate becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline
     /// `T::count_occurrences_of(v, items) == T::min_variant_count(items) && !items.is_empty()`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (per-target × bool × argmin) corner was an
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (per-target × bool × argmin) corner was an
     /// unnamed inline composition recurring at every prospective
     /// downstream "is this target the histogram's trough?" site pre-lift.
     /// Naming it on the trait makes the predicate a TYPED CONSEQUENCE of
     /// the substrate's per-target multiplicity primitive against the
-    /// antimodal-count aggregate under a non-emptiness guard. THEORY.md
-    /// §VI.1 — generation over composition; the predicate emerges from
+    /// antimodal-count aggregate under a non-emptiness guard.
+    /// Generation over composition; the predicate emerges from
     /// the composition of TWO substrate primitives
     /// ([`Self::count_occurrences_of`] + [`Self::min_variant_count`])
     /// with an `&&`-guarded strict-equality test on `usize`, not as a
@@ -21202,16 +21202,16 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// argmin peer will close the (direction × unique-tie) 2-corner face
     /// on this row.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary set-
+    /// Anchor: the typescape; the N-ary set-
     /// level modal-uniqueness bool predicate becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline `T::count_modal_variants(items) == 1` composition at every
-    /// downstream generic site. THEORY.md §V.1 — knowable platform; the
+    /// downstream generic site. Knowable platform; the
     /// (set-level × bool × modal-uniqueness) corner was an unnamed
     /// inline composition recurring at every prospective downstream "is
     /// the winner unambiguous?" site pre-lift. Naming it on the trait
     /// makes the predicate a TYPED CONSEQUENCE of the substrate's just-
-    /// lifted modal-tie count aggregate. THEORY.md §VI.1 — generation
+    /// lifted modal-tie count aggregate. Generation
     /// over composition; the predicate emerges from the composition of
     /// ONE substrate primitive ([`Self::count_modal_variants`]) with a
     /// scalar equality against `1`, not as a per-implementor hand-rolled
@@ -21410,17 +21410,17 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// between the (per-target uniqueness) [`Self::is_uniform`] corner
     /// and the (direction-symmetry) modal/antimodal-coincidence corner.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary set-
+    /// Anchor: the typescape; the N-ary set-
     /// level antimodal-uniqueness bool predicate becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline `T::count_antimodal_variants(items) == 1` composition at
-    /// every downstream generic site. THEORY.md §V.1 — knowable
+    /// every downstream generic site. Knowable
     /// platform; the (set-level × bool × antimodal-uniqueness) corner
     /// was an unnamed inline composition recurring at every prospective
     /// downstream "is the trough unambiguous?" site pre-lift. Naming it
     /// on the trait makes the predicate a TYPED CONSEQUENCE of the
-    /// substrate's just-lifted antimodal-tie count aggregate. THEORY.md
-    /// §VI.1 — generation over composition; the predicate emerges from
+    /// substrate's just-lifted antimodal-tie count aggregate.
+    /// Generation over composition; the predicate emerges from
     /// the composition of ONE substrate primitive
     /// ([`Self::count_antimodal_variants`]) with a scalar equality
     /// against `1`, not as a per-implementor hand-rolled body.
@@ -21658,18 +21658,18 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// its argmin arm as `is_antimodal_variant_of(v, items) &&
     /// has_unique_antimode(items)`.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary per-
+    /// Anchor: the typescape; the N-ary per-
     /// target unique-mode predicate becomes a TYPE-level primitive on the
     /// closed-set trait rather than a per-consumer inline
     /// `T::is_modal_variant_of(v, items) && T::has_unique_mode(items)`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (per-target × bool × argmax × unique-tie)
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (per-target × bool × argmax × unique-tie)
     /// corner was an unnamed inline composition recurring at every
     /// prospective downstream "is this target the unique winner?" site
     /// pre-lift. Naming it on the trait makes the predicate a TYPED
     /// CONSEQUENCE of the just-lifted per-target argmax membership and
     /// set-level modal-uniqueness bit under a boolean conjunction.
-    /// THEORY.md §VI.1 — generation over composition; the predicate
+    /// Generation over composition; the predicate
     /// emerges from the composition of TWO substrate primitives
     /// ([`Self::is_modal_variant_of`] + [`Self::has_unique_mode`]) with
     /// the `&&` combinator on `bool`, not as a per-implementor hand-
@@ -21950,18 +21950,18 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// `is_uniquely_modal_and_antimodal` peer collapsing the same
     /// direction axis under `&&` at the set-level arity peer.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary per-
+    /// Anchor: the typescape; the N-ary per-
     /// target unique-antimode predicate becomes a TYPE-level primitive
     /// on the closed-set trait rather than a per-consumer inline
     /// `T::is_antimodal_variant_of(v, items) && T::has_unique_antimode(items)`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (per-target × bool × argmin × unique-tie)
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (per-target × bool × argmin × unique-tie)
     /// corner was an unnamed inline composition recurring at every
     /// prospective downstream "is this target the unique loser?" site
     /// pre-lift. Naming it on the trait makes the predicate a TYPED
     /// CONSEQUENCE of the just-lifted per-target argmin membership and
     /// set-level antimodal-uniqueness bit under a boolean conjunction.
-    /// THEORY.md §VI.1 — generation over composition; the predicate
+    /// Generation over composition; the predicate
     /// emerges from the composition of TWO substrate primitives
     /// ([`Self::is_antimodal_variant_of`] + [`Self::has_unique_antimode`])
     /// with the `&&` combinator on `bool`, not as a per-implementor
@@ -22191,19 +22191,19 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// × unique-tie × direction × ordering) 2×2×2 = 8-corner cube fills
     /// with no fresh substrate primitives on the index axis.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary set-
+    /// Anchor: the typescape; the N-ary set-
     /// level unique-mode `Option<Self>` witness projection becomes a
     /// TYPE-level primitive on the closed-set trait rather than a per-
     /// consumer inline `if T::has_unique_mode(items) { T::modal_variant(items)
     /// } else { None }` composition at every downstream generic site.
-    /// THEORY.md §V.1 — knowable platform; the (set-level × `Option<Self>`
+    /// Knowable platform; the (set-level × `Option<Self>`
     /// × unique-mode) witness-if-unique corner was an unnamed inline
     /// composition recurring at every prospective downstream "which
     /// variant is the histogram's peak, if it's unambiguous?" site pre-
     /// lift. Naming it on the trait makes the projection a TYPED
     /// CONSEQUENCE of the just-lifted set-level uniqueness bit and the
     /// declaration-order argmax first-witness under a boolean-guarded
-    /// `Option`-collapse. THEORY.md §VI.1 — generation over composition;
+    /// `Option`-collapse. Generation over composition;
     /// the projection emerges from the composition of TWO substrate
     /// primitives ([`Self::has_unique_mode`] + [`Self::modal_variant`])
     /// with the `if _ { _ } else { None }` combinator on `Option<Self>`,
@@ -22430,23 +22430,23 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// direction-composition × ordering) 3×2 direction-composition-lex
     /// grid with no fresh substrate primitives on the index axis.
     ///
-    /// Theory anchor: THEORY.md §II.1 — the Rust + Lisp pattern; the
+    /// Anchor: the Rust + Lisp pattern; the
     /// (set-level × `Option<Self>` × sorted × statistical-aggregate ×
     /// direction × argmax × unique-tie) corner becomes a TYPED WITNESS
     /// on the ClosedSet trait rather than a per-consumer inline
     /// `if T::has_unique_mode(items) { T::sorted_modal_variant(items) } else { None }`
-    /// re-derivation. THEORY.md §III — the typescape; a fresh TYPE-
+    /// re-derivation. The typescape; a fresh TYPE-
     /// level primitive plus a typed THEOREM (ordering-choice-irrelevance)
     /// the substrate proves once rather than every downstream site re-
     /// proving via `sorted_unique_modal_variant(items) == unique_modal_variant(items)`
-    /// assertions per callsite. THEORY.md §V.1 — knowable platform; the
+    /// assertions per callsite. Knowable platform; the
     /// (lex-order × `Option<Self>` × direction × argmax × unique-tie)
     /// corner was an unnamed inline composition — OR silently absent
     /// because the caller shrugged and used the declaration-order
     /// sibling without proof of coincidence — recurring at every
     /// prospective downstream "which variant is the histogram's peak,
-    /// in lex order, if unambiguous?" site pre-lift. THEORY.md §VI.1 —
-    /// generation over composition; the projection emerges from the
+    /// in lex order, if unambiguous?" site pre-lift.
+    /// Generation over composition; the projection emerges from the
     /// composition of the two substrate primitives
     /// [`Self::has_unique_mode`] + [`Self::sorted_modal_variant`] with
     /// the `if _ { _ } else { None }` combinator on `Option<Self>`, not
@@ -22709,20 +22709,20 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// bimodal × ordering × unique-tie) arms via the same boolean-guarded
     /// lift under an `Option`-collapse.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary set-
+    /// Anchor: the typescape; the N-ary set-
     /// level unique-antimode `Option<Self>` witness projection becomes a
     /// TYPE-level primitive on the closed-set trait rather than a per-
     /// consumer inline `if T::has_unique_antimode(items) {
     /// T::antimodal_variant(items) } else { None }` composition at every
-    /// downstream generic site. THEORY.md §V.1 — knowable platform; the
+    /// downstream generic site. Knowable platform; the
     /// (set-level × `Option<Self>` × unique-antimode) witness-if-unique
     /// corner was an unnamed inline composition recurring at every
     /// prospective downstream "which variant is the histogram's trough,
     /// if it's unambiguous?" site pre-lift. Naming it on the trait makes
     /// the projection a TYPED CONSEQUENCE of the just-lifted set-level
     /// antimodal-uniqueness bit and the declaration-order argmin first-
-    /// witness under a boolean-guarded `Option`-collapse. THEORY.md
-    /// §VI.1 — generation over composition; the projection emerges from
+    /// witness under a boolean-guarded `Option`-collapse.
+    /// Generation over composition; the projection emerges from
     /// the composition of TWO substrate primitives
     /// ([`Self::has_unique_antimode`] + [`Self::antimodal_variant`]) with
     /// the `if _ { _ } else { None }` combinator on `Option<Self>`, not
@@ -22986,22 +22986,22 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// × direction-composition) uniqueness bit with no fresh substrate
     /// primitives on the index axis.
     ///
-    /// Theory anchor: THEORY.md §II.1 — the Rust + Lisp pattern; the
+    /// Anchor: the Rust + Lisp pattern; the
     /// (set-level × `Option<Self>` × sorted × statistical-aggregate ×
     /// direction × argmin × unique-tie) corner becomes a TYPED WITNESS
     /// on the ClosedSet trait rather than a per-consumer inline
     /// `if T::has_unique_antimode(items) { T::sorted_antimodal_variant(items) } else { None }`
-    /// re-derivation. THEORY.md §III — the typescape; a fresh TYPE-level
+    /// re-derivation. The typescape; a fresh TYPE-level
     /// primitive plus a typed THEOREM (ordering-choice-irrelevance) the
     /// substrate proves once rather than every downstream site re-proving
     /// via `sorted_unique_antimodal_variant(items) == unique_antimodal_variant(items)`
-    /// assertions per callsite. THEORY.md §V.1 — knowable platform; the
+    /// assertions per callsite. Knowable platform; the
     /// (lex-order × `Option<Self>` × direction × argmin × unique-tie)
     /// corner was an unnamed inline composition — OR silently absent
     /// because the caller shrugged and used the declaration-order sibling
     /// without proof of coincidence — recurring at every prospective
     /// downstream "which variant is the histogram's trough, in lex order,
-    /// if unambiguous?" site pre-lift. THEORY.md §VI.1 — generation over
+    /// if unambiguous?" site pre-lift. Generation over
     /// composition; the projection emerges from the composition of the
     /// two substrate primitives [`Self::has_unique_antimode`] +
     /// [`Self::sorted_antimodal_variant`] with the `if _ { _ } else { None }`
@@ -23233,24 +23233,24 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// tie) uniqueness bit with no fresh substrate primitives on the
     /// index axis.
     ///
-    /// Theory anchor: THEORY.md §II.1 — the Rust + Lisp pattern; the
+    /// Anchor: the Rust + Lisp pattern; the
     /// (set-level × `Option<Self>` × sorted × statistical-aggregate ×
     /// direction-composition × union × unique-tie) corner becomes a
     /// TYPED WITNESS on the ClosedSet trait rather than a per-consumer
     /// inline `if T::has_unique_extremal_variant(items) { T::sorted_extremal_variant(items) } else { None }`
-    /// re-derivation. THEORY.md §III — the typescape; a fresh TYPE-
+    /// re-derivation. The typescape; a fresh TYPE-
     /// level primitive plus a typed THEOREM (ordering-choice-
     /// irrelevance) the substrate proves once rather than every
     /// downstream site re-proving via
     /// `sorted_unique_extremal_variant(items) == unique_extremal_variant(items)`
-    /// assertions per callsite. THEORY.md §V.1 — knowable platform;
+    /// assertions per callsite. Knowable platform;
     /// the (lex-order × `Option<Self>` × direction-composition × union
     /// × unique-tie) corner was an unnamed inline composition — OR
     /// silently absent because the caller shrugged and used the
     /// declaration-order sibling without proof of coincidence —
     /// recurring at every prospective downstream "which variant is
     /// the histogram's extremum, in lex order, if unambiguous?" site
-    /// pre-lift. THEORY.md §VI.1 — generation over composition; the
+    /// pre-lift. Generation over composition; the
     /// projection emerges from the composition of the two substrate
     /// primitives [`Self::has_unique_extremal_variant`] +
     /// [`Self::sorted_extremal_variant`] with the
@@ -23483,25 +23483,25 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// intersection-arm tile once the sibling `sorted_unique_bimodal_variant`
     /// lands.
     ///
-    /// Theory anchor: THEORY.md §II.1 — the Rust + Lisp pattern; the
+    /// Anchor: the Rust + Lisp pattern; the
     /// (set-level × `Option<Self>` × sorted × statistical-aggregate ×
     /// direction-composition × complement × unique-tie) corner
     /// becomes a TYPED WITNESS on the ClosedSet trait rather than a
     /// per-consumer inline
     /// `if T::has_unique_middle_band_variant(items) { T::sorted_middle_band_variant(items) } else { None }`
-    /// re-derivation. THEORY.md §III — the typescape; a fresh TYPE-
+    /// re-derivation. The typescape; a fresh TYPE-
     /// level primitive plus a typed THEOREM (ordering-choice-
     /// irrelevance) the substrate proves once rather than every
     /// downstream site re-proving via
     /// `sorted_unique_middle_band_variant(items) == unique_middle_band_variant(items)`
-    /// assertions per callsite. THEORY.md §V.1 — knowable platform;
+    /// assertions per callsite. Knowable platform;
     /// the (lex-order × `Option<Self>` × direction-composition ×
     /// complement × unique-tie) corner was an unnamed inline
     /// composition — OR silently absent because the caller shrugged
     /// and used the declaration-order sibling without proof of
     /// coincidence — recurring at every prospective downstream "which
     /// variant is the histogram's strict interior, in lex order, if
-    /// unambiguous?" site pre-lift. THEORY.md §VI.1 — generation over
+    /// unambiguous?" site pre-lift. Generation over
     /// composition; the projection emerges from the composition of
     /// the two substrate primitives
     /// [`Self::has_unique_middle_band_variant`] +
@@ -23754,25 +23754,25 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// [`Self::sorted_unique_missing_variant`],
     /// [`Self::sorted_unique_unique_variant`].
     ///
-    /// Theory anchor: THEORY.md §II.1 — the Rust + Lisp pattern; the
+    /// Anchor: the Rust + Lisp pattern; the
     /// (set-level × `Option<Self>` × sorted × statistical-aggregate ×
     /// direction-composition × intersection × unique-tie) corner
     /// becomes a TYPED WITNESS on the ClosedSet trait rather than a
     /// per-consumer inline
     /// `if T::has_unique_bimodal_variant(items) { T::sorted_bimodal_variant(items) } else { None }`
-    /// re-derivation. THEORY.md §III — the typescape; a fresh TYPE-
+    /// re-derivation. The typescape; a fresh TYPE-
     /// level primitive plus a typed THEOREM (ordering-choice-
     /// irrelevance) the substrate proves once rather than every
     /// downstream site re-proving via
     /// `sorted_unique_bimodal_variant(items) == unique_bimodal_variant(items)`
-    /// assertions per callsite. THEORY.md §V.1 — knowable platform;
+    /// assertions per callsite. Knowable platform;
     /// the (lex-order × `Option<Self>` × direction-composition ×
     /// intersection × unique-tie) corner was an unnamed inline
     /// composition — OR silently absent because the caller shrugged
     /// and used the declaration-order sibling without proof of
     /// coincidence — recurring at every prospective downstream "which
     /// variant sits at both histogram extremes, in lex order, if
-    /// unambiguous?" site pre-lift. THEORY.md §VI.1 — generation over
+    /// unambiguous?" site pre-lift. Generation over
     /// composition; the projection emerges from the composition of
     /// the two substrate primitives [`Self::has_unique_bimodal_variant`]
     /// + [`Self::sorted_bimodal_variant`] with the `if _ { _ } else
@@ -24057,18 +24057,18 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// so the (per-target × bool × direction-composition) column fills
     /// with no fresh substrate primitives on the index axis.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary per-
+    /// Anchor: the typescape; the N-ary per-
     /// target direction-agnostic extremity predicate becomes a TYPE-
     /// level primitive on the closed-set trait rather than a per-
     /// consumer inline `T::is_modal_variant_of(v, items) || T::is_antimodal_variant_of(v, items)`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (per-target × bool × direction-agnostic
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (per-target × bool × direction-agnostic
     /// × union) corner was an unnamed inline composition recurring at
     /// every prospective downstream "is this target at ANY histogram
     /// extreme?" site pre-lift. Naming it on the trait makes the
     /// predicate a TYPED CONSEQUENCE of the two just-lifted direction-
     /// anchored membership predicates under a boolean disjunction.
-    /// THEORY.md §VI.1 — generation over composition; the predicate
+    /// Generation over composition; the predicate
     /// emerges from the composition of TWO substrate primitives
     /// ([`Self::is_modal_variant_of`] + [`Self::is_antimodal_variant_of`])
     /// with the `||` combinator on `bool`, not as a per-implementor
@@ -24319,18 +24319,18 @@ pub trait ClosedSet: Sized + Copy + 'static {
     ///   non-empty slices, opening the middle-band membership corner as
     ///   a typed consequence of the De Morgan identity.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary per-
+    /// Anchor: the typescape; the N-ary per-
     /// target flat-diagonal membership predicate becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline `T::is_modal_variant_of(v, items) && T::is_antimodal_variant_of(v, items)`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (per-target × bool × direction-agnostic ×
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (per-target × bool × direction-agnostic ×
     /// intersection) corner was an unnamed inline composition recurring
     /// at every prospective downstream "is this target at BOTH histogram
     /// extremes?" site pre-lift. Naming it on the trait makes the
     /// predicate a TYPED CONSEQUENCE of the two direction-anchored
-    /// membership predicates under a boolean conjunction. THEORY.md
-    /// §VI.1 — generation over composition; the predicate emerges from
+    /// membership predicates under a boolean conjunction.
+    /// Generation over composition; the predicate emerges from
     /// the composition of TWO substrate primitives
     /// ([`Self::is_modal_variant_of`] + [`Self::is_antimodal_variant_of`])
     /// with the `&&` combinator on `bool`, not as a per-implementor
@@ -24566,13 +24566,13 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// consumer of THIS projection past the direction-anchored
     /// cardinality-count pair one ARITY axis over.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary set-level
+    /// Anchor: the typescape; the N-ary set-level
     /// count of flat-diagonal variants becomes a TYPE-level primitive on
     /// the closed-set trait rather than a per-consumer inline
     /// `T::ALL.iter().filter(|&v| T::is_bimodal_variant_of(v, items)).count()`
     /// composition (which itself factors through two direction-anchored
     /// per-target predicates on every variant, paying `O(T::CARDINALITY² * n)`)
-    /// at every downstream generic site. THEORY.md §V.1 — knowable
+    /// at every downstream generic site. Knowable
     /// platform; the (set-level × usize × intersection) corner was an
     /// unnamed inline composition recurring at every prospective
     /// downstream "how many variants sit on the flat diagonal?" site pre-
@@ -24580,7 +24580,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// filter-count via the uniformity-collapse identity makes the count a
     /// TYPED CONSEQUENCE of ONE substrate primitive [`Self::is_uniform`]
     /// rather than a composition of `T::CARDINALITY` per-target predicate
-    /// calls. THEORY.md §VI.1 — generation over composition; the sharpened
+    /// calls. Generation over composition; the sharpened
     /// body emerges from the composition of ONE substrate primitive
     /// ([`Self::is_uniform`]) with an `is_empty()` guard + a scalar
     /// conditional on [`Self::CARDINALITY`], not as a per-implementor
@@ -24833,13 +24833,13 @@ pub trait ClosedSet: Sized + Copy + 'static {
     ///   COMBINATOR axis over on the (extreme / middle) partition of
     ///   [`Self::ALL`].
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary set-level
+    /// Anchor: the typescape; the N-ary set-level
     /// count of extremal variants becomes a TYPE-level primitive on the
     /// closed-set trait rather than a per-consumer inline
     /// `T::ALL.iter().filter(|&v| T::is_extremal_variant_of(v, items)).count()`
     /// composition (which itself factors through two direction-anchored
     /// predicates per variant, paying `O(T::CARDINALITY² * n)`) at every
-    /// downstream generic site. THEORY.md §V.1 — knowable platform; the
+    /// downstream generic site. Knowable platform; the
     /// (set-level × usize × union) corner was an unnamed inline composition
     /// recurring at every prospective downstream "how many variants sit at
     /// some extreme?" site pre-lift. Naming it on the trait AND SHARPENING
@@ -24847,8 +24847,8 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// THREE substrate primitives ([`Self::count_modal_variants`],
     /// [`Self::count_antimodal_variants`], [`Self::count_bimodal_variants`])
     /// under `+` / `-` on `usize` rather than a composition of
-    /// `T::CARDINALITY` per-target predicate calls. THEORY.md §VI.1 —
-    /// generation over composition; the sharpened body emerges from the
+    /// `T::CARDINALITY` per-target predicate calls.
+    /// Generation over composition; the sharpened body emerges from the
     /// composition of THREE substrate primitives under inclusion-exclusion
     /// arithmetic, not as a per-implementor hand-rolled body OR as a naive
     /// filter-count sweep over [`Self::ALL`] of the per-target predicate.
@@ -25137,20 +25137,20 @@ pub trait ClosedSet: Sized + Copy + 'static {
     ///   opening the (set-level × bool × middle-band × existential)
     ///   corner one ARITY axis over.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary per-
+    /// Anchor: the typescape; the N-ary per-
     /// target strict-middle membership predicate becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline
     /// `!items.is_empty() && !T::is_extremal_variant_of(v, items)`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (per-target × bool × direction-agnostic ×
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (per-target × bool × direction-agnostic ×
     /// complement) corner was an unnamed inline composition recurring at
     /// every prospective downstream "is this target strictly between the
     /// two extremes?" site pre-lift. Naming it on the trait makes the
     /// predicate a TYPED CONSEQUENCE of the just-lifted (per-target ×
     /// bool × direction-agnostic × union)
     /// [`Self::is_extremal_variant_of`] corner under a non-empty guard
-    /// AND one boolean negation. THEORY.md §VI.1 — generation over
+    /// AND one boolean negation. Generation over
     /// composition; the predicate emerges from the composition of one
     /// substrate primitive ([`Self::is_extremal_variant_of`]) with one
     /// bool guard and one bool combinator, not as a per-implementor
@@ -25412,13 +25412,13 @@ pub trait ClosedSet: Sized + Copy + 'static {
     ///   axis over. Cheaper than the count on hot paths that only need
     ///   an existence witness.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary set-
+    /// Anchor: the typescape; the N-ary set-
     /// level count of middle-band variants becomes a TYPE-level primitive
     /// on the closed-set trait rather than a per-consumer inline
     /// `T::ALL.iter().filter(|&v| T::is_middle_band_variant_of(v, items)).count()`
     /// composition (which itself factors through the extremal predicate
     /// per variant, paying `O(T::CARDINALITY² * n)`) at every downstream
-    /// generic site. THEORY.md §V.1 — knowable platform; the (set-level ×
+    /// generic site. Knowable platform; the (set-level ×
     /// usize × middle-band) corner was an unnamed inline composition
     /// recurring at every prospective downstream "how many variants sit
     /// in the middle band?" site pre-lift. Naming it on the trait AND
@@ -25426,7 +25426,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// TYPED CONSEQUENCE of ONE substrate primitive
     /// ([`Self::count_extremal_variants`]) under `-` on `usize` rather
     /// than a composition of `T::CARDINALITY` per-target predicate calls.
-    /// THEORY.md §VI.1 — generation over composition; the sharpened body
+    /// Generation over composition; the sharpened body
     /// emerges from the composition of ONE substrate primitive under
     /// subtraction, not as a per-implementor hand-rolled body OR as a
     /// naive filter-count sweep over [`Self::ALL`] of the per-target
@@ -25645,18 +25645,18 @@ pub trait ClosedSet: Sized + Copy + 'static {
     ///   peer of the declaration-order `middle_band_variants` corner, one
     ///   ORDERING axis over.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary set-level
+    /// Anchor: the typescape; the N-ary set-level
     /// middle-band existence predicate becomes a TYPE-level primitive on
     /// the closed-set trait rather than a per-consumer inline
     /// `T::count_middle_band_variants(items) >= 1` composition at every
-    /// downstream generic site. THEORY.md §V.1 — knowable platform; the
+    /// downstream generic site. Knowable platform; the
     /// (set-level × bool × middle-band × existential) corner was an
     /// unnamed inline composition recurring at every prospective downstream
     /// "does any variant sit strictly between the histogram extremes?" site
     /// pre-lift. Naming it on the trait makes the predicate a TYPED
     /// CONSEQUENCE of the substrate's just-lifted middle-band cardinality
     /// aggregate under a scalar strict-lower-bound test on `usize`.
-    /// THEORY.md §VI.1 — generation over composition; the predicate emerges
+    /// Generation over composition; the predicate emerges
     /// from the composition of ONE substrate primitive
     /// ([`Self::count_middle_band_variants`]) with a scalar strict-lower-
     /// bound against `1`, not as a per-implementor hand-rolled body OR as
@@ -25891,19 +25891,19 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// an extremal-witness), so the corner sharpens to the trivial non-
     /// emptiness bit rather than paying the union cardinality aggregate.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary set-
+    /// Anchor: the typescape; the N-ary set-
     /// level bimodal existence predicate becomes a TYPE-level primitive
     /// on the closed-set trait rather than a per-consumer inline
     /// `T::count_bimodal_variants(items) >= 1` composition OR
     /// `!items.is_empty() && T::is_uniform(items)` conjunction at every
-    /// downstream generic site. THEORY.md §V.1 — knowable platform; the
+    /// downstream generic site. Knowable platform; the
     /// (set-level × bool × intersection × existential) corner was an
     /// unnamed inline composition recurring at every prospective
     /// downstream "is the histogram flat on a non-empty slice?" site
     /// pre-lift. Naming it on the trait makes the predicate a TYPED
     /// CONSEQUENCE of the substrate's just-lifted intersection
     /// cardinality aggregate under a scalar strict-lower-bound test on
-    /// `usize`. THEORY.md §VI.1 — generation over composition; the
+    /// `usize`. Generation over composition; the
     /// predicate emerges from the composition of ONE substrate primitive
     /// ([`Self::count_bimodal_variants`]) with a scalar strict-lower-
     /// bound against `1`, not as a per-implementor hand-rolled body OR
@@ -26170,19 +26170,19 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// composing the just-closed direction-composition trichotomy
     /// under a witness-extraction combinator.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary set-
+    /// Anchor: the typescape; the N-ary set-
     /// level extremal existence predicate becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline `!items.is_empty()` guard that duplicates the argmax-
     /// inhabited-on-non-empty proof at every downstream generic site.
-    /// THEORY.md §V.1 — knowable platform; the (set-level × bool ×
+    /// Knowable platform; the (set-level × bool ×
     /// union × existential) corner was an unnamed inline SHARPENING
     /// recurring at every prospective downstream "is some variant at
     /// some extreme?" site pre-lift — naming it on the trait makes
     /// the SHARPENING a TYPED CONSEQUENCE of the substrate's non-
     /// emptiness collapse identity rather than a hand-rolled `O(1)`
     /// short-circuit past the `O(T::CARDINALITY * n)` count
-    /// aggregate. THEORY.md §VI.1 — generation over composition; the
+    /// aggregate. Generation over composition; the
     /// predicate emerges from the negation of the standard-library
     /// slice-empty bit past a proof-carrying SHARPENING (the argmax
     /// non-emptiness on non-empty slices), not as a per-implementor
@@ -26376,15 +26376,15 @@ pub trait ClosedSet: Sized + Copy + 'static {
     ///   peer one COMBINATOR axis over, opening the flat-diagonal Vec-
     ///   return witness collection.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary set-
+    /// Anchor: the typescape; the N-ary set-
     /// level union witness-collection becomes a TYPE-level primitive
     /// on the closed-set trait rather than a per-consumer inline
     /// `T::ALL.iter().filter(|&v| T::is_extremal_variant_of(v, items)).collect()`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (set-level × `Vec<Self>` × union) corner
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (set-level × `Vec<Self>` × union) corner
     /// was an unnamed inline SHARPENING recurring at every prospective
     /// downstream "which variants sit at some extreme?" site pre-lift.
-    /// THEORY.md §VI.1 — generation over composition; the sharpened
+    /// Generation over composition; the sharpened
     /// body emerges from the composition of THREE substrate primitives
     /// ([`Self::max_variant_count`], [`Self::min_variant_count`],
     /// [`Self::count_occurrences_of`]) filtered over [`Self::ALL`] with
@@ -26613,15 +26613,15 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// * `sorted_extremal_variants(items) -> Vec<Self>` — the LEX-ORDER
     ///   peer of the just-opened union arm one ORDERING axis over.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary set-level
+    /// Anchor: the typescape; the N-ary set-level
     /// complement witness-collection becomes a TYPE-level primitive on the
     /// closed-set trait rather than a per-consumer inline
     /// `T::ALL.iter().filter(|&v| T::is_middle_band_variant_of(v, items)).collect()`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (set-level × `Vec<Self>` × complement) corner
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (set-level × `Vec<Self>` × complement) corner
     /// was an unnamed inline SHARPENING recurring at every prospective
     /// downstream "which variants sit STRICTLY between the histogram
-    /// extremes?" site pre-lift. THEORY.md §VI.1 — generation over
+    /// extremes?" site pre-lift. Generation over
     /// composition; the sharpened body emerges from the composition of
     /// THREE substrate primitives ([`Self::max_variant_count`],
     /// [`Self::min_variant_count`], [`Self::count_occurrences_of`]) filtered
@@ -26839,17 +26839,17 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// [`Self::count_bimodal_variants`] aggregate one RETURN-SHAPE
     /// axis over).
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary lex-
+    /// Anchor: the typescape; the N-ary lex-
     /// order direction-composition complement witness-collection
     /// becomes a TYPE-level primitive on the closed-set trait rather
     /// than a per-consumer inline
     /// `T::sorted_variants().into_iter().filter(|&v| T::is_middle_band_variant_of(v, items)).collect()`
-    /// composition. THEORY.md §V.1 — knowable platform; the (set-level
+    /// composition. Knowable platform; the (set-level
     /// × `Vec<Self>` × complement × lex) corner was an unnamed inline
     /// SHARPENING recurring at every prospective downstream "which
     /// variants sit STRICTLY between the histogram extremes, walked in
-    /// a canonical alphabetic display order?" site pre-lift. THEORY.md
-    /// §VI.1 — generation over composition; the sharpened body emerges
+    /// a canonical alphabetic display order?" site pre-lift.
+    /// Generation over composition; the sharpened body emerges
     /// from the composition of FOUR substrate primitives
     /// ([`Self::sorted_variants`], [`Self::max_variant_count`],
     /// [`Self::min_variant_count`], [`Self::count_occurrences_of`])
@@ -27081,17 +27081,17 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// one RETURN-SHAPE axis over) and `sorted_bimodal_variants(items)
     /// -> Vec<Self>` (the intersection arm's lex-order closer).
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary lex-
+    /// Anchor: the typescape; the N-ary lex-
     /// order direction-composition union witness-collection becomes a
     /// TYPE-level primitive on the closed-set trait rather than a per-
     /// consumer inline
     /// `T::sorted_variants().into_iter().filter(|&v| T::is_extremal_variant_of(v, items)).collect()`
-    /// composition. THEORY.md §V.1 — knowable platform; the (set-level
+    /// composition. Knowable platform; the (set-level
     /// × `Vec<Self>` × union × lex) corner was an unnamed inline
     /// SHARPENING recurring at every prospective downstream "which
     /// variants sit AT the histogram extremes, walked in a canonical
-    /// alphabetic display order?" site pre-lift. THEORY.md §VI.1 —
-    /// generation over composition; the sharpened body emerges from
+    /// alphabetic display order?" site pre-lift.
+    /// Generation over composition; the sharpened body emerges from
     /// the composition of THREE substrate primitives
     /// ([`Self::max_variant_count`], [`Self::min_variant_count`],
     /// [`Self::count_occurrences_of`]) filtered over
@@ -27319,16 +27319,16 @@ pub trait ClosedSet: Sized + Copy + 'static {
     ///   peer one RETURN-SHAPE axis over, closing the (set-level ×
     ///   `Option<Self>` × intersection) first-witness corner.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary set-
+    /// Anchor: the typescape; the N-ary set-
     /// level intersection witness-collection becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline `T::ALL.iter().filter(|&v| T::is_bimodal_variant_of(v, items)).collect()`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (set-level × `Vec<Self>` × intersection)
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (set-level × `Vec<Self>` × intersection)
     /// corner was an unnamed inline SHARPENING recurring at every
     /// prospective downstream "which variants sit at BOTH histogram
-    /// extremes simultaneously?" site pre-lift. THEORY.md §VI.1 —
-    /// generation over composition; the sharpened body emerges from
+    /// extremes simultaneously?" site pre-lift.
+    /// Generation over composition; the sharpened body emerges from
     /// the composition of TWO substrate primitives
     /// ([`Self::is_uniform`], `T::ALL.to_vec()`) under a dichotomy
     /// gate — one algorithmic factor of `T::CARDINALITY` shaved off
@@ -27567,17 +27567,17 @@ pub trait ClosedSet: Sized + Copy + 'static {
     ///   LEX-ORDER first-witness peer one ORDERING axis over from
     ///   `bimodal_variant`.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary lex-
+    /// Anchor: the typescape; the N-ary lex-
     /// order direction-composition intersection witness-collection
     /// becomes a TYPE-level primitive on the closed-set trait rather
     /// than a per-consumer inline
     /// `T::sorted_variants().into_iter().filter(|&v| T::is_bimodal_variant_of(v, items)).collect()`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (set-level × `Vec<Self>` × intersection ×
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (set-level × `Vec<Self>` × intersection ×
     /// lex) corner was an unnamed inline SHARPENING recurring at every
     /// prospective downstream "which variants sit at BOTH histogram
     /// extremes simultaneously, walked in a canonical alphabetic
-    /// display order?" site pre-lift. THEORY.md §VI.1 — generation
+    /// display order?" site pre-lift. Generation
     /// over composition; the sharpened body emerges from the
     /// composition of TWO substrate primitives ([`Self::is_uniform`],
     /// [`Self::sorted_variants`]) under a dichotomy gate — one
@@ -27846,18 +27846,18 @@ pub trait ClosedSet: Sized + Copy + 'static {
     ///   by the same uniformity-collapse dichotomy as
     ///   [`Self::bimodal_variants`].
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// declaration-order direction-composition union first-witness
     /// becomes a TYPE-level primitive on the closed-set trait rather
     /// than a per-consumer inline
     /// `T::ALL.iter().copied().find(|&v| { let c =
     /// T::count_occurrences_of(v, items); c == T::max_variant_count(items)
     /// || c == T::min_variant_count(items) })` composition at every
-    /// downstream generic site. THEORY.md §V.1 — knowable platform; the
+    /// downstream generic site. Knowable platform; the
     /// (set-level × `Option<Self>` × direction-composition × union)
     /// corner was an unnamed inline PROJECTION recurring at every
     /// prospective downstream "which is the FIRST outlier variant?" site
-    /// pre-lift. THEORY.md §VI.1 — generation over composition; the
+    /// pre-lift. Generation over composition; the
     /// projection emerges from the composition of THREE substrate
     /// primitives ([`Self::max_variant_count`],
     /// [`Self::min_variant_count`], [`Self::count_occurrences_of`])
@@ -28071,15 +28071,15 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// pair closes, followed by its own `sorted_middle_band_variant`
     /// lex sibling that closes the complement lex arm.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary LEX-
+    /// Anchor: the typescape; the N-ary LEX-
     /// ORDER direction-composition union first-witness becomes a
-    /// TYPE-level primitive on the closed-set trait. THEORY.md §V.1 —
-    /// knowable platform; naming the (set-level × `Option<Self>` ×
+    /// TYPE-level primitive on the closed-set trait.
+    /// Knowable platform; naming the (set-level × `Option<Self>` ×
     /// direction-composition × union × lex) corner on the trait makes
     /// the projection a TYPED CONSEQUENCE of the substrate's
     /// [`Self::sorted_variants`] projection composed with the trait's
     /// max/min-fold pair under the disjunctive union predicate.
-    /// THEORY.md §VI.1 — generation over composition; the projection
+    /// Generation over composition; the projection
     /// emerges from the same three substrate primitives as the
     /// declaration-order sibling under a substitution of the walk
     /// surface — no per-implementor hand-rolled body.
@@ -28275,15 +28275,15 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// arm this projection opens one COMBINATOR axis over via
     /// `c == max && c == min` (the flat-diagonal predicate).
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// declaration-order direction-composition complement first-
     /// witness becomes a TYPE-level primitive on the closed-set
-    /// trait. THEORY.md §V.1 — knowable platform; naming the (set-
+    /// trait. Knowable platform; naming the (set-
     /// level × `Option<Self>` × direction-composition × complement ×
     /// declaration) corner on the trait makes the projection a TYPED
     /// CONSEQUENCE of the substrate's [`Self::ALL`] projection
     /// composed with the max/min-fold pair under the strict interior
-    /// conjunction. THEORY.md §VI.1 — generation over composition;
+    /// conjunction. Generation over composition;
     /// the projection emerges from the same three substrate
     /// primitives as the union sibling under a substitution of the
     /// predicate combinator (`|| → && !`, De Morgan complement).
@@ -28531,15 +28531,15 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// `sorted_bimodal_variant(items) -> Option<Self>` via the flat-
     /// diagonal predicate `c == max && c == min`).
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary LEX-
+    /// Anchor: the typescape; the N-ary LEX-
     /// ORDER direction-composition complement first-witness becomes a
-    /// TYPE-level primitive on the closed-set trait. THEORY.md §V.1 —
-    /// knowable platform; naming the (set-level × `Option<Self>` ×
+    /// TYPE-level primitive on the closed-set trait.
+    /// Knowable platform; naming the (set-level × `Option<Self>` ×
     /// direction-composition × complement × lex) corner on the trait
     /// makes the projection a TYPED CONSEQUENCE of the substrate's
     /// [`Self::sorted_variants`] projection composed with the max/
-    /// min-fold pair under the strict-interior conjunction. THEORY.md
-    /// §VI.1 — generation over composition; the projection emerges
+    /// min-fold pair under the strict-interior conjunction.
+    /// Generation over composition; the projection emerges
     /// from the same three substrate primitives as the declaration-
     /// order complement sibling under a substitution of the walk
     /// surface — no per-implementor hand-rolled body.
@@ -28785,14 +28785,14 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// LEX arm (`sorted_bimodal_variant`) remains as the natural next
     /// lift closing the intersection ordering face.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// direction-composition intersection first-witness becomes a
-    /// TYPE-level primitive on the closed-set trait. THEORY.md §V.1 —
-    /// knowable platform; naming the (set-level × `Option<Self>` ×
+    /// TYPE-level primitive on the closed-set trait.
+    /// Knowable platform; naming the (set-level × `Option<Self>` ×
     /// direction-composition × intersection × declaration) corner on
     /// the trait makes the projection a TYPED CONSEQUENCE of the
     /// substrate's [`Self::is_uniform`] predicate composed with
-    /// [`Self::first`]. THEORY.md §VI.1 — generation over composition;
+    /// [`Self::first`]. Generation over composition;
     /// the projection emerges from the same TWO substrate primitives
     /// as the plural sibling under a truncation of the returned
     /// collection to its declaration-order head — no per-implementor
@@ -29064,14 +29064,14 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// at the singular first-witness return-shape, exactly mirroring
     /// the plural `Vec<Self>` grid closed one RETURN-SHAPE axis over.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary lex-
+    /// Anchor: the typescape; the N-ary lex-
     /// order direction-composition intersection first-witness becomes a
-    /// TYPE-level primitive on the closed-set trait. THEORY.md §V.1 —
-    /// knowable platform; naming the (set-level × `Option<Self>` ×
+    /// TYPE-level primitive on the closed-set trait.
+    /// Knowable platform; naming the (set-level × `Option<Self>` ×
     /// direction-composition × intersection × lex) corner on the trait
     /// makes the projection a TYPED CONSEQUENCE of the substrate's
     /// [`Self::is_uniform`] predicate composed with
-    /// [`Self::sorted_first`]. THEORY.md §VI.1 — generation over
+    /// [`Self::sorted_first`]. Generation over
     /// composition; the projection emerges from the same TWO substrate
     /// primitives as the plural sibling under a truncation of the
     /// returned collection to its lex-order head — no per-implementor
@@ -29243,17 +29243,17 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// (direction-composition × unique-tie × bool) 3-corner row on the
     /// modal-aggregation matrix.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary set-
+    /// Anchor: the typescape; the N-ary set-
     /// level middle-band uniqueness bool predicate becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline `T::count_middle_band_variants(items) == 1` composition at
-    /// every downstream generic site. THEORY.md §V.1 — knowable
+    /// every downstream generic site. Knowable
     /// platform; the (set-level × bool × middle-band-uniqueness) corner
     /// was an unnamed inline composition recurring at every prospective
     /// downstream "is the sole strict-interior witness unambiguous?"
     /// site pre-lift. Naming it on the trait makes the predicate a
     /// TYPED CONSEQUENCE of the substrate's just-lifted middle-band
-    /// count aggregate. THEORY.md §VI.1 — generation over composition;
+    /// count aggregate. Generation over composition;
     /// the predicate emerges from the composition of ONE substrate
     /// primitive ([`Self::count_middle_band_variants`]) with a scalar
     /// equality against `1`, not as a per-implementor hand-rolled body.
@@ -29415,17 +29415,17 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// `>= 2` collapse via the two-value dichotomy `{0, T::CARDINALITY}`
     /// on the intersection count.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary set-
+    /// Anchor: the typescape; the N-ary set-
     /// level extremal-union uniqueness bool predicate becomes a TYPE-
     /// level primitive on the closed-set trait rather than a per-consumer
     /// inline `T::count_extremal_variants(items) == 1` composition at
-    /// every downstream generic site. THEORY.md §V.1 — knowable
+    /// every downstream generic site. Knowable
     /// platform; naming the (set-level × bool × union × unique-tie)
     /// corner on the trait makes the degenerate opener's compile-time
     /// theorem `T::CARDINALITY >= 2 => !T::has_unique_extremal_variant`
     /// on non-empty slices a TYPED CONSEQUENCE of the substrate's just-
     /// lifted extremal count aggregate rather than an unnamed inline
-    /// composition. THEORY.md §VI.1 — generation over composition; the
+    /// composition. Generation over composition; the
     /// predicate emerges from the composition of ONE substrate primitive
     /// ([`Self::count_extremal_variants`]) with a scalar equality
     /// against `1`, not as a per-implementor hand-rolled body.
@@ -29612,19 +29612,19 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// on the (direction-composition × option-witness) row one
     /// RETURN-SHAPE axis over.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary set-
+    /// Anchor: the typescape; the N-ary set-
     /// level bimodal-intersection uniqueness bool predicate becomes a
     /// TYPE-level primitive on the closed-set trait rather than a per-
     /// consumer inline `T::count_bimodal_variants(items) == 1`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; naming the (set-level × bool × intersection
+    /// composition at every downstream generic site.
+    /// Knowable platform; naming the (set-level × bool × intersection
     /// × unique-tie) corner on the trait makes the degenerate opener's
     /// compile-time theorem `T::CARDINALITY >= 2 =>
     /// !T::has_unique_bimodal_variant` on non-empty slices a TYPED
     /// CONSEQUENCE of the substrate's just-lifted bimodal count
     /// aggregate's two-value dichotomy `{0, T::CARDINALITY}` rather
-    /// than an unnamed inline composition. THEORY.md §VI.1 —
-    /// generation over composition; the predicate emerges from the
+    /// than an unnamed inline composition.
+    /// Generation over composition; the predicate emerges from the
     /// composition of ONE substrate primitive
     /// ([`Self::count_bimodal_variants`]) with a scalar equality
     /// against `1`, not as a per-implementor hand-rolled body.
@@ -29839,20 +29839,20 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// the (`Option<Self>` × direction-composition × unique-tie) 3-corner
     /// row fills with no fresh substrate primitives on the index axis.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary set-
+    /// Anchor: the typescape; the N-ary set-
     /// level unique-extremal `Option<Self>` witness projection becomes a
     /// TYPE-level primitive on the closed-set trait rather than a per-
     /// consumer inline `if T::has_unique_extremal_variant(items) { T::extremal_variant(items) } else { None }`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (set-level × `Option<Self>` × direction-
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (set-level × `Option<Self>` × direction-
     /// composition × union × unique-tie) witness-if-unique corner was an
     /// unnamed inline composition recurring at every prospective
     /// downstream "which variant is the histogram's extremum, if it's
     /// unambiguous?" site pre-lift. Naming it on the trait makes the
     /// projection a TYPED CONSEQUENCE of the just-lifted set-level
     /// extremal-union uniqueness bit and the declaration-order union
-    /// first-witness under a boolean-guarded `Option`-collapse. THEORY.md
-    /// §VI.1 — generation over composition; the projection emerges from
+    /// first-witness under a boolean-guarded `Option`-collapse.
+    /// Generation over composition; the projection emerges from
     /// the composition of TWO substrate primitives
     /// ([`Self::has_unique_extremal_variant`] +
     /// [`Self::extremal_variant`]) with the `if _ { _ } else { None }`
@@ -30050,13 +30050,13 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// at the boolean-guarded-Option-collapse layer above the pre-existing
     /// bool-return uniqueness bit.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary set-
+    /// Anchor: the typescape; the N-ary set-
     /// level unique-middle-band `Option<Self>` witness projection becomes
     /// a TYPE-level primitive on the closed-set trait rather than a per-
     /// consumer inline
     /// `if T::has_unique_middle_band_variant(items) { T::middle_band_variant(items) } else { None }`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (set-level × `Option<Self>` × direction-
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (set-level × `Option<Self>` × direction-
     /// composition × complement × unique-tie) witness-if-unique corner
     /// was an unnamed inline composition recurring at every prospective
     /// downstream "which variant is the histogram's strict interior, if
@@ -30064,7 +30064,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// the projection a TYPED CONSEQUENCE of the just-lifted set-level
     /// middle-band uniqueness bit and the declaration-order strict-
     /// interior first-witness under a boolean-guarded `Option`-collapse.
-    /// THEORY.md §VI.1 — generation over composition; the projection
+    /// Generation over composition; the projection
     /// emerges from the composition of TWO substrate primitives
     /// ([`Self::has_unique_middle_band_variant`] +
     /// [`Self::middle_band_variant`]) with the `if _ { _ } else { None }`
@@ -30280,13 +30280,13 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// LEX-order siblings (`sorted_unique_modal_variant`,
     /// `sorted_unique_antimodal_variant`, …) one ORDERING axis over.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary set-level
+    /// Anchor: the typescape; the N-ary set-level
     /// unique-bimodal `Option<Self>` witness projection becomes a
     /// TYPE-level primitive on the closed-set trait rather than a
     /// per-consumer inline
     /// `if T::has_unique_bimodal_variant(items) { T::bimodal_variant(items) } else { None }`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (set-level × `Option<Self>` × direction-
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (set-level × `Option<Self>` × direction-
     /// composition × intersection × unique-tie) witness-if-unique corner
     /// was an unnamed inline composition recurring at every prospective
     /// downstream "which variant is the histogram's flat-diagonal
@@ -30294,7 +30294,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// trait makes the projection a TYPED CONSEQUENCE of the just-lifted
     /// set-level bimodal uniqueness bit and the declaration-order
     /// intersection first-witness under a boolean-guarded `Option`-
-    /// collapse. THEORY.md §VI.1 — generation over composition; the
+    /// collapse. Generation over composition; the
     /// projection emerges from the composition of TWO substrate primitives
     /// ([`Self::has_unique_bimodal_variant`] + [`Self::bimodal_variant`])
     /// with the `if _ { _ } else { None }` combinator on `Option<Self>`,
@@ -30460,17 +30460,17 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// iterates over "the sole witness if any" without needing to
     /// dispatch on Option/Vec at the callsite.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary set-
+    /// Anchor: the typescape; the N-ary set-
     /// level unique-extremal `Vec<Self>` singleton-or-empty witness
     /// projection becomes a TYPE-level primitive on the closed-set trait
     /// rather than a per-consumer inline
     /// `if T::has_unique_extremal_variant(items) { T::extremal_variants(items) } else { vec![] }`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (set-level × `Vec<Self>` × direction-
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (set-level × `Vec<Self>` × direction-
     /// composition × union × unique-tie) witness-if-unique corner was an
     /// unnamed inline composition recurring at every prospective
     /// downstream "the sole extremal, as a Vec, if it's unambiguous"
-    /// site pre-lift. THEORY.md §VI.1 — generation over composition; the
+    /// site pre-lift. Generation over composition; the
     /// projection emerges from the composition of TWO substrate
     /// primitives ([`Self::has_unique_extremal_variant`] +
     /// [`Self::extremal_variants`]) with the `if _ { _ } else { vec![] }`
@@ -30639,17 +30639,17 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// interior witness if any" without needing to dispatch on
     /// Option/Vec at the callsite.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary set-
+    /// Anchor: the typescape; the N-ary set-
     /// level unique-middle-band `Vec<Self>` singleton-or-empty witness
     /// projection becomes a TYPE-level primitive on the closed-set trait
     /// rather than a per-consumer inline
     /// `if T::has_unique_middle_band_variant(items) { T::middle_band_variants(items) } else { vec![] }`
-    /// composition at every downstream generic site. THEORY.md §V — the
+    /// composition at every downstream generic site. The
     /// (set-level × `Vec<Self>` × direction-composition × complement ×
     /// unique-tie) witness-if-unique corner was an unnamed inline
     /// composition recurring at every prospective downstream "the sole
     /// strict-interior variant, as a Vec, if it's unambiguous" site pre-
-    /// lift. THEORY.md §VI.1 — generation over composition; the
+    /// lift. Generation over composition; the
     /// projection emerges from the composition of TWO substrate
     /// primitives ([`Self::has_unique_middle_band_variant`] +
     /// [`Self::middle_band_variants`]) with the `if _ { _ } else { vec![] }`
@@ -30870,17 +30870,17 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// `sorted_unique_bimodal_variants`) opening the (`Vec<Self>` ×
     /// sorted × unique-tie) column one ORDERING axis over.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary set-
+    /// Anchor: the typescape; the N-ary set-
     /// level unique-bimodal `Vec<Self>` singleton-or-empty witness
     /// projection becomes a TYPE-level primitive on the closed-set
     /// trait rather than a per-consumer inline
     /// `if T::has_unique_bimodal_variant(items) { T::bimodal_variants(items) } else { vec![] }`
-    /// composition at every downstream generic site. THEORY.md §V — the
+    /// composition at every downstream generic site. The
     /// (set-level × `Vec<Self>` × direction-composition × intersection ×
     /// unique-tie) witness-if-unique corner was an unnamed inline
     /// composition recurring at every prospective downstream "the sole
     /// flat-diagonal variant, as a Vec, if it's unambiguous" site pre-
-    /// lift. THEORY.md §VI.1 — generation over composition; the
+    /// lift. Generation over composition; the
     /// projection emerges from the composition of TWO substrate
     /// primitives ([`Self::has_unique_bimodal_variant`] +
     /// [`Self::bimodal_variants`]) with the
@@ -31070,21 +31070,21 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// CLOSE the (`Vec<Self>` × direction-composition × combinator ×
     /// ordering × unique-tie) 3×2 face at its final two lex tiles.
     ///
-    /// Theory anchor: THEORY.md §II.1 — the Rust + Lisp pattern; the
+    /// Anchor: the Rust + Lisp pattern; the
     /// (set-level × `Vec<Self>` × sorted × statistical-aggregate ×
     /// direction-composition × union × unique-tie) corner becomes a
     /// TYPED WITNESS on the ClosedSet trait rather than a per-consumer
     /// inline
     /// `if T::has_unique_extremal_variant(items) { T::sorted_extremal_variants(items) } else { vec![] }`
-    /// re-derivation. THEORY.md §III — the typescape; a fresh TYPE-level
+    /// re-derivation. The typescape; a fresh TYPE-level
     /// primitive plus a typed THEOREM (ordering-choice-irrelevance) the
-    /// substrate proves once. THEORY.md §V.1 — knowable platform; the
+    /// substrate proves once. Knowable platform; the
     /// (lex-order × `Vec<Self>` × direction-composition × union ×
     /// unique-tie) corner was an unnamed inline composition — or
     /// silently absent because callers reached for the declaration-order
     /// sibling without proof of coincidence — recurring at every
     /// prospective downstream "the sole extremal, as a Vec, in lex order,
-    /// if it's unambiguous" site pre-lift. THEORY.md §VI.1 — generation
+    /// if it's unambiguous" site pre-lift. Generation
     /// over composition; the projection emerges from the composition of
     /// TWO substrate primitives ([`Self::has_unique_extremal_variant`] +
     /// [`Self::sorted_extremal_variants`]) with the
@@ -31278,22 +31278,22 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// (`Vec<Self>` × direction-composition × combinator × ordering ×
     /// unique-tie) 3×2 face at its FINAL sixth tile.
     ///
-    /// Theory anchor: THEORY.md §II.1 — the Rust + Lisp pattern; the
+    /// Anchor: the Rust + Lisp pattern; the
     /// (set-level × `Vec<Self>` × sorted × statistical-aggregate ×
     /// direction-composition × complement × unique-tie) corner becomes a
     /// TYPED WITNESS on the ClosedSet trait rather than a per-consumer
     /// inline
     /// `if T::has_unique_middle_band_variant(items) { T::sorted_middle_band_variants(items) } else { vec![] }`
-    /// re-derivation. THEORY.md §III — the typescape; a fresh TYPE-level
+    /// re-derivation. The typescape; a fresh TYPE-level
     /// primitive plus a typed THEOREM (ordering-choice-irrelevance) the
-    /// substrate proves once. THEORY.md §V.1 — knowable platform; the
+    /// substrate proves once. Knowable platform; the
     /// (lex-order × `Vec<Self>` × direction-composition × complement ×
     /// unique-tie) corner was an unnamed inline composition — or silently
     /// absent because callers reached for the declaration-order sibling
     /// without proof of coincidence — recurring at every prospective
     /// downstream "the sole strict-interior variant, as a Vec, in lex
-    /// order, if it's unambiguous" site pre-lift. THEORY.md §VI.1 —
-    /// generation over composition; the projection emerges from the
+    /// order, if it's unambiguous" site pre-lift.
+    /// Generation over composition; the projection emerges from the
     /// composition of TWO substrate primitives
     /// ([`Self::has_unique_middle_band_variant`] +
     /// [`Self::sorted_middle_band_variants`]) with the
@@ -31503,20 +31503,20 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// tie × ordering) column via the LEX-ORDER peer of the just-lifted per-
     /// target extremal / middle-band / bimodal unique-tie predicates.
     ///
-    /// Theory anchor: THEORY.md §II.1 — the Rust + Lisp pattern; the (set-
+    /// Anchor: the Rust + Lisp pattern; the (set-
     /// level × `Vec<Self>` × sorted × statistical-aggregate × direction-
     /// composition × intersection × unique-tie) corner becomes a TYPED
     /// WITNESS on the ClosedSet trait rather than a per-consumer inline
     /// `if T::has_unique_bimodal_variant(items) { T::sorted_bimodal_variants(items) } else { vec![] }`
-    /// re-derivation. THEORY.md §III — the typescape; a fresh TYPE-level
+    /// re-derivation. The typescape; a fresh TYPE-level
     /// primitive plus a typed THEOREM (ordering-choice-irrelevance) the
-    /// substrate proves once. THEORY.md §V.1 — knowable platform; the (lex-
+    /// substrate proves once. Knowable platform; the (lex-
     /// order × `Vec<Self>` × direction-composition × intersection × unique-
     /// tie) corner was an unnamed inline composition — or silently absent
     /// because callers reached for the declaration-order sibling without
     /// proof of coincidence — recurring at every prospective downstream "the
     /// sole flat-diagonal variant, as a Vec, in lex order, if it's
-    /// unambiguous" site pre-lift. THEORY.md §VI.1 — generation over
+    /// unambiguous" site pre-lift. Generation over
     /// composition; the projection emerges from the composition of TWO
     /// substrate primitives ([`Self::has_unique_bimodal_variant`] +
     /// [`Self::sorted_bimodal_variants`]) with the `if _ { _ } else { vec![] }`
@@ -31735,18 +31735,18 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// per-target complement / intersection membership predicates with the
     /// just-lifted set-level complement / intersection uniqueness bits.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary per-target
+    /// Anchor: the typescape; the N-ary per-target
     /// unique-extremum predicate becomes a TYPE-level primitive on the
     /// closed-set trait rather than a per-consumer inline
     /// `T::is_extremal_variant_of(v, items) && T::has_unique_extremal_variant(items)`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (per-target × bool × direction-composition ×
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (per-target × bool × direction-composition ×
     /// union × unique-tie) corner was an unnamed inline composition
     /// recurring at every prospective downstream "is this target the
     /// unique boundary variant?" site pre-lift. Naming it on the trait
     /// makes the predicate a TYPED CONSEQUENCE of the just-lifted per-
     /// target union membership predicate and set-level extremal-uniqueness
-    /// bit under a boolean conjunction. THEORY.md §VI.1 — generation over
+    /// bit under a boolean conjunction. Generation over
     /// composition; the predicate emerges from the composition of TWO
     /// substrate primitives ([`Self::is_extremal_variant_of`] +
     /// [`Self::has_unique_extremal_variant`]) with the `&&` combinator on
@@ -31918,17 +31918,17 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// has_unique_bimodal_variant(items)` conjunction, mirroring THIS
     /// projection's shape one COMBINATOR axis over.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary per-
+    /// Anchor: the typescape; the N-ary per-
     /// target unique-strict-interior predicate becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline `T::is_middle_band_variant_of(v, items) &&
     /// T::has_unique_middle_band_variant(items)` composition at every
-    /// downstream generic site. THEORY.md §V.1 — knowable platform;
+    /// downstream generic site. Knowable platform;
     /// the (per-target × bool × direction-composition × complement ×
     /// unique-tie) corner was an unnamed inline composition
     /// recurring at every prospective downstream "is this target the
-    /// unique strict-interior variant?" site pre-lift. THEORY.md
-    /// §VI.1 — generation over composition; the predicate emerges
+    /// unique strict-interior variant?" site pre-lift.
+    /// Generation over composition; the predicate emerges
     /// from the composition of TWO substrate primitives
     /// ([`Self::is_middle_band_variant_of`] +
     /// [`Self::has_unique_middle_band_variant`]) with the `&&`
@@ -32141,17 +32141,17 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// binding through ONE typed Option-equality rather than THREE
     /// separate identities re-derived at every callsite.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary per-
+    /// Anchor: the typescape; the N-ary per-
     /// target unique-flat-diagonal predicate becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline `T::is_bimodal_variant_of(v, items) &&
     /// T::has_unique_bimodal_variant(items)` composition at every
-    /// downstream generic site. THEORY.md §V.1 — knowable platform;
+    /// downstream generic site. Knowable platform;
     /// the (per-target × bool × direction-composition × intersection
     /// × unique-tie) corner was an unnamed inline composition
     /// recurring at every prospective downstream "is this target the
-    /// unique flat-diagonal variant?" site pre-lift. THEORY.md §VI.1
-    /// — generation over composition; the predicate emerges from the
+    /// unique flat-diagonal variant?" site pre-lift.
+    /// Generation over composition; the predicate emerges from the
     /// composition of TWO substrate primitives
     /// ([`Self::is_bimodal_variant_of`] +
     /// [`Self::has_unique_bimodal_variant`]) with the `&&` combinator
@@ -32371,18 +32371,18 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// closing the set-level existential-bool face at its remaining
     /// mult-band corner.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary any-
+    /// Anchor: the typescape; the N-ary any-
     /// repeat predicate becomes a TYPE-level primitive on the closed-
     /// set trait rather than a per-consumer inline
     /// `T::max_variant_count(items) >= 2` composition OR
     /// `!T::is_pairwise_distinct(items)` negation at every downstream
-    /// generic site. THEORY.md §V.1 — knowable platform; the (set-
+    /// generic site. Knowable platform; the (set-
     /// level × bool × mult `>= 2`) corner was an unnamed inline
     /// composition recurring at every prospective downstream "did some
     /// variant repeat?" site pre-lift. Naming it on the trait makes
     /// the predicate a TYPED CONSEQUENCE of the substrate's modal-count
-    /// aggregate compared meet-or-exceed against `2`. THEORY.md §VI.1
-    /// — generation over composition; the any-repeat predicate emerges
+    /// aggregate compared meet-or-exceed against `2`.
+    /// Generation over composition; the any-repeat predicate emerges
     /// from the composition of ONE substrate primitive
     /// ([`Self::max_variant_count`]) with a `>= 2` comparison on
     /// `usize`, not as a per-implementor hand-rolled body.
@@ -32558,11 +32558,11 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// corner and (set-level × universal × mult `<= 1`)
     /// [`Self::is_pairwise_distinct`] corner.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary any-
+    /// Anchor: the typescape; the N-ary any-
     /// unique predicate becomes a TYPE-level primitive on the closed-
     /// set trait rather than a per-consumer inline existential over
     /// the per-target multiplicity-`== 1` predicate at every
-    /// downstream generic site. THEORY.md §V.1 — knowable platform;
+    /// downstream generic site. Knowable platform;
     /// the (set-level × bool × mult `== 1`) corner was an unnamed
     /// inline composition recurring at every prospective downstream
     /// "did some variant occur exactly once?" site pre-lift. Naming
@@ -32571,7 +32571,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// set-level via the standard-library `any` combinator — AND
     /// closes the (set-level × bool × multiplicity-band) existential-
     /// lift trichotomy as a TYPED THEOREM the substrate proves
-    /// once. THEORY.md §VI.1 — generation over composition; the any-
+    /// once. Generation over composition; the any-
     /// unique predicate emerges from the composition of ONE substrate
     /// primitive ([`Self::is_unique_occurrence_of`]) with an
     /// `iter().copied().any(…)` combinator over [`Self::ALL`], not
@@ -32770,20 +32770,20 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// multiplicity band — bind through these six primitives on
     /// the substrate.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// set-level count of unique-multiplicity variants becomes a
     /// TYPE-level primitive on the closed-set trait rather than a
     /// per-consumer inline
     /// `T::ALL.iter().filter(|v| T::count_occurrences_of(*v, items) == 1).count()`
-    /// composition at every downstream generic site. THEORY.md
-    /// §V.1 — knowable platform; the (set-level × usize × mult `== 1`)
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (set-level × usize × mult `== 1`)
     /// corner was an unnamed inline composition recurring at every
     /// prospective downstream "how many variants occur exactly
     /// once?" site pre-lift. Naming it on the trait makes the
     /// count a TYPED CONSEQUENCE of the substrate's per-target
     /// uniqueness primitive [`Self::is_unique_occurrence_of`]
     /// filtered through [`Self::ALL`] and reduced via `.count()`.
-    /// THEORY.md §VI.1 — generation over composition; the count
+    /// Generation over composition; the count
     /// emerges from the composition of ONE substrate primitive
     /// ([`Self::is_unique_occurrence_of`]) with an
     /// `iter().copied().filter(…).count()` combinator over
@@ -32954,13 +32954,13 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// multiplicity band — bind through these six primitives on the
     /// substrate.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// set-level count of strict-repeat-multiplicity variants
     /// becomes a TYPE-level primitive on the closed-set trait rather
     /// than a per-consumer inline
     /// `T::ALL.iter().filter(|v| T::count_occurrences_of(*v, items) >= 2).count()`
-    /// composition at every downstream generic site. THEORY.md
-    /// §V.1 — knowable platform; the (set-level × usize × mult
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (set-level × usize × mult
     /// `>= 2`) corner was an unnamed inline composition recurring at
     /// every prospective downstream "how many variants occur two or
     /// more times?" site pre-lift. Naming it on the trait makes the
@@ -32971,7 +32971,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// `count_missing + count_unique_variants + count_repeating_variants == T::CARDINALITY`
     /// a substrate-level THEOREM the well-formedness contract pins
     /// once rather than a per-consumer inline sanity check.
-    /// THEORY.md §VI.1 — generation over composition; the count
+    /// Generation over composition; the count
     /// emerges from the composition of ONE substrate primitive
     /// ([`Self::is_repeated_occurrence_of`]) with an
     /// `iter().copied().filter(…).count()` combinator over
@@ -33166,18 +33166,18 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// over closes the per-target column via
     /// `is_repeated_occurrence_of(target, items) && has_unique_repeating_variant(items)`.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary set-
+    /// Anchor: the typescape; the N-ary set-
     /// level strict-repeat uniqueness bool predicate becomes a TYPE-
     /// level primitive on the closed-set trait rather than a per-
     /// consumer inline `T::count_repeating_variants(items) == 1`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (set-level × bool × equivalence-partition
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (set-level × bool × equivalence-partition
     /// × mult `>= 2` × unique-tie) corner was an unnamed inline
     /// composition recurring at every prospective downstream "is there
     /// EXACTLY ONE repeating variant?" site pre-lift. Naming it on the
     /// trait makes the predicate a TYPED CONSEQUENCE of the substrate's
-    /// just-lifted strict-repeat count aggregate. THEORY.md §VI.1 —
-    /// generation over composition; the predicate emerges from the
+    /// just-lifted strict-repeat count aggregate.
+    /// Generation over composition; the predicate emerges from the
     /// composition of ONE substrate primitive
     /// ([`Self::count_repeating_variants`]) with a scalar equality
     /// against `1`, not as a per-implementor hand-rolled body.
@@ -33393,21 +33393,21 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// [`Self::is_unique_bimodal_variant_of`] one SURFACE axis over
     /// on the modal-aggregation surface).
     ///
-    /// Theory anchor: THEORY.md §II.1 — the Rust + Lisp pattern; the
+    /// Anchor: the Rust + Lisp pattern; the
     /// (set-level × `Option<Self>` × equivalence-partition × mult `>= 2`
     /// × unique-tie) corner becomes a TYPED WITNESS on the ClosedSet
     /// trait rather than a per-consumer inline
     /// `if T::has_unique_repeating_variant(items) { T::ALL.iter().copied().find(|&v| T::is_repeated_occurrence_of(v, items)) } else { None }`
-    /// re-derivation. THEORY.md §III — the typescape; the N-ary set-
+    /// re-derivation. The typescape; the N-ary set-
     /// level unique-strict-repeat `Option<Self>` witness projection
     /// becomes a TYPE-level primitive on the closed-set trait rather
     /// than a per-consumer inline composition at every downstream
-    /// generic site. THEORY.md §V.1 — knowable platform; the (set-
+    /// generic site. Knowable platform; the (set-
     /// level × `Option<Self>` × equivalence-partition × mult `>= 2` ×
     /// unique-tie) witness-if-unique corner was an unnamed inline
     /// composition recurring at every prospective downstream "which
     /// variant is the sole strict-repeat witness, if it's unambiguous?"
-    /// site pre-lift. THEORY.md §VI.1 — generation over composition;
+    /// site pre-lift. Generation over composition;
     /// the projection emerges from the composition of TWO substrate
     /// primitives ([`Self::has_unique_repeating_variant`] +
     /// [`Self::is_repeated_occurrence_of`]) with an `if _ { _.find(…) }
@@ -33637,20 +33637,20 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// set-level, bool per-target) return-shape × arity trio,
     /// exhausting the closed uniqueness surface at (mult `>= 2`).
     ///
-    /// Theory anchor: THEORY.md §II.1 — the Rust + Lisp pattern; the
+    /// Anchor: the Rust + Lisp pattern; the
     /// (per-target × bool × equivalence-partition × mult `>= 2` ×
     /// unique-tie) corner becomes a TYPED WITNESS on the ClosedSet
     /// trait rather than a per-consumer inline
     /// `T::is_repeated_occurrence_of(v, items) && T::has_unique_repeating_variant(items)`
-    /// re-derivation. THEORY.md §III — the typescape; the N-ary per-
+    /// re-derivation. The typescape; the N-ary per-
     /// target unique-strict-repeat predicate becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
-    /// inline composition at every downstream generic site. THEORY.md
-    /// §V.1 — knowable platform; the (per-target × bool ×
+    /// inline composition at every downstream generic site.
+    /// Knowable platform; the (per-target × bool ×
     /// equivalence-partition × mult `>= 2` × unique-tie) corner was
     /// an unnamed inline composition recurring at every prospective
     /// downstream "is this target the sole strict-repeat witness?"
-    /// site pre-lift. THEORY.md §VI.1 — generation over composition;
+    /// site pre-lift. Generation over composition;
     /// the predicate emerges from the composition of TWO substrate
     /// primitives ([`Self::is_repeated_occurrence_of`] +
     /// [`Self::has_unique_repeating_variant`]) with the `&&`
@@ -33860,20 +33860,20 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// axis over closes the per-target column via
     /// `!items.iter().any(|w| index_of(*w) == index_of(target)) && has_unique_missing_variant(items)`.
     ///
-    /// Theory anchor: THEORY.md §II.1 — the Rust + Lisp pattern;
+    /// Anchor: the Rust + Lisp pattern;
     /// the (set-level × bool × equivalence-partition × mult
     /// `== 0` × unique-tie) corner becomes a TYPED WITNESS on the
     /// ClosedSet trait rather than a per-consumer inline
-    /// `T::count_missing(items) == 1` re-derivation. THEORY.md
-    /// §III — the typescape; the N-ary set-level miss-uniqueness
+    /// `T::count_missing(items) == 1` re-derivation.
+    /// The typescape; the N-ary set-level miss-uniqueness
     /// bool predicate becomes a TYPE-level primitive on the
     /// closed-set trait rather than a per-consumer inline
-    /// composition at every downstream generic site. THEORY.md
-    /// §V.1 — knowable platform; the (set-level × bool ×
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (set-level × bool ×
     /// equivalence-partition × mult `== 0` × unique-tie) corner
     /// was an unnamed inline composition recurring at every
     /// prospective downstream "is EXACTLY ONE variant missing?"
-    /// site pre-lift. THEORY.md §VI.1 — generation over
+    /// site pre-lift. Generation over
     /// composition; the predicate emerges from the composition of
     /// ONE substrate primitive ([`Self::count_missing`]) with a
     /// scalar equality against `1`, not as a per-implementor
@@ -34085,16 +34085,16 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// witness-return shape — which reaches its own exhaustive
     /// closure at the SAME (mult `== 1`) middle tile.
     ///
-    /// Theory anchor: THEORY.md §II.1 — the Rust + Lisp pattern;
+    /// Anchor: the Rust + Lisp pattern;
     /// the (set-level × bool × equivalence-partition × mult
     /// `== 1` × unique-tie) corner becomes a TYPED WITNESS on the
     /// ClosedSet trait rather than a per-consumer inline
     /// `T::count_unique_variants(items) == 1` re-derivation.
-    /// THEORY.md §III — the typescape; the N-ary set-level unique-
+    /// The typescape; the N-ary set-level unique-
     /// band uniqueness bool predicate becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline composition at every downstream generic site.
-    /// THEORY.md §V.1 — knowable platform; the (set-level × bool ×
+    /// Knowable platform; the (set-level × bool ×
     /// equivalence-partition × mult `== 1` × unique-tie) corner was
     /// an unnamed inline composition recurring at every prospective
     /// downstream "is there EXACTLY ONE singleton-multiplicity
@@ -34102,7 +34102,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// CLOSES the equivalence-partition unique-tie row as a TYPED
     /// THEOREM the substrate proves once, mirroring the existential-
     /// lift trichotomy's exhaustive closure one UNIQUE-TIE-SHARPENING
-    /// axis over. THEORY.md §VI.1 — generation over composition;
+    /// axis over. Generation over composition;
     /// the predicate emerges from the composition of ONE substrate
     /// primitive ([`Self::count_unique_variants`]) with a scalar
     /// equality against `1`, not as a per-implementor hand-rolled
@@ -34307,24 +34307,24 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// [`Self::is_unique_repeating_variant_of`] one MULTIPLICITY-BAND
     /// axis over on the same surface).
     ///
-    /// Theory anchor: THEORY.md §II.1 — the Rust + Lisp pattern; the
+    /// Anchor: the Rust + Lisp pattern; the
     /// (set-level × `Option<Self>` × equivalence-partition × mult
     /// `== 1` × unique-tie) corner becomes a TYPED WITNESS on the
     /// ClosedSet trait rather than a per-consumer inline
     /// `if T::has_unique_unique_variant(items) { T::ALL.iter().copied().find(|&v| T::is_unique_occurrence_of(v, items)) } else { None }`
-    /// re-derivation. THEORY.md §III — the typescape; the N-ary set-
+    /// re-derivation. The typescape; the N-ary set-
     /// level unique-band `Option<Self>` witness-if-unique projection
     /// becomes a TYPE-level primitive on the closed-set trait rather
     /// than a per-consumer inline composition at every downstream
-    /// generic site. THEORY.md §V.1 — knowable platform; the (set-
+    /// generic site. Knowable platform; the (set-
     /// level × `Option<Self>` × equivalence-partition × mult `== 1` ×
     /// unique-tie) witness-if-unique corner was an unnamed inline
     /// composition recurring at every prospective downstream "which
     /// variant is the sole singleton-multiplicity witness, if it's
     /// unambiguous?" site pre-lift. Naming it EXHAUSTIVELY CLOSES the
     /// equivalence-partition `Option<Self>` unique-tie row's middle
-    /// tile as a TYPED THEOREM the substrate proves once. THEORY.md
-    /// §VI.1 — generation over composition; the projection emerges
+    /// tile as a TYPED THEOREM the substrate proves once.
+    /// Generation over composition; the projection emerges
     /// from the composition of TWO substrate primitives
     /// ([`Self::has_unique_unique_variant`] +
     /// [`Self::is_unique_occurrence_of`]) with an `if _ { _.find(…) }
@@ -34530,13 +34530,13 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// 3-corner row on the trichotomy alongside the already-opened
     /// (mult `>= 2`) [`Self::is_unique_repeating_variant_of`].
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary set-
+    /// Anchor: the typescape; the N-ary set-
     /// level unique-missing `Option<Self>` witness projection becomes
     /// a TYPE-level primitive on the closed-set trait rather than a
     /// per-consumer inline
     /// `if T::has_unique_missing_variant(items) { T::missing_variants(items).first().copied() } else { None }`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (set-level × `Option<Self>` × equivalence-
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (set-level × `Option<Self>` × equivalence-
     /// partition × mult `== 0` × unique-tie) witness-if-unique corner
     /// was an unnamed inline composition recurring at every prospective
     /// downstream "which variant is the histogram's sole omission, if
@@ -34544,7 +34544,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// projection a TYPED CONSEQUENCE of the just-lifted set-level
     /// miss-band uniqueness bit and the per-target occurrence
     /// membership primitive under a boolean-guarded declaration-order
-    /// first-witness collapse. THEORY.md §VI.1 — generation over
+    /// first-witness collapse. Generation over
     /// composition; the projection emerges from the composition of TWO
     /// substrate primitives ([`Self::has_unique_missing_variant`] +
     /// [`Self::occurs_in`]) with the `if _ { ALL.find(!occurs_in) }
@@ -34736,25 +34736,25 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// declaration-order (set-level × `Option<Self>` × equivalence-
     /// partition × mult-band × unique-tie) trichotomy row.
     ///
-    /// Theory anchor: THEORY.md §II.1 — the Rust + Lisp pattern; the
+    /// Anchor: the Rust + Lisp pattern; the
     /// (set-level × `Option<Self>` × sorted × equivalence-partition ×
     /// mult `== 0` × unique-tie) corner becomes a TYPED WITNESS on the
     /// ClosedSet trait rather than a per-consumer inline
     /// `if T::has_unique_missing_variant(items) { T::sorted_variants().into_iter().find(|&v| !T::occurs_in(v, items)) } else { None }`
-    /// re-derivation. THEORY.md §III — the typescape; the N-ary lex-
+    /// re-derivation. The typescape; the N-ary lex-
     /// order set-level unique-missing `Option<Self>` witness projection
     /// becomes a TYPE-level primitive on the closed-set trait alongside
     /// its declaration-order sibling; the ordering-choice-irrelevance
     /// identity between the two is itself a TYPED THEOREM the substrate
     /// proves once at [`assert_closed_set_well_formed`] rather than at
-    /// every downstream callsite. THEORY.md §V.1 — knowable platform;
+    /// every downstream callsite. Knowable platform;
     /// the (lex-order × `Option<Self>` × mult `== 0` × unique-tie)
     /// corner was an unnamed inline composition — OR silently absent
     /// because the caller shrugged and used the declaration-order
     /// sibling without proof of coincidence — recurring at every
     /// prospective downstream "which variant is the histogram's sole
     /// omission, in lex order, if unambiguous?" site pre-lift.
-    /// THEORY.md §VI.1 — generation over composition; the projection
+    /// Generation over composition; the projection
     /// emerges from the composition of the three substrate primitives
     /// [`Self::has_unique_missing_variant`], [`Self::sorted_variants`],
     /// and [`Self::occurs_in`] with the
@@ -34966,24 +34966,24 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// sorted × equivalence-partition × mult-band × unique-tie)
     /// trichotomy row at its FINAL third tile.
     ///
-    /// Theory anchor: THEORY.md §II.1 — the Rust + Lisp pattern; the
+    /// Anchor: the Rust + Lisp pattern; the
     /// (set-level × `Option<Self>` × sorted × equivalence-partition ×
     /// mult `>= 2` × unique-tie) corner becomes a TYPED WITNESS on the
     /// ClosedSet trait rather than a per-consumer inline
     /// `if T::has_unique_repeating_variant(items) { T::sorted_variants().into_iter().find(|&v| T::is_repeated_occurrence_of(v, items)) } else { None }`
-    /// re-derivation. THEORY.md §III — the typescape; a fresh TYPE-
+    /// re-derivation. The typescape; a fresh TYPE-
     /// level primitive plus a typed THEOREM (ordering-choice-
     /// irrelevance) the substrate proves once rather than every
     /// downstream site re-proving via
     /// `sorted_unique_repeating_variant(items) == unique_repeating_variant(items)`
-    /// assertions per callsite. THEORY.md §V.1 — knowable platform;
+    /// assertions per callsite. Knowable platform;
     /// the (lex-order × `Option<Self>` × mult `>= 2` × unique-tie)
     /// corner was an unnamed inline composition — OR silently absent
     /// because the caller shrugged and used the declaration-order
     /// sibling without proof of coincidence — recurring at every
     /// prospective downstream "which variant is the sole strict-repeat
-    /// witness, in lex order, if unambiguous?" site pre-lift. THEORY.md
-    /// §VI.1 — generation over composition; the projection emerges from
+    /// witness, in lex order, if unambiguous?" site pre-lift.
+    /// Generation over composition; the projection emerges from
     /// the composition of the three substrate primitives
     /// [`Self::has_unique_repeating_variant`], [`Self::sorted_variants`],
     /// and [`Self::is_repeated_occurrence_of`] with the
@@ -35200,23 +35200,23 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// ([`Self::unique_missing_variant`] + [`Self::unique_unique_variant`]
     /// + [`Self::unique_repeating_variant`]) one ORDERING axis over.
     ///
-    /// Theory anchor: THEORY.md §II.1 — the Rust + Lisp pattern; the
+    /// Anchor: the Rust + Lisp pattern; the
     /// (set-level × `Option<Self>` × sorted × equivalence-partition ×
     /// mult `== 1` × unique-tie) corner becomes a TYPED WITNESS on the
     /// ClosedSet trait rather than a per-consumer inline
     /// `if T::has_unique_unique_variant(items) { T::sorted_variants().into_iter().find(|&v| T::is_unique_occurrence_of(v, items)) } else { None }`
-    /// re-derivation. THEORY.md §III — the typescape; a fresh TYPE-level
+    /// re-derivation. The typescape; a fresh TYPE-level
     /// primitive plus a typed THEOREM (ordering-choice-irrelevance) the
     /// substrate proves once rather than every downstream site re-proving
     /// via `sorted_unique_unique_variant(items) == unique_unique_variant(items)`
-    /// assertions per callsite. THEORY.md §V.1 — knowable platform; the
+    /// assertions per callsite. Knowable platform; the
     /// (lex-order × `Option<Self>` × mult `== 1` × unique-tie) corner was
     /// an unnamed inline composition — OR silently absent because the
     /// caller shrugged and used the declaration-order sibling without
     /// proof of coincidence — recurring at every prospective downstream
     /// "which variant is the sole singleton-multiplicity witness, in lex
-    /// order, if unambiguous?" site pre-lift. THEORY.md §VI.1 —
-    /// generation over composition; the projection emerges from the
+    /// order, if unambiguous?" site pre-lift.
+    /// Generation over composition; the projection emerges from the
     /// composition of the three substrate primitives
     /// [`Self::has_unique_unique_variant`], [`Self::sorted_variants`],
     /// and [`Self::is_unique_occurrence_of`] with the
@@ -35439,20 +35439,20 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// unique-tie) 3-corner row on the trichotomy at its FINAL
     /// middle-band tile.
     ///
-    /// Theory anchor: THEORY.md §II.1 — the Rust + Lisp pattern; the
+    /// Anchor: the Rust + Lisp pattern; the
     /// (per-target × bool × equivalence-partition × mult `== 0` ×
     /// unique-tie) corner becomes a TYPED WITNESS on the ClosedSet
     /// trait rather than a per-consumer inline
     /// `!T::occurs_in(v, items) && T::has_unique_missing_variant(items)`
-    /// re-derivation. THEORY.md §III — the typescape; the N-ary per-
+    /// re-derivation. The typescape; the N-ary per-
     /// target unique-miss predicate becomes a TYPE-level primitive on
     /// the closed-set trait rather than a per-consumer inline
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (per-target × bool × equivalence-
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (per-target × bool × equivalence-
     /// partition × mult `== 0` × unique-tie) corner was an unnamed
     /// inline composition recurring at every prospective downstream
     /// "is this target the sole absent witness?" site pre-lift.
-    /// THEORY.md §VI.1 — generation over composition; the predicate
+    /// Generation over composition; the predicate
     /// emerges from the composition of TWO substrate primitives
     /// ([`Self::occurs_in`] negated + [`Self::has_unique_missing_variant`])
     /// with the `&&` combinator on `bool`, not as a per-implementor
@@ -35704,16 +35704,16 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// the lex-ordering peer face lifting the same trichotomy through
     /// a `sorted_` prefix.
     ///
-    /// Theory anchor: THEORY.md §II.1 — the Rust + Lisp pattern; the
+    /// Anchor: the Rust + Lisp pattern; the
     /// (per-target × bool × equivalence-partition × mult `== 1` ×
     /// unique-tie) corner becomes a TYPED WITNESS on the ClosedSet
     /// trait rather than a per-consumer inline
     /// `T::is_unique_occurrence_of(v, items) && T::has_unique_unique_variant(items)`
-    /// re-derivation. THEORY.md §III — the typescape; the N-ary per-
+    /// re-derivation. The typescape; the N-ary per-
     /// target unique-singleton predicate becomes a TYPE-level primitive
     /// on the closed-set trait rather than a per-consumer inline
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (per-target × bool × equivalence-
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (per-target × bool × equivalence-
     /// partition × mult `== 1` × unique-tie) corner was an unnamed
     /// inline composition recurring at every prospective downstream
     /// "is this target the sole singleton-multiplicity witness?" site
@@ -35721,7 +35721,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// target equivalence-partition unique-tie row as a TYPED THEOREM
     /// the substrate proves once, mirroring the set-level bool and
     /// set-level Option rows' exhaustive closures one ARITY axis over.
-    /// THEORY.md §VI.1 — generation over composition; the predicate
+    /// Generation over composition; the predicate
     /// emerges from the composition of TWO substrate primitives
     /// ([`Self::is_unique_occurrence_of`] +
     /// [`Self::has_unique_unique_variant`]) with the `&&` combinator on
@@ -35870,19 +35870,19 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// the trait rather than re-deriving the ALL-filter-by-
     /// membership sweep inline per callsite.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// present-witness projection becomes a TYPE-level primitive
     /// on the closed-set trait rather than a per-consumer inline
     /// `T::ALL.iter().copied().filter(|v| items.contains(v)).collect()`
-    /// composition at every downstream generic site. THEORY.md
-    /// §V.1 — knowable platform; the (present-Vec) corner was an
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (present-Vec) corner was an
     /// unnamed inline composition recurring at every prospective
     /// downstream "which variants did we actually hit?" site pre-
     /// lift. Naming it on the trait makes the projection a TYPED
     /// CONSEQUENCE of the substrate's total-ordering discriminator
     /// ([`Self::index_of`]) projected via the standard-library
-    /// filter-then-collect combinator. THEORY.md §VI.1 —
-    /// generation over composition; the present-witness projection
+    /// filter-then-collect combinator.
+    /// Generation over composition; the present-witness projection
     /// emerges from the composition of ONE substrate primitive
     /// ([`Self::index_of`]) with an `iter().copied().filter(…).collect()`
     /// combinator, not as a per-implementor hand-rolled body.
@@ -36038,19 +36038,19 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// Vec-return column past the declaration-order arm THIS pair
     /// just closed.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// miss-witness projection becomes a TYPE-level primitive on
     /// the closed-set trait rather than a per-consumer inline
     /// `T::ALL.iter().copied().filter(|v| !items.contains(v)).collect()`
-    /// composition at every downstream generic site. THEORY.md
-    /// §V.1 — knowable platform; the (absent-Vec) corner was an
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (absent-Vec) corner was an
     /// unnamed inline composition recurring at every prospective
     /// downstream "which variants did we MISS?" site pre-lift.
     /// Naming it on the trait makes the projection a TYPED
     /// CONSEQUENCE of the substrate's total-ordering discriminator
     /// ([`Self::index_of`]) projected via the standard-library
     /// filter combinator with a NEGATED membership predicate.
-    /// THEORY.md §VI.1 — generation over composition; the miss-
+    /// Generation over composition; the miss-
     /// witness projection emerges from the composition of ONE
     /// substrate primitive ([`Self::index_of`]) with an
     /// `iter().copied().filter(!…).collect()` combinator, not as a
@@ -36237,14 +36237,14 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// unnamed inline compositions at every downstream generic
     /// site.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// strict-repeat witness projection becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-
     /// consumer inline
     /// `T::ALL.iter().copied().filter(|&v|
     /// T::count_occurrences_of(v, items) >= 2).collect()`
-    /// composition at every downstream generic site. THEORY.md
-    /// §V.1 — knowable platform; the (Vec-return, mult `>= 2`)
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (Vec-return, mult `>= 2`)
     /// corner was an unnamed inline composition recurring at
     /// every prospective downstream "which variants occurred TWO
     /// OR MORE TIMES?" site pre-lift. Naming it on the trait
@@ -36252,7 +36252,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// per-target strict-repeat primitive
     /// ([`Self::is_repeated_occurrence_of`]) filtered through
     /// [`Self::ALL`] via the standard-library filter combinator.
-    /// THEORY.md §VI.1 — generation over composition; the strict-
+    /// Generation over composition; the strict-
     /// repeat witness projection emerges from the composition of
     /// ONE substrate primitive with an
     /// `iter().copied().filter(…).collect()` combinator, not as a
@@ -36416,19 +36416,19 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// (declaration, lex) axis's naming budget on the equivalence-
     /// partition surface.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary lex-
+    /// Anchor: the typescape; the N-ary lex-
     /// order present-witness projection becomes a TYPE-level primitive
     /// on the closed-set trait rather than a per-consumer inline
     /// `T::sorted_variants().into_iter().filter(|v| items.contains(v))
     /// .collect()` composition at every downstream generic site.
-    /// THEORY.md §V.1 — knowable platform; the (present-Vec, lex-order)
+    /// Knowable platform; the (present-Vec, lex-order)
     /// corner was an unnamed inline composition recurring at every
     /// prospective downstream "which variants did we hit, in lex
     /// order?" site pre-lift. Naming it on the trait makes the
     /// projection a TYPED CONSEQUENCE of the substrate's canonical-
     /// listing surface composed with the substrate's total-ordering
     /// discriminator via the standard-library filter combinator.
-    /// THEORY.md §VI.1 — generation over composition; the lex-order
+    /// Generation over composition; the lex-order
     /// present-witness projection emerges from the composition of TWO
     /// substrate primitives ([`Self::sorted_variants`] + [`Self::index_of`])
     /// via an `into_iter().filter(…).collect()` combinator, not as a
@@ -36556,15 +36556,15 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// agnostic scalar returns) while the Vec column BIFURCATES
     /// (ordering-carrying vector returns).
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary lex-
+    /// Anchor: the typescape; the N-ary lex-
     /// order miss-witness projection becomes a TYPE-level primitive
     /// on the closed-set trait rather than a per-consumer inline
     /// `T::sorted_variants().into_iter().filter(|v| !items.contains
     /// (v)).collect()` composition at every downstream generic site.
-    /// THEORY.md §V.1 — knowable platform; the (absent-Vec, lex-order)
+    /// Knowable platform; the (absent-Vec, lex-order)
     /// corner was an unnamed inline composition recurring at every
     /// prospective downstream "which variants did we MISS, in lex
-    /// order?" site pre-lift. THEORY.md §VI.1 — generation over
+    /// order?" site pre-lift. Generation over
     /// composition; the lex-order miss-witness projection emerges
     /// from the composition of TWO substrate primitives
     /// ([`Self::sorted_variants`] + [`Self::index_of`]) via an
@@ -36780,12 +36780,12 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// materially distinct ONLY on the Vec-return column, which this
     /// pair (+ the pre-existing four peer projections) exhausts.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary lex-
+    /// Anchor: the typescape; the N-ary lex-
     /// order strict-repeat-witness projection becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline `T::sorted_variants().into_iter().filter(|&v|
     /// T::count_occurrences_of(v, items) >= 2).collect()` composition
-    /// at every downstream generic site. THEORY.md §V.1 — knowable
+    /// at every downstream generic site. Knowable
     /// platform; the (strict-repeat-Vec, lex-order) corner was an
     /// unnamed inline composition recurring at every prospective
     /// downstream "which variants did we hit MORE THAN ONCE, in lex
@@ -36793,7 +36793,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// projection a TYPED CONSEQUENCE of the substrate's canonical-
     /// listing surface composed with the substrate's per-target
     /// strict-repeat primitive via the standard-library filter
-    /// combinator. THEORY.md §VI.1 — generation over composition;
+    /// combinator. Generation over composition;
     /// the lex-order strict-repeat-witness projection emerges from
     /// the composition of TWO substrate primitives
     /// ([`Self::sorted_variants`] + [`Self::is_repeated_occurrence_of`])
@@ -36990,20 +36990,20 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// (mult `== 1`) column past the declaration-order arm THIS
     /// projection opens.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// strict-uniqueness witness projection becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline `T::ALL.iter().copied().filter(|&v|
     /// T::count_occurrences_of(v, items) == 1).collect()`
-    /// composition at every downstream generic site. THEORY.md §V.1
-    /// — knowable platform; the (Vec-return, mult `== 1`) corner was
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (Vec-return, mult `== 1`) corner was
     /// an unnamed inline composition recurring at every prospective
     /// downstream "which variants occurred EXACTLY ONCE?" site pre-
     /// lift. Naming it on the trait makes the projection a TYPED
     /// CONSEQUENCE of the substrate's per-target strict-uniqueness
     /// primitive ([`Self::is_unique_occurrence_of`]) filtered through
     /// [`Self::ALL`] via the standard-library filter combinator.
-    /// THEORY.md §VI.1 — generation over composition; the strict-
+    /// Generation over composition; the strict-
     /// uniqueness witness projection emerges from the composition of
     /// ONE substrate primitive with an `iter().copied().filter(…)
     /// .collect()` combinator, not as a per-implementor hand-rolled
@@ -37141,12 +37141,12 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// [`Self::sorted_repeating_variants`] (mult `>= 2`),
     /// [`Self::unique_variants`] + THIS (mult `== 1`).
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary lex-
+    /// Anchor: the typescape; the N-ary lex-
     /// order strict-uniqueness-witness projection becomes a TYPE-
     /// level primitive on the closed-set trait rather than a per-
     /// consumer inline `T::sorted_variants().into_iter().filter(|&v|
     /// T::count_occurrences_of(v, items) == 1).collect()` composition
-    /// at every downstream generic site. THEORY.md §V.1 — knowable
+    /// at every downstream generic site. Knowable
     /// platform; the (strict-uniqueness-Vec, lex-order) corner was
     /// an unnamed inline composition recurring at every prospective
     /// downstream "which variants occurred EXACTLY ONCE, in lex
@@ -37154,7 +37154,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// projection a TYPED CONSEQUENCE of the substrate's canonical-
     /// listing surface composed with the substrate's per-target
     /// strict-uniqueness primitive via the standard-library filter
-    /// combinator. THEORY.md §VI.1 — generation over composition;
+    /// combinator. Generation over composition;
     /// the lex-order strict-uniqueness-witness projection emerges
     /// from the composition of TWO substrate primitives
     /// ([`Self::sorted_variants`] +
@@ -37363,17 +37363,17 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// their LEX-order peers (`sorted_unique_missing_variants`, etc.)
     /// one ORDERING axis over.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary set-
+    /// Anchor: the typescape; the N-ary set-
     /// level unique-missing `Vec<Self>` singleton-or-empty witness
     /// projection becomes a TYPE-level primitive on the closed-set
     /// trait rather than a per-consumer inline
     /// `if T::has_unique_missing_variant(items) { T::missing_variants(items) } else { vec![] }`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (set-level × `Vec<Self>` × equivalence-
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (set-level × `Vec<Self>` × equivalence-
     /// partition × mult-band `== 0` × unique-tie) witness-if-unique
     /// corner was an unnamed inline composition recurring at every
     /// prospective downstream "the sole absent variant, as a Vec, if
-    /// it's unambiguous" site pre-lift. THEORY.md §VI.1 — generation
+    /// it's unambiguous" site pre-lift. Generation
     /// over composition; the projection emerges from the composition
     /// of TWO substrate primitives ([`Self::has_unique_missing_variant`]
     /// + [`Self::missing_variants`]) with the
@@ -37578,18 +37578,18 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// row at its FINAL third tile, followed by their LEX-order peers
     /// (`sorted_unique_repeating_variants`, etc.) one ORDERING axis over.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary set-
+    /// Anchor: the typescape; the N-ary set-
     /// level unique-strict-repeat `Vec<Self>` singleton-or-empty witness
     /// projection becomes a TYPE-level primitive on the closed-set trait
     /// rather than a per-consumer inline
     /// `if T::has_unique_repeating_variant(items) { T::repeating_variants(items) } else { vec![] }`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (set-level × `Vec<Self>` × equivalence-
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (set-level × `Vec<Self>` × equivalence-
     /// partition × mult-band `>= 2` × unique-tie) witness-if-unique
     /// corner was an unnamed inline composition recurring at every
     /// prospective downstream "the sole strict-repeat witness, as a
-    /// Vec, if it's unambiguous" site pre-lift. THEORY.md §VI.1 —
-    /// generation over composition; the projection emerges from the
+    /// Vec, if it's unambiguous" site pre-lift.
+    /// Generation over composition; the projection emerges from the
     /// composition of TWO substrate primitives
     /// ([`Self::has_unique_repeating_variant`] +
     /// [`Self::repeating_variants`]) with the
@@ -37817,20 +37817,20 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// under the `unique_variants == sorted_unique_variants` (as
     /// multiset) identity.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary set-
+    /// Anchor: the typescape; the N-ary set-
     /// level unique-unique-`Vec<Self>` singleton-or-empty witness
     /// projection becomes a TYPE-level primitive on the closed-set
     /// trait rather than a per-consumer inline
     /// `if T::has_unique_unique_variant(items) { T::unique_variants(items) } else { vec![] }`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (set-level × `Vec<Self>` × equivalence-
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (set-level × `Vec<Self>` × equivalence-
     /// partition × mult `== 1` × unique-tie) witness-if-unique corner
     /// was an unnamed inline composition recurring at every prospective
     /// downstream "the sole unique-band witness, as a Vec, if it's
     /// unambiguous" site pre-lift. Naming it EXHAUSTIVELY CLOSES the
     /// equivalence-partition Vec-return unique-tie row's final tile as
-    /// a TYPED THEOREM the substrate proves once. THEORY.md §VI.1 —
-    /// generation over composition; the projection emerges from the
+    /// a TYPED THEOREM the substrate proves once.
+    /// Generation over composition; the projection emerges from the
     /// composition of TWO substrate primitives
     /// ([`Self::has_unique_unique_variant`] +
     /// [`Self::unique_variants`]) with the `if _ { _ } else { vec![] }`
@@ -38023,21 +38023,21 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// CLOSE the (`Vec<Self>` × equivalence-partition × mult-band ×
     /// ordering × unique-tie) 3×2 face at its final two lex tiles.
     ///
-    /// Theory anchor: THEORY.md §II.1 — the Rust + Lisp pattern; the
+    /// Anchor: the Rust + Lisp pattern; the
     /// (set-level × `Vec<Self>` × sorted × equivalence-partition × mult
     /// `== 0` × unique-tie) corner becomes a TYPED WITNESS on the
     /// ClosedSet trait rather than a per-consumer inline
     /// `if T::has_unique_missing_variant(items) { T::sorted_missing_variants(items) } else { vec![] }`
-    /// re-derivation. THEORY.md §III — the typescape; a fresh TYPE-
+    /// re-derivation. The typescape; a fresh TYPE-
     /// level primitive plus a typed THEOREM (ordering-choice-
-    /// irrelevance) the substrate proves once. THEORY.md §V.1 —
-    /// knowable platform; the (lex-order × `Vec<Self>` × mult `== 0` ×
+    /// irrelevance) the substrate proves once.
+    /// Knowable platform; the (lex-order × `Vec<Self>` × mult `== 0` ×
     /// unique-tie) corner was an unnamed inline composition — or
     /// silently absent because callers reached for the declaration-
     /// order sibling without proof of coincidence — recurring at every
     /// prospective downstream "the sole absent variant, as a Vec, in
-    /// lex order, if it's unambiguous" site pre-lift. THEORY.md §VI.1
-    /// — generation over composition; the projection emerges from the
+    /// lex order, if it's unambiguous" site pre-lift.
+    /// Generation over composition; the projection emerges from the
     /// composition of TWO substrate primitives
     /// ([`Self::has_unique_missing_variant`] +
     /// [`Self::sorted_missing_variants`]) with the
@@ -38259,20 +38259,20 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// CLOSES the (`Vec<Self>` × equivalence-partition × mult-band ×
     /// ordering × unique-tie) 3×2 face at its SIXTH tile.
     ///
-    /// Theory anchor: THEORY.md §II.1 — the Rust + Lisp pattern; the
+    /// Anchor: the Rust + Lisp pattern; the
     /// (set-level × `Vec<Self>` × sorted × equivalence-partition × mult
     /// `>= 2` × unique-tie) corner becomes a TYPED WITNESS on the
     /// ClosedSet trait rather than a per-consumer inline
     /// `if T::has_unique_repeating_variant(items) { T::sorted_repeating_variants(items) } else { vec![] }`
-    /// re-derivation. THEORY.md §III — the typescape; a fresh TYPE-level
+    /// re-derivation. The typescape; a fresh TYPE-level
     /// primitive plus a typed THEOREM (ordering-choice-irrelevance) the
-    /// substrate proves once. THEORY.md §V.1 — knowable platform; the
+    /// substrate proves once. Knowable platform; the
     /// (lex-order × `Vec<Self>` × mult `>= 2` × unique-tie) corner was an
     /// unnamed inline composition — or silently absent because callers
     /// reached for the declaration-order sibling without proof of
     /// coincidence — recurring at every prospective downstream "the sole
     /// strict-repeat variant, as a Vec, in lex order, if it's
-    /// unambiguous" site pre-lift. THEORY.md §VI.1 — generation over
+    /// unambiguous" site pre-lift. Generation over
     /// composition; the projection emerges from the composition of TWO
     /// substrate primitives ([`Self::has_unique_repeating_variant`] +
     /// [`Self::sorted_repeating_variants`]) with the
@@ -38509,20 +38509,20 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// each of which projects the same guarded-lex predicate onto a
     /// specific target variant.
     ///
-    /// Theory anchor: THEORY.md §II.1 — the Rust + Lisp pattern; the
+    /// Anchor: the Rust + Lisp pattern; the
     /// (set-level × `Vec<Self>` × sorted × equivalence-partition × mult
     /// `== 1` × unique-tie) corner becomes a TYPED WITNESS on the
     /// ClosedSet trait rather than a per-consumer inline
     /// `if T::has_unique_unique_variant(items) { T::sorted_unique_variants(items) } else { vec![] }`
-    /// re-derivation. THEORY.md §III — the typescape; a fresh TYPE-level
+    /// re-derivation. The typescape; a fresh TYPE-level
     /// primitive plus a typed THEOREM (ordering-choice-irrelevance) the
-    /// substrate proves once. THEORY.md §V.1 — knowable platform; the
+    /// substrate proves once. Knowable platform; the
     /// (lex-order × `Vec<Self>` × mult `== 1` × unique-tie) corner was
     /// an unnamed inline composition — or silently absent because
     /// callers reached for the declaration-order sibling without proof of
     /// coincidence — recurring at every prospective downstream "the sole
     /// unique-band variant, as a Vec, in lex order, if it's unambiguous"
-    /// site pre-lift. THEORY.md §VI.1 — generation over composition;
+    /// site pre-lift. Generation over composition;
     /// the projection emerges from the composition of TWO substrate
     /// primitives ([`Self::has_unique_unique_variant`] +
     /// [`Self::sorted_unique_variants`]) with the
@@ -38721,11 +38721,11 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// `is_uniformly_missing` (∀v : count(v) == 0, equivalently
     /// `items.is_empty()` on a non-degenerate carrier).
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// universal-repeat predicate becomes a TYPE-level primitive on
     /// the closed-set trait rather than a per-consumer inline universal
     /// over the per-target multiplicity-`>= 2` predicate at every
-    /// downstream generic site. THEORY.md §V.1 — knowable platform;
+    /// downstream generic site. Knowable platform;
     /// the (set-level × bool × universal × mult `>= 2`) corner was an
     /// unnamed inline composition recurring at every prospective
     /// downstream "does every variant occur at least twice?" site pre-
@@ -38734,7 +38734,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// multiplicity aggregate lifted through a `>= 2` scalar comparison
     /// — AND closes the (set-level × bool × universal × multiplicity-
     /// band) hypercube corner as a TYPED THEOREM the substrate proves
-    /// once. THEORY.md §VI.1 — generation over composition; the
+    /// once. Generation over composition; the
     /// uniform-repeat predicate emerges from the composition of ONE
     /// substrate primitive ([`Self::min_variant_count`]) with a `usize`-
     /// scalar comparison, not as a per-implementor hand-rolled body.
@@ -38852,15 +38852,15 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// [`Self::sorted_missing_variants`] instead of the declaration-axis
     /// Vec-return peers.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary hit-
+    /// Anchor: the typescape; the N-ary hit-
     /// label projection becomes a TYPE-level primitive on the closed-
     /// set trait rather than a per-consumer inline
     /// `T::present_variants(items).into_iter().map(T::label).collect()`
     /// four-primitive composition at every downstream generic site.
-    /// THEORY.md §V.1 — knowable platform; the (present-Vec-label)
+    /// Knowable platform; the (present-Vec-label)
     /// corner was an unnamed inline composition recurring at every
     /// prospective downstream "which labels did we HIT?" site pre-lift.
-    /// THEORY.md §VI.1 — generation over composition; the hit-label
+    /// Generation over composition; the hit-label
     /// projection emerges from the composition of TWO substrate
     /// primitives ([`Self::present_variants`] + [`Self::label`]) via
     /// `Iterator::map` + `Iterator::collect`, not as a per-implementor
@@ -38952,15 +38952,15 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// — each bind through their respective sibling Vec-return primitive
     /// under the same `slice::join` combinator.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary hit-
+    /// Anchor: the typescape; the N-ary hit-
     /// label-as-string projection becomes a TYPE-level primitive on
     /// the closed-set trait rather than a per-consumer inline
     /// `T::present_labels(items).join(sep)` composition at every
-    /// downstream generic site. THEORY.md §V.1 — knowable platform;
+    /// downstream generic site. Knowable platform;
     /// the (present, label, `String`) corner was an unnamed inline
     /// composition recurring at every prospective downstream "which
-    /// labels did we HIT, rendered joined?" site pre-lift. THEORY.md
-    /// §VI.1 — generation over composition; the projection emerges
+    /// labels did we HIT, rendered joined?" site pre-lift.
+    /// Generation over composition; the projection emerges
     /// from the composition of ONE substrate primitive
     /// ([`Self::present_labels`]) with the standard-library
     /// `slice::join` combinator, not as a per-implementor hand-rolled
@@ -39058,15 +39058,15 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// corners past the four (bool, usize, Vec-variant) declaration-
     /// order corners this pair sits alongside.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary miss-
+    /// Anchor: the typescape; the N-ary miss-
     /// label projection becomes a TYPE-level primitive on the closed-
     /// set trait rather than a per-consumer inline
     /// `T::missing_variants(items).into_iter().map(T::label).collect()`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (absent-Vec-label) corner was an unnamed
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (absent-Vec-label) corner was an unnamed
     /// inline composition recurring at every prospective downstream
-    /// "which labels did we MISS?" site pre-lift. THEORY.md §VI.1 —
-    /// generation over composition; the miss-label projection emerges
+    /// "which labels did we MISS?" site pre-lift.
+    /// Generation over composition; the miss-label projection emerges
     /// from the composition of TWO substrate primitives
     /// ([`Self::missing_variants`] + [`Self::label`]) via
     /// `Iterator::map` + `Iterator::collect`, not as a per-implementor
@@ -39169,15 +39169,15 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// lex-order Vec-return primitive under the same `slice::join`
     /// combinator.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary miss-
+    /// Anchor: the typescape; the N-ary miss-
     /// label-as-string projection becomes a TYPE-level primitive on
     /// the closed-set trait rather than a per-consumer inline
     /// `T::missing_labels(items).join(sep)` composition at every
-    /// downstream generic site. THEORY.md §V.1 — knowable platform;
+    /// downstream generic site. Knowable platform;
     /// the (absent, label, `String`) corner was an unnamed inline
     /// composition recurring at every prospective downstream "which
     /// labels did we MISS, rendered joined?" site pre-lift.
-    /// THEORY.md §VI.1 — generation over composition; the projection
+    /// Generation over composition; the projection
     /// emerges from the composition of ONE substrate primitive
     /// ([`Self::missing_labels`]) with the standard-library
     /// `slice::join` combinator, not as a per-implementor hand-rolled
@@ -39329,15 +39329,15 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// respective sibling variant-collector primitive under the per-
     /// slot [`Self::label`] projection or the `slice::join` combinator.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// strict-repeat label projection becomes a TYPE-level primitive
     /// on the closed-set trait rather than a per-consumer inline
     /// `T::repeating_variants(items).into_iter().map(T::label).collect()`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (repeating-Vec-label) corner was an
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (repeating-Vec-label) corner was an
     /// unnamed inline composition recurring at every prospective
     /// downstream "which labels did we REPEAT?" site pre-lift.
-    /// THEORY.md §VI.1 — generation over composition; the strict-
+    /// Generation over composition; the strict-
     /// repeat label projection emerges from the composition of TWO
     /// substrate primitives ([`Self::repeating_variants`] +
     /// [`Self::label`]) via `Iterator::map` + `Iterator::collect`, not
@@ -39502,15 +39502,15 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// primitive under the per-slot [`Self::label`] projection or the
     /// `slice::join` combinator.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// strict-repeat label-as-string projection becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline `T::repeating_labels(items).join(sep)` composition at
-    /// every downstream generic site. THEORY.md §V.1 — knowable
+    /// every downstream generic site. Knowable
     /// platform; the (repeating × `String` × declaration-order) corner
     /// was an unnamed inline composition recurring at every prospective
     /// downstream "which labels did we REPEAT, rendered joined?" site
-    /// pre-lift. THEORY.md §VI.1 — generation over composition; the
+    /// pre-lift. Generation over composition; the
     /// strict-repeat label-as-string projection emerges from the
     /// composition of ONE substrate primitive
     /// ([`Self::repeating_labels`]) with the standard-library
@@ -39622,15 +39622,15 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// 2×2 = 4-corner face on the label-return column of the
     /// equivalence-partition surface.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary lex-
+    /// Anchor: the typescape; the N-ary lex-
     /// order hit-label projection becomes a TYPE-level primitive on
     /// the closed-set trait rather than a per-consumer inline
     /// `T::sorted_present_variants(items).into_iter().map(T::label).collect()`
     /// four-primitive composition at every downstream generic site.
-    /// THEORY.md §V.1 — knowable platform; the (present-Vec-label, lex-
+    /// Knowable platform; the (present-Vec-label, lex-
     /// order) corner was an unnamed inline composition recurring at
     /// every prospective downstream "which labels did we HIT, in lex
-    /// order?" site pre-lift. THEORY.md §VI.1 — generation over
+    /// order?" site pre-lift. Generation over
     /// composition; the lex-order hit-label projection emerges from
     /// the composition of TWO substrate primitives
     /// ([`Self::sorted_present_variants`] + [`Self::label`]) via
@@ -39764,15 +39764,15 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// lex) — CLOSES the (partition-arm × ordering) 2×2 = 4-corner
     /// face on the join-string column at its last remaining corner.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary lex-
+    /// Anchor: the typescape; the N-ary lex-
     /// order hit-label-as-string projection becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline `T::sorted_present_labels(items).join(sep)` composition
-    /// at every downstream generic site. THEORY.md §V.1 — knowable
+    /// at every downstream generic site. Knowable
     /// platform; the (present, label, `String`, lex) corner was an
     /// unnamed inline composition recurring at every prospective
     /// downstream "which labels did we HIT, rendered joined in lex
-    /// order?" site pre-lift. THEORY.md §VI.1 — generation over
+    /// order?" site pre-lift. Generation over
     /// composition; the projection emerges from the composition of
     /// ONE substrate primitive ([`Self::sorted_present_labels`]) with
     /// the standard-library `slice::join` combinator, not as a per-
@@ -39881,15 +39881,15 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// projection on (absent, lex). Past the exhaustively-closed 4-
     /// corner Vec-variant × ordering face on the same 16-corner face.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary lex-
+    /// Anchor: the typescape; the N-ary lex-
     /// order miss-label projection becomes a TYPE-level primitive on
     /// the closed-set trait rather than a per-consumer inline
     /// `T::sorted_missing_variants(items).into_iter().map(T::label).collect()`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (absent-Vec-label, lex-order) corner was
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (absent-Vec-label, lex-order) corner was
     /// an unnamed inline composition recurring at every prospective
     /// downstream "which labels did we MISS, in lex order?" site pre-
-    /// lift. THEORY.md §VI.1 — generation over composition; the lex-
+    /// lift. Generation over composition; the lex-
     /// order miss-label projection emerges from the composition of TWO
     /// substrate primitives ([`Self::sorted_missing_variants`] +
     /// [`Self::label`]) via `Iterator::map` + `Iterator::collect`, not
@@ -40031,15 +40031,15 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// closed (Vec-label × ordering × partition-arm) 2×2×2 = 8-corner
     /// face on the label-column arm.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary lex-
+    /// Anchor: the typescape; the N-ary lex-
     /// order miss-label-as-string projection becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline `T::sorted_missing_labels(items).join(sep)` composition
-    /// at every downstream generic site. THEORY.md §V.1 — knowable
+    /// at every downstream generic site. Knowable
     /// platform; the (absent, label, `String`, lex) corner was an
     /// unnamed inline composition recurring at every prospective
     /// downstream "which labels did we MISS, rendered joined in lex
-    /// order?" site pre-lift. THEORY.md §VI.1 — generation over
+    /// order?" site pre-lift. Generation over
     /// composition; the projection emerges from the composition of ONE
     /// substrate primitive ([`Self::sorted_missing_labels`]) with the
     /// standard-library `slice::join` combinator, not as a per-
@@ -40194,16 +40194,16 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// [`Self::sorted_present_labels_joined`], and
     /// [`Self::sorted_missing_labels_joined`].
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary lex-
+    /// Anchor: the typescape; the N-ary lex-
     /// order strict-repeat label projection becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline `T::sorted_repeating_variants(items).into_iter().map
     /// (T::label).collect()` composition at every downstream generic
-    /// site. THEORY.md §V.1 — knowable platform; the (repeating,
+    /// site. Knowable platform; the (repeating,
     /// label, lex) corner was an unnamed inline composition recurring
     /// at every prospective downstream "which labels did we REPEAT,
-    /// in canonical lex order?" site pre-lift. THEORY.md §VI.1 —
-    /// generation over composition; the lex-order strict-repeat label
+    /// in canonical lex order?" site pre-lift.
+    /// Generation over composition; the lex-order strict-repeat label
     /// projection emerges from the composition of TWO substrate
     /// primitives ([`Self::sorted_repeating_variants`] +
     /// [`Self::label`]) via `Iterator::map` + `Iterator::collect`,
@@ -40377,15 +40377,15 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// exhaustively-closed (Vec-label × ordering × partition-band)
     /// 3×2 = 6-corner face on the label-column arm.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary lex-
+    /// Anchor: the typescape; the N-ary lex-
     /// order strict-repeat-label-as-string projection becomes a TYPE-
     /// level primitive on the closed-set trait rather than a per-
     /// consumer inline `T::sorted_repeating_labels(items).join(sep)`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (repeating, label, `String`, lex) corner
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (repeating, label, `String`, lex) corner
     /// was an unnamed inline composition recurring at every prospective
     /// downstream "which labels did we REPEAT, rendered joined in lex
-    /// order?" site pre-lift. THEORY.md §VI.1 — generation over
+    /// order?" site pre-lift. Generation over
     /// composition; the projection emerges from the composition of ONE
     /// substrate primitive ([`Self::sorted_repeating_labels`]) with the
     /// standard-library `slice::join` combinator, not as a per-
@@ -40498,15 +40498,15 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// exhaustively closing the (index-return × ordering) 2×2 = 4-
     /// corner face on the index-return column.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary hit-
+    /// Anchor: the typescape; the N-ary hit-
     /// index projection becomes a TYPE-level primitive on the closed-
     /// set trait rather than a per-consumer inline
     /// `T::present_variants(items).into_iter().map(T::index_of).collect()`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (present-Vec-index) corner was an
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (present-Vec-index) corner was an
     /// unnamed inline composition recurring at every prospective
     /// downstream "which INDICES did we HIT?" site pre-lift.
-    /// THEORY.md §VI.1 — generation over composition; the hit-index
+    /// Generation over composition; the hit-index
     /// projection emerges from the composition of TWO substrate
     /// primitives ([`Self::present_variants`] + [`Self::index_of`])
     /// via `Iterator::map` + `Iterator::collect`.
@@ -40605,15 +40605,15 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// walking [`Self::sorted_present_variants`] and
     /// [`Self::sorted_missing_variants`] under [`Self::index_of`].
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary miss-
+    /// Anchor: the typescape; the N-ary miss-
     /// index projection becomes a TYPE-level primitive on the closed-
     /// set trait rather than a per-consumer inline
     /// `T::missing_variants(items).into_iter().map(T::index_of).collect()`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (absent-Vec-index) corner was an unnamed
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (absent-Vec-index) corner was an unnamed
     /// inline composition recurring at every prospective downstream
-    /// "which INDICES did we MISS?" site pre-lift. THEORY.md §VI.1 —
-    /// generation over composition; the miss-index projection emerges
+    /// "which INDICES did we MISS?" site pre-lift.
+    /// Generation over composition; the miss-index projection emerges
     /// from the composition of TWO substrate primitives
     /// ([`Self::missing_variants`] + [`Self::index_of`]) via
     /// `Iterator::map` + `Iterator::collect`.
@@ -40719,15 +40719,15 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// equivalence-partition (partition-arm × return-shape × ordering)
     /// 2×3×2 axes.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary lex-
+    /// Anchor: the typescape; the N-ary lex-
     /// order hit-index projection becomes a TYPE-level primitive on the
     /// closed-set trait rather than a per-consumer inline
     /// `T::sorted_present_variants(items).into_iter().map(T::index_of).collect()`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (present-Vec-index, lex-order) corner was
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (present-Vec-index, lex-order) corner was
     /// an unnamed inline composition recurring at every prospective
     /// downstream "which INDICES did we HIT, in lex order?" site pre-
-    /// lift. THEORY.md §VI.1 — generation over composition; the lex-
+    /// lift. Generation over composition; the lex-
     /// order hit-index projection emerges from the composition of TWO
     /// substrate primitives ([`Self::sorted_present_variants`] +
     /// [`Self::index_of`]) via `Iterator::map` + `Iterator::collect`, not
@@ -40846,15 +40846,15 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// mixed) — past the exhaustively-closed 12-corner return-shape
     /// prism.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary lex-
+    /// Anchor: the typescape; the N-ary lex-
     /// order miss-index projection becomes a TYPE-level primitive on
     /// the closed-set trait rather than a per-consumer inline
     /// `T::sorted_missing_variants(items).into_iter().map(T::index_of).collect()`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (absent-Vec-index, lex-order) corner was
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (absent-Vec-index, lex-order) corner was
     /// an unnamed inline composition recurring at every prospective
     /// downstream "which INDICES did we MISS, in lex order?" site pre-
-    /// lift. THEORY.md §VI.1 — generation over composition; the lex-
+    /// lift. Generation over composition; the lex-
     /// order miss-index projection emerges from the composition of TWO
     /// substrate primitives ([`Self::sorted_missing_variants`] +
     /// [`Self::index_of`]) via `Iterator::map` + `Iterator::collect`,
@@ -40996,15 +40996,15 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// at its lex tile and moving the (partition-band × ordering)
     /// index-return face from 5/6 to 6/6 exhaustive closure.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary strict-
+    /// Anchor: the typescape; the N-ary strict-
     /// repeat index projection becomes a TYPE-level primitive on the
     /// closed-set trait rather than a per-consumer inline
     /// `T::repeating_variants(items).into_iter().map(T::index_of).collect()`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (strict-repeat, `Vec<usize>` index,
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (strict-repeat, `Vec<usize>` index,
     /// declaration-order) corner was an unnamed inline composition
     /// recurring at every prospective downstream "which INDICES did we
-    /// REPEAT?" site pre-lift. THEORY.md §VI.1 — generation over
+    /// REPEAT?" site pre-lift. Generation over
     /// composition; the strict-repeat index projection emerges from
     /// the composition of TWO substrate primitives
     /// ([`Self::repeating_variants`] + [`Self::index_of`]) via
@@ -41175,16 +41175,16 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// exhaustively-closed (partition-band × ordering) label-Vec-return
     /// face one return-shape column over.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary lex-
+    /// Anchor: the typescape; the N-ary lex-
     /// order strict-repeat index projection becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline `T::sorted_repeating_variants(items).into_iter().map
     /// (T::index_of).collect()` composition at every downstream
-    /// generic site. THEORY.md §V.1 — knowable platform; the (strict-
+    /// generic site. Knowable platform; the (strict-
     /// repeat, `Vec<usize>` index, lex-order) corner was an unnamed
     /// inline composition recurring at every prospective downstream
     /// "which INDICES did we REPEAT, in canonical lex order?" site
-    /// pre-lift. THEORY.md §VI.1 — generation over composition; the
+    /// pre-lift. Generation over composition; the
     /// lex-order strict-repeat index projection emerges from the
     /// composition of TWO substrate primitives
     /// ([`Self::sorted_repeating_variants`] + [`Self::index_of`]) via
@@ -41306,15 +41306,15 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// (partition-band × ordering) 3×2 face on the join-string column
     /// tile by tile.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary hit-
+    /// Anchor: the typescape; the N-ary hit-
     /// index-as-string projection becomes a TYPE-level primitive on
     /// the closed-set trait rather than a per-consumer inline
     /// `T::present_indices(items).iter().map(usize::to_string).collect::<Vec<_>>().join(sep)`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (present, index, `String`, declaration)
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (present, index, `String`, declaration)
     /// corner was an unnamed inline composition recurring at every
     /// prospective downstream "which INDICES did we HIT, rendered
-    /// joined?" site pre-lift. THEORY.md §VI.1 — generation over
+    /// joined?" site pre-lift. Generation over
     /// composition; the projection emerges from the composition of
     /// ONE substrate primitive ([`Self::present_indices`]) with the
     /// standard-library `usize::to_string` + `slice::join` combinators,
@@ -41415,15 +41415,15 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// composition, closing the (partition-band × ordering) 3×2 face
     /// on the join-string column tile by tile.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary miss-
+    /// Anchor: the typescape; the N-ary miss-
     /// index-as-string projection becomes a TYPE-level primitive on
     /// the closed-set trait rather than a per-consumer inline
     /// `T::missing_indices(items).iter().map(usize::to_string).collect::<Vec<_>>().join(sep)`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (missing, index, `String`, declaration)
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (missing, index, `String`, declaration)
     /// corner was an unnamed inline composition recurring at every
     /// prospective downstream "which INDICES did we MISS, rendered
-    /// joined?" site pre-lift. THEORY.md §VI.1 — generation over
+    /// joined?" site pre-lift. Generation over
     /// composition; the projection emerges from ONE substrate
     /// primitive ([`Self::missing_indices`]) composed with the
     /// standard-library `usize::to_string` + `slice::join` combinators,
@@ -41548,15 +41548,15 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// (partition-band × ordering) 3×2 face on the join-string column
     /// at the lex-order row.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// repeat-index-as-string projection becomes a TYPE-level primitive
     /// on the closed-set trait rather than a per-consumer inline
     /// `T::repeating_indices(items).iter().map(usize::to_string).collect::<Vec<_>>().join(sep)`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (repeating, index, `String`, declaration)
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (repeating, index, `String`, declaration)
     /// corner was an unnamed inline composition recurring at every
     /// prospective downstream "which INDICES did we REPEAT, rendered
-    /// joined?" site pre-lift. THEORY.md §VI.1 — generation over
+    /// joined?" site pre-lift. Generation over
     /// composition; the projection emerges from ONE substrate
     /// primitive ([`Self::repeating_indices`]) composed with the
     /// standard-library `usize::to_string` + `slice::join` combinators,
@@ -41711,16 +41711,16 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// / `slice::join` composition, closing the (partition-band ×
     /// ordering) 3×2 face on the join-string column tile by tile.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary lex-
+    /// Anchor: the typescape; the N-ary lex-
     /// order hit-index-as-string projection becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline `T::sorted_present_indices(items).iter().map
     /// (usize::to_string).collect::<Vec<_>>().join(sep)` composition at
-    /// every downstream generic site. THEORY.md §V.1 — knowable
+    /// every downstream generic site. Knowable
     /// platform; the (present, index, `String`, lex) corner was an
     /// unnamed inline composition recurring at every prospective
     /// downstream "which INDICES did we HIT, rendered joined in lex
-    /// order?" site pre-lift. THEORY.md §VI.1 — generation over
+    /// order?" site pre-lift. Generation over
     /// composition; the projection emerges from the composition of ONE
     /// substrate primitive ([`Self::sorted_present_indices`]) with the
     /// standard-library `usize::to_string` + `slice::join` combinators,
@@ -41883,16 +41883,16 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// [`Self::sorted_repeating_indices`] under the same
     /// `usize::to_string` + `slice::join` composition.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary lex-
+    /// Anchor: the typescape; the N-ary lex-
     /// order miss-index-as-string projection becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline `T::sorted_missing_indices(items).iter().map
     /// (usize::to_string).collect::<Vec<_>>().join(sep)` composition at
-    /// every downstream generic site. THEORY.md §V.1 — knowable
+    /// every downstream generic site. Knowable
     /// platform; the (missing, index, `String`, lex) corner was an
     /// unnamed inline composition recurring at every prospective
     /// downstream "which INDICES did we MISS, rendered joined in lex
-    /// order?" site pre-lift. THEORY.md §VI.1 — generation over
+    /// order?" site pre-lift. Generation over
     /// composition; the projection emerges from the composition of ONE
     /// substrate primitive ([`Self::sorted_missing_indices`]) with the
     /// standard-library `usize::to_string` + `slice::join` combinators,
@@ -42052,17 +42052,17 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// composition of the uniqueness-gated variant Vec under
     /// [`Self::label`].
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// uniqueness-gated miss-label projection becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline
     /// `T::unique_missing_variants(items).into_iter().map(T::label).collect()`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (set-level × label × equivalence-partition
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (set-level × label × equivalence-partition
     /// × mult `== 0` × unique-tie) corner was an unnamed inline
     /// composition recurring at every prospective downstream "the sole
-    /// missing label, if unique, else nothing" site pre-lift. THEORY.md
-    /// §VI.1 — generation over composition; the projection emerges from
+    /// missing label, if unique, else nothing" site pre-lift.
+    /// Generation over composition; the projection emerges from
     /// the composition of TWO substrate primitives
     /// ([`Self::unique_missing_variants`] + [`Self::label`]) via
     /// `Iterator::map` + `Iterator::collect`, not as a per-implementor
@@ -42237,17 +42237,17 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// with the (unique-band, label) `unique_unique_labels` corner as
     /// the natural next lift EXHAUSTIVELY CLOSING the row at 6/6.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// uniqueness-gated strict-repeat-label projection becomes a TYPE-
     /// level primitive on the closed-set trait rather than a per-consumer
     /// inline
     /// `T::unique_repeating_variants(items).into_iter().map(T::label).collect()`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (set-level × label × equivalence-partition
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (set-level × label × equivalence-partition
     /// × mult `>= 2` × unique-tie) corner was an unnamed inline
     /// composition recurring at every prospective downstream "the sole
     /// duplicated label, if unique, else nothing" site pre-lift.
-    /// THEORY.md §VI.1 — generation over composition; the projection
+    /// Generation over composition; the projection
     /// emerges from the composition of TWO substrate primitives
     /// ([`Self::unique_repeating_variants`] + [`Self::label`]) via
     /// `Iterator::map` + `Iterator::collect`, not as a per-implementor
@@ -42441,17 +42441,17 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// composition of the uniqueness-gated variant Vec under
     /// [`Self::label`] plus the ordering / join primitive.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// uniqueness-gated unique-band-label projection becomes a
     /// TYPE-level primitive on the closed-set trait rather than a
     /// per-consumer inline
     /// `T::unique_unique_variants(items).into_iter().map(T::label).collect()`
-    /// composition at every downstream generic site. THEORY.md §V.1 —
-    /// knowable platform; the (set-level × label × equivalence-partition
+    /// composition at every downstream generic site.
+    /// Knowable platform; the (set-level × label × equivalence-partition
     /// × mult `== 1` × unique-tie) corner was an unnamed inline
     /// composition recurring at every prospective downstream "the sole
     /// once-occurring label, if unique, else nothing" site pre-lift.
-    /// THEORY.md §VI.1 — generation over composition; the projection
+    /// Generation over composition; the projection
     /// emerges from the composition of TWO substrate primitives
     /// ([`Self::unique_unique_variants`] + [`Self::label`]) via
     /// `Iterator::map` + `Iterator::collect`, not as a per-implementor
@@ -42644,17 +42644,17 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// join-String) `unique_unique_labels_joined` corner as the natural
     /// next lifts closing the row past this opener.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// uniqueness-gated miss-band join-String projection becomes a
     /// TYPE-level primitive on the closed-set trait rather than a
     /// per-consumer inline
     /// `T::unique_missing_labels(items).join(sep)` composition at every
-    /// downstream generic site. THEORY.md §V.1 — knowable platform;
+    /// downstream generic site. Knowable platform;
     /// the (set-level × `String` × equivalence-partition × mult `== 0`
     /// × unique-tie) corner was an unnamed inline composition recurring
     /// at every prospective downstream "the sole missing label as a
-    /// bare string, if unique, else empty" site pre-lift. THEORY.md
-    /// §VI.1 — generation over composition; the projection emerges
+    /// bare string, if unique, else empty" site pre-lift.
+    /// Generation over composition; the projection emerges
     /// from the composition of ONE substrate primitive
     /// ([`Self::unique_missing_labels`]) with the standard-library
     /// `slice::join` combinator, not as a per-implementor hand-rolled
@@ -42858,17 +42858,17 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// next lift EXHAUSTIVELY CLOSING the row past this closure at its
     /// FINAL 9/9 tile.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// uniqueness-gated strict-repeat-band join-String projection
     /// becomes a TYPE-level primitive on the closed-set trait rather
     /// than a per-consumer inline
     /// `T::unique_repeating_labels(items).join(sep)` composition at
-    /// every downstream generic site. THEORY.md §V.1 — knowable
+    /// every downstream generic site. Knowable
     /// platform; the (set-level × `String` × equivalence-partition ×
     /// mult `>= 2` × unique-tie) corner was an unnamed inline
     /// composition recurring at every prospective downstream "the sole
     /// duplicated label as a bare string, if unique, else empty" site
-    /// pre-lift. THEORY.md §VI.1 — generation over composition; the
+    /// pre-lift. Generation over composition; the
     /// projection emerges from the composition of ONE substrate
     /// primitive ([`Self::unique_repeating_labels`]) with the standard-
     /// library `slice::join` combinator, not as a per-implementor
@@ -43118,17 +43118,17 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// uniqueness-gated variant Vec under [`Self::label`] plus the
     /// LEX-order primitive plus `slice::join`.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the N-ary
+    /// Anchor: the typescape; the N-ary
     /// uniqueness-gated unique-band-band join-String projection
     /// becomes a TYPE-level primitive on the closed-set trait rather
     /// than a per-consumer inline
     /// `T::unique_unique_labels(items).join(sep)` composition at every
-    /// downstream generic site. THEORY.md §V.1 — knowable platform;
+    /// downstream generic site. Knowable platform;
     /// the (set-level × `String` × equivalence-partition × mult
     /// `== 1` × unique-tie) corner was an unnamed inline composition
     /// recurring at every prospective downstream "the sole
     /// once-occurring label as a bare string, if unique, else empty"
-    /// site pre-lift. THEORY.md §VI.1 — generation over composition;
+    /// site pre-lift. Generation over composition;
     /// the projection emerges from the composition of ONE substrate
     /// primitive ([`Self::unique_unique_labels`]) with the standard-
     /// library `slice::join` combinator, not as a per-implementor
@@ -43219,18 +43219,18 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// (Warming(_), Contracting(_))` to gate SIGHUP admission on the
     /// executing-window.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the ternary
+    /// Anchor: the typescape; the ternary
     /// closed-range containment predicate becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline conjunction of two non-strict-precedence calls at every
-    /// downstream generic site. THEORY.md §V.1 — knowable platform;
+    /// downstream generic site. Knowable platform;
     /// the ternary-arity axis was an unnamed inline composition
     /// (`lo.precedes_or_equal(v) && v.precedes_or_equal(hi)`)
     /// recurring at every prospective downstream closed-range-
     /// membership site pre-lift. Naming it on the trait makes the
     /// predicate a TYPED CONSEQUENCE of the non-strict pairwise-
     /// precedence predicate applied at both range endpoints.
-    /// THEORY.md §VI.1 — generation over composition; the ternary
+    /// Generation over composition; the ternary
     /// closed-range containment predicate emerges from the
     /// composition of TWO substrate primitives ([`Self::precedes_or_equal`]
     /// at both bound-to-self edges + the standard-library `&&` on
@@ -43273,7 +43273,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// [`Self::is_between`] for the shared closed-range-containment
     /// laws (reflexivity, endpoint-inclusivity, empty-range
     /// degeneracy), the range-partition contract, the future-consumer
-    /// inventory, THEORY.md grounding, and frontier inspiration —
+    /// inventory, grounding, and frontier inspiration —
     /// this method is the lex-axis arm of the same ternary closed-
     /// range containment surface and inherits every property from
     /// the declaration arm's documentation, differing only in the
@@ -43382,18 +43382,18 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// "actively converging" set — the strict interior of the
     /// lifecycle, excluding the head and tail markers themselves.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the ternary
+    /// Anchor: the typescape; the ternary
     /// strict-open-range containment predicate becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline conjunction of two strict-precedence calls at every
-    /// downstream generic site. THEORY.md §V.1 — knowable platform;
+    /// downstream generic site. Knowable platform;
     /// the strict-interior ternary-arity axis was an unnamed inline
     /// composition (`lo.precedes(v) && v.precedes(hi)`) that would
     /// recur at every prospective downstream strict-open-range-
     /// membership site pre-lift. Naming it on the trait makes the
     /// predicate a TYPED CONSEQUENCE of the strict pairwise-
     /// precedence predicate applied at both range endpoints.
-    /// THEORY.md §VI.1 — generation over composition; the ternary
+    /// Generation over composition; the ternary
     /// strict-open-range containment predicate emerges from the
     /// composition of TWO substrate primitives ([`Self::precedes`] at
     /// both bound-to-self edges + the standard-library `&&` on
@@ -43436,7 +43436,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// [`Self::is_strictly_between`] for the shared strict-open-range-
     /// containment laws (irreflexivity, endpoint-exclusivity, empty-
     /// range degeneracy), the range-partition contract, the future-
-    /// consumer inventory, THEORY.md grounding, and frontier
+    /// consumer inventory, grounding, and frontier
     /// inspiration — this method is the lex-axis arm of the same
     /// ternary strict-open-range containment surface and inherits
     /// every property from the declaration arm's documentation,
@@ -43567,19 +43567,19 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// open}` and there is no further sub-corner to open past the
     /// eight-way exhaustive closure.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the ternary
+    /// Anchor: the typescape; the ternary
     /// right-half-open-range containment predicate becomes a TYPE-level
     /// primitive on the closed-set trait rather than a per-consumer
     /// inline mixed conjunction of one non-strict-precedence call and
     /// one strict-precedence call at every downstream generic site.
-    /// THEORY.md §V.1 — knowable platform; the right-half-open
+    /// Knowable platform; the right-half-open
     /// endpoint-inclusivity axis was an unnamed asymmetric inline
     /// composition (`lo.precedes_or_equal(v) && v.precedes(hi)`)
     /// recurring at every prospective downstream half-open-range-
     /// membership site pre-lift. Naming it on the trait makes the
     /// predicate a TYPED CONSEQUENCE of BOTH pairwise-precedence
     /// predicates applied at the two range endpoints, ONE per edge.
-    /// THEORY.md §VI.1 — generation over composition; the ternary
+    /// Generation over composition; the ternary
     /// right-half-open containment predicate emerges from the
     /// composition of THREE substrate primitives
     /// ([`Self::precedes_or_equal`] at the lower edge +
@@ -43628,7 +43628,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// right-half-open-range-containment laws (lower-endpoint-
     /// inclusivity, upper-endpoint-exclusivity, empty-range
     /// degeneracy), the range-partition contract, the future-consumer
-    /// inventory, THEORY.md grounding, and frontier inspiration —
+    /// inventory, grounding, and frontier inspiration —
     /// this method is the lex-axis arm of the same ternary right-
     /// half-open-range containment surface and inherits every property
     /// from the declaration arm's documentation, differing only in the
@@ -43758,12 +43758,12 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// the terminal move on the (endpoint-inclusivity-flavor) axis
     /// of the ternary closed-range containment surface.
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the ternary
+    /// Anchor: the typescape; the ternary
     /// left-half-open-range containment predicate becomes a TYPE-
     /// level primitive on the closed-set trait rather than a per-
     /// consumer inline mirror mixed conjunction of one strict-
     /// precedence call and one non-strict-precedence call at every
-    /// downstream generic site. THEORY.md §V.1 — knowable platform;
+    /// downstream generic site. Knowable platform;
     /// the left-half-open endpoint-inclusivity axis was an unnamed
     /// asymmetric inline composition (`lo.precedes(v) &&
     /// v.precedes_or_equal(hi)`) recurring at every prospective
@@ -43771,8 +43771,8 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// it on the trait makes the predicate a TYPED CONSEQUENCE of
     /// BOTH pairwise-precedence predicates applied at the two range
     /// endpoints, ONE per edge, MIRRORED relative to
-    /// [`Self::is_right_half_open_between`]. THEORY.md §VI.1 —
-    /// generation over composition; the ternary left-half-open
+    /// [`Self::is_right_half_open_between`].
+    /// Generation over composition; the ternary left-half-open
     /// containment predicate emerges from the composition of THREE
     /// substrate primitives ([`Self::precedes`] at the lower edge +
     /// [`Self::precedes_or_equal`] at the upper edge + the standard-
@@ -43820,7 +43820,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// shared left-half-open-range-containment laws (lower-
     /// endpoint-exclusivity, upper-endpoint-inclusivity, empty-
     /// range degeneracy), the range-partition contract, the future-
-    /// consumer inventory, THEORY.md grounding, and frontier
+    /// consumer inventory, grounding, and frontier
     /// inspiration — this method is the lex-axis arm of the same
     /// ternary left-half-open-range containment surface and inherits
     /// every property from the declaration arm's documentation,
@@ -43970,11 +43970,11 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// though `lo`/`hi` remain the natural inclusive saturation points
     /// on a finite closed set).
     ///
-    /// Theory anchor: THEORY.md §III — the typescape; the ternary
+    /// Anchor: the typescape; the ternary
     /// clamp projection becomes a TYPE-level primitive on the
     /// closed-set trait rather than a per-consumer inline
     /// `if v < lo { lo } else if v > hi { hi } else { v }` shape at
-    /// every downstream generic site. THEORY.md §V.1 — knowable
+    /// every downstream generic site. Knowable
     /// platform; the clamp projection was an unnamed inline
     /// composition recurring at every prospective downstream
     /// closed-range-saturation site pre-lift. Naming it on the trait
@@ -43984,7 +43984,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// consequence of the non-strict pairwise-precedence predicate
     /// applied at both range endpoints one column over on the
     /// (return-shape) axis.
-    /// THEORY.md §VI.1 — generation over composition; the ternary
+    /// Generation over composition; the ternary
     /// clamp projection emerges from the composition of THREE
     /// substrate primitives ([`Self::precedes`] at both bound-to-self
     /// edges + the standard-library `if`/`else` on `bool`) rather
@@ -44039,7 +44039,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// shared clamp-projection laws (in-range fixed-point,
     /// below/above-range saturation, idempotence, endpoint fixed-
     /// points, path-uniformity), the range-partition contract, the
-    /// future-consumer inventory, THEORY.md grounding, and frontier
+    /// future-consumer inventory, grounding, and frontier
     /// inspiration — this method is the lex-axis arm of the same
     /// ternary Self-return closed-range surface and inherits every
     /// property from the declaration arm's documentation, differing
@@ -44149,7 +44149,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// (declaration, lex) ordering axis of the closed-set label-
     /// return ternary-CLAMP surface. See [`Self::clamp_label`] for
     /// the shared design rationale, sibling matrix, override axis,
-    /// future-consumer inventory, THEORY.md grounding, and frontier
+    /// future-consumer inventory, grounding, and frontier
     /// inspiration — this method is the lex-axis arm of the same
     /// label-return ternary-clamp surface and inherits every
     /// property from the declaration arm's documentation, differing
@@ -44255,7 +44255,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// (declaration, lex) ordering axis of the closed-set index-
     /// return ternary-CLAMP surface. See [`Self::clamp_index`] for
     /// the shared design rationale, sibling matrix, override axis,
-    /// future-consumer inventory, THEORY.md grounding, and frontier
+    /// future-consumer inventory, grounding, and frontier
     /// inspiration — this method is the lex-axis arm of the same
     /// index-return ternary-clamp surface and inherits every property
     /// from the declaration arm's documentation, differing only in
@@ -44372,7 +44372,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// variant and expect the same [`Self`]-typed answer at every
     /// crate boundary.
     ///
-    /// THEORY.md §III — the typescape; the (variant →
+    /// The typescape; the (variant →
     /// saturating-forward declaration-neighbor) projection becomes
     /// a TYPE projection on the trait rather than a per-consumer
     /// inline `self.next().unwrap_or(self)` composition at every
@@ -44382,14 +44382,14 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// bounded ([`Self::next`]), [`Self`]-typed wrapping
     /// ([`Self::cycle_next`]), [`Self`]-typed saturating (this
     /// method) — each with a distinct load-bearing consumer surface.
-    /// THEORY.md §V.1 — knowable platform; the saturating-neighbor
+    /// Knowable platform; the saturating-neighbor
     /// projection was an unnamed compound of [`Self::next`] +
     /// [`Option::unwrap_or`] pre-lift; naming it on the trait makes
     /// the projection a TYPED CONSEQUENCE of the bounded-neighbor
     /// primitive folded through the stay-at-`self` fallback —
     /// generic consumers see ONE saturating-forward method, not one
     /// saturating-shape-per-crate.
-    /// THEORY.md §VI.1 — generation over composition; the
+    /// Generation over composition; the
     /// saturating-forward-neighbor projection emerges from
     /// composition of ONE substrate primitive ([`Self::next`])
     /// through [`Option::unwrap_or`] rather than as a per-implementor
@@ -44432,7 +44432,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// this method returns the declaration-order predecessor pinned
     /// at the head-endpoint. See [`Self::saturating_next`] for the
     /// shared design rationale, sibling matrix, override axis,
-    /// future-consumer inventory, THEORY.md grounding, and frontier
+    /// future-consumer inventory, grounding, and frontier
     /// inspiration — this method is the backward-direction arm of
     /// the same axis and inherits every property from the forward
     /// arm's documentation, differing only in the [`Self::prev`]
@@ -44478,7 +44478,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// saturating-forward-neighbor surface. See
     /// [`Self::saturating_next`] for the shared design rationale,
     /// sibling matrix, override axis, future-consumer inventory,
-    /// THEORY.md grounding, and frontier inspiration — this method
+    /// grounding, and frontier inspiration — this method
     /// is the lex-axis arm of the same saturating-forward-neighbor
     /// surface and inherits every property from the declaration
     /// arm's documentation, differing only in the substrate
@@ -44617,7 +44617,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// of the closed-set saturating-label-neighbor surface. See
     /// [`Self::saturating_next_label`] for the shared design
     /// rationale, sibling matrix, override axis, future-consumer
-    /// inventory, THEORY.md grounding, and frontier inspiration —
+    /// inventory, grounding, and frontier inspiration —
     /// this method is the backward-direction arm of the same axis and
     /// inherits every property from the forward arm's documentation,
     /// differing only in the [`Self::saturating_prev`] substrate
@@ -44652,7 +44652,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// saturating-label-forward-neighbor surface. See
     /// [`Self::saturating_next_label`] for the shared design
     /// rationale, sibling matrix, override axis, future-consumer
-    /// inventory, THEORY.md grounding, and frontier inspiration —
+    /// inventory, grounding, and frontier inspiration —
     /// this method is the lex-axis arm of the same
     /// saturating-forward-label-neighbor surface and inherits every
     /// property from the declaration arm's documentation, differing
@@ -44804,7 +44804,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// of the closed-set saturating-index-neighbor surface. See
     /// [`Self::saturating_next_index`] for the shared design
     /// rationale, sibling matrix, override axis, future-consumer
-    /// inventory, THEORY.md grounding, and frontier inspiration —
+    /// inventory, grounding, and frontier inspiration —
     /// this method is the backward-direction arm of the same axis
     /// and inherits every property from the forward arm's
     /// documentation, differing only in the [`Self::saturating_prev`]
@@ -44841,7 +44841,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
     /// saturating-index-forward-neighbor surface. See
     /// [`Self::saturating_next_index`] for the shared design
     /// rationale, sibling matrix, override axis, future-consumer
-    /// inventory, THEORY.md grounding, and frontier inspiration —
+    /// inventory, grounding, and frontier inspiration —
     /// this method is the lex-axis arm of the same
     /// saturating-forward-index-neighbor surface and inherits every
     /// property from the declaration arm's documentation, differing
@@ -45436,7 +45436,7 @@ pub trait ClosedSet: Sized + Copy + 'static {
 /// }
 /// ```
 ///
-/// THEORY.md §V.1 — knowable platform; the three structural test
+/// Knowable platform; the three structural test
 /// invariants were known patterns carried by convention across 36+
 /// per-implementor test modules. This helper makes them a TYPED
 /// CONSEQUENCE of the [`ClosedSet`] contract — any future implementor

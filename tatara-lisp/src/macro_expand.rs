@@ -279,7 +279,7 @@ pub const DEFAULT_MAX_MACRO_ARITY: usize = 128;
 /// the shipped posture in one value does not re-derive the six
 /// individual constants at its call site.
 ///
-/// Theory grounding: THEORY.md §II.1 — typed entry / typed exit for
+/// Grounding: typed entry / typed exit for
 /// the resource-limit configuration surface. The pre-lift six
 /// independent knobs were a set of typed scalars but their
 /// composition into an "Expander resource posture" was untyped —
@@ -461,10 +461,10 @@ pub const UNBOUNDED_RESOURCE_LIMITS: ResourceLimits = ResourceLimits {
 /// field's value at compile time via the const-fn peer of the
 /// existing lattice-law const-fn pins.
 ///
-/// Theory anchor: THEORY.md §II.1 invariant 5 — composition preserves
+/// Anchor: invariant 5 — composition preserves
 /// proofs; the identity element of a lattice operation is itself a
 /// typed named entry whose composition with any other element is the
-/// element (join) or the identity (meet). THEORY.md §V.1 — knowable
+/// element (join) or the identity (meet). Knowable
 /// platform; the bounded-lattice bottom binds at ONE typed constant
 /// rather than a six-primitive inline literal every consumer that
 /// needs the fold identity carries at its call site. Frontier
@@ -574,12 +574,12 @@ impl ResourceLimits {
     /// field-exhaustiveness at the const's construction guarantees
     /// every ceiling is threaded through the `min` primitive.
     ///
-    /// Theory anchor: THEORY.md §II.1 invariant 5 — composition
+    /// Anchor: invariant 5 — composition
     /// preserves proofs; the tightest posture of two preset-carried
     /// resource proofs is itself a `ResourceLimits` whose proof
     /// content is the intersection of the two, and this method is
-    /// the typed named entry composing them. THEORY.md §V.1 —
-    /// knowable platform; the pointwise-`min` combinator becomes a
+    /// the typed named entry composing them.
+    /// Knowable platform; the pointwise-`min` combinator becomes a
     /// TYPE-level operation on the posture algebra rather than an
     /// inline six-primitive cascade at every consumer that composes
     /// two presets. `tatara-lattice`'s `meet` / `join` operators on
@@ -640,11 +640,11 @@ impl ResourceLimits {
     /// third at compile time rather than deferring the composition
     /// to a runtime `Default::default()` chain.
     ///
-    /// Theory anchor: THEORY.md §II.1 invariant 5 — composition
+    /// Anchor: invariant 5 — composition
     /// preserves proofs; the most-permissive posture of two preset-
     /// carried resource proofs is itself a `ResourceLimits` whose
     /// proof content is the union of the two, and this method is the
-    /// typed named entry composing them. THEORY.md §V.1 — knowable
+    /// typed named entry composing them. Knowable
     /// platform; the pointwise-`max` combinator becomes a TYPE-level
     /// operation on the posture algebra rather than an inline
     /// six-primitive cascade at every consumer that composes two
@@ -750,10 +750,10 @@ impl ResourceLimits {
     /// on the six-field conjunction below guarantees every ceiling is
     /// threaded through the `<=` primitive.
     ///
-    /// Theory anchor: THEORY.md §II.1 invariant 5 — composition
+    /// Anchor: invariant 5 — composition
     /// preserves proofs; the partial-order relation on two preset-
     /// carried resource proofs is itself a typed named entry composing
-    /// their tightness ordering. THEORY.md §V.1 — knowable platform;
+    /// their tightness ordering. Knowable platform;
     /// the pointwise `<=` combinator becomes a TYPE-level operation on
     /// the posture algebra rather than an inline six-primitive
     /// conjunction at every consumer that compares two presets.
@@ -851,11 +851,11 @@ impl ResourceLimits {
     /// (rather than the consumer having to remember which seed pairs
     /// with which combinator at each call site).
     ///
-    /// Theory anchor: THEORY.md §II.1 invariant 5 — composition
+    /// Anchor: invariant 5 — composition
     /// preserves proofs; the N-ary aggregation of N preset-carried
     /// resource proofs is itself a `ResourceLimits` whose proof content
     /// is the intersection of every operand's, and this method is the
-    /// typed named entry composing them. THEORY.md §V.1 — knowable
+    /// typed named entry composing them. Knowable
     /// platform; the N-ary meet becomes a TYPE-level operation on the
     /// posture algebra rather than an inline fold cascade at every
     /// consumer that aggregates a slice of presets — with the
@@ -934,9 +934,9 @@ impl ResourceLimits {
     /// meet-identity (`UNBOUNDED`) with the join combinator (a silent
     /// distortion that would inflate every axis to [`usize::MAX`]).
     ///
-    /// Theory anchor: THEORY.md §II.1 invariant 5 — composition
+    /// Anchor: invariant 5 — composition
     /// preserves proofs; the N-ary join of N preset-carried resource
-    /// proofs is itself a `ResourceLimits`. THEORY.md §V.1 — knowable
+    /// proofs is itself a `ResourceLimits`. Knowable
     /// platform; the N-ary join becomes a TYPE-level operation on the
     /// posture algebra rather than an inline fold cascade at every
     /// consumer that aggregates a slice of presets.
@@ -1065,12 +1065,12 @@ impl ResourceLimits {
     /// `lower.leq(upper)` invariant at their bounds' construction site,
     /// not at every clamp call site.
     ///
-    /// Theory anchor: THEORY.md §II.1 invariant 5 — composition preserves
+    /// Anchor: invariant 5 — composition preserves
     /// proofs; the bracket projection of a preset-carried resource proof
     /// against two bound preset-carried resource proofs is itself a
     /// `ResourceLimits` whose proof content is the input's proof intersected
     /// with the ceiling's and unioned with the floor's, and this method is
-    /// the typed named entry composing them. THEORY.md §V.1 — knowable
+    /// the typed named entry composing them. Knowable
     /// platform; the bracket combinator becomes a TYPE-level operation on
     /// the posture algebra rather than an inline two-step composition at
     /// every consumer that enforces a policy range — with the (lower,
@@ -1179,10 +1179,10 @@ impl ResourceLimits {
     /// `lower.leq(upper)`), a silent distortion the type system did not gate
     /// pre-lift and now does through the method's parameter order.
     ///
-    /// Theory anchor: THEORY.md §II.1 invariant 5 — composition preserves
+    /// Anchor: invariant 5 — composition preserves
     /// proofs; the bracket-membership predicate on three preset-carried
     /// resource proofs is itself a typed named entry composing the input's
-    /// containment ordering. THEORY.md §V.1 — knowable platform; the
+    /// containment ordering. Knowable platform; the
     /// pointwise `≤`-conjunction combinator becomes a TYPE-level operation
     /// on the posture algebra rather than an inline two-primitive
     /// conjunction at every consumer that decides bracket membership — with
@@ -1293,11 +1293,11 @@ impl ResourceLimits {
     /// `self` DOMINATES rather than UNDERLIES the slice), a silent
     /// distortion the method's parameter direction now gates.
     ///
-    /// Theory anchor: THEORY.md §II.1 invariant 5 — composition
+    /// Anchor: invariant 5 — composition
     /// preserves proofs; the N-ary containment-from-below predicate on
     /// (1 + N) preset-carried resource proofs is itself a typed named
-    /// entry composing the pairwise partial-order relation. THEORY.md
-    /// §V.1 — knowable platform; the N-ary `leq`-conjunction becomes a
+    /// entry composing the pairwise partial-order relation.
+    /// Knowable platform; the N-ary `leq`-conjunction becomes a
     /// TYPE-level operation on the posture algebra rather than an inline
     /// two-primitive conjunction at every consumer that decides
     /// N-ary-bound membership. Frontier inspiration: the algebraic-
@@ -1376,7 +1376,7 @@ impl ResourceLimits {
     /// `const fn` so a caller can pin an N-ary-bound-membership identity
     /// at compile time. See [`Self::is_lower_bound_of`] for the shared
     /// pre-lift ≥2 pattern (`postures.iter().all(|p| p.leq(*self))`), the
-    /// theory anchor (THEORY.md §II.1 invariant 5, §V.1), and the
+    /// anchor (invariant 5, §V.1), and the
     /// `Foldable::all` frontier inspiration — this method carries the
     /// dual `postures[i].leq(self)` direction rather than
     /// `self.leq(postures[i])`.
@@ -1495,11 +1495,11 @@ impl ResourceLimits {
     /// method the algebra exposes, and the encoding is a private
     /// implementation detail no caller can drift from.
     ///
-    /// Theory anchor: THEORY.md §II.1 invariant 5 — composition
+    /// Anchor: invariant 5 — composition
     /// preserves proofs; the strict-tightening relation between two
     /// preset-carried resource proofs is itself a typed named `bool`
-    /// predicate composing them via the underlying `leq`. THEORY.md
-    /// §V.1 — knowable platform; the strict `<` relation becomes a
+    /// predicate composing them via the underlying `leq`.
+    /// Knowable platform; the strict `<` relation becomes a
     /// TYPE-level primitive on the posture algebra rather than an
     /// inline two-primitive conjunction at every consumer that
     /// decides "did we strictly tighten?" `tatara-lattice`'s partial
@@ -1554,7 +1554,7 @@ impl ResourceLimits {
     /// `const fn` for the same compile-time-pin reasons as
     /// [`Self::lt`]. See [`Self::lt`] for the full docstring, the
     /// pre-lift `a.leq(b) && !b.leq(a)` two-primitive PRIME DIRECTIVE
-    /// ≥2 pattern, the theory anchor (THEORY.md §II.1 invariant 5,
+    /// ≥2 pattern, the anchor (invariant 5,
     /// §V.1), and the [`Ord::gt`] frontier inspiration.
     #[must_use]
     pub const fn gt(self, other: Self) -> bool {
@@ -1621,7 +1621,7 @@ impl ResourceLimits {
     /// .geq(DEFAULT_RESOURCE_LIMITS));`). See [`Self::leq`] for the
     /// full docstring, the pre-lift six-inline-`>=`-conjunction pattern
     /// callers wrote before the pairwise relation was named, the
-    /// theory anchor (THEORY.md §II.1 invariant 5, §V.1), and the
+    /// anchor (invariant 5, §V.1), and the
     /// [`PartialOrd::ge`] frontier inspiration.
     #[must_use]
     pub const fn geq(self, other: Self) -> bool {
@@ -1748,14 +1748,14 @@ impl ResourceLimits {
     /// primitive `!leq && !geq` composition lives at ONE
     /// implementation site.
     ///
-    /// Theory anchor: THEORY.md §II.1 invariant 5 — composition
+    /// Anchor: invariant 5 — composition
     /// preserves proofs; the antichain characterization is the
     /// SET-COMPLEMENT of the union of the two comparable-direction
     /// predicates, and pinning the projection at ONE typed primitive
     /// makes the (comparable, incomparable) two-cell partition of the
     /// ordered-pair × verdict surface a substrate-level THEOREM
     /// rather than a per-consumer inline `!leq && !geq` sanity check.
-    /// THEORY.md §V.1 — knowable platform; the antichain-detection
+    /// Knowable platform; the antichain-detection
     /// corner was an unnamed two-primitive composition recurring at
     /// every prospective "these two postures sit on distinct
     /// branches?" callsite pre-lift.
@@ -1917,14 +1917,14 @@ impl ResourceLimits {
     /// a compile-time bound, and the two-primitive `leq || geq`
     /// composition lives at ONE implementation site.
     ///
-    /// Theory anchor: THEORY.md §II.1 invariant 5 — composition
+    /// Anchor: invariant 5 — composition
     /// preserves proofs; the comparability characterization is the
     /// SET-UNION of the two pointwise-domination directions, and
     /// pinning the projection at ONE typed primitive makes the
     /// (comparable, incomparable) two-cell partition of the ordered-
     /// pair × verdict surface a substrate-level THEOREM proved on
     /// BOTH SIDES rather than one side asserted and the other
-    /// inferred at consumer sites. THEORY.md §V.1 — knowable
+    /// inferred at consumer sites. Knowable
     /// platform; the comparability-detection corner was an unnamed
     /// two-primitive composition recurring at every prospective
     /// "these two postures sit on the same branch?" callsite pre-
@@ -2101,7 +2101,7 @@ impl ResourceLimits {
     /// DIRECTIVE trigger, since the four-way ordering dispatch appeared
     /// inline at every prospective full-verdict callsite pre-lift.
     ///
-    /// Theory anchor: THEORY.md §II.1 invariant 5 — composition
+    /// Anchor: invariant 5 — composition
     /// preserves proofs; the FULL pointwise partial-order verdict on
     /// two preset-carried resource proofs is itself a typed
     /// `Option<Ordering>` value whose four arms each carry a distinct
@@ -2112,7 +2112,7 @@ impl ResourceLimits {
     /// primitive makes the (Less, Equal, Greater, None) 4-tile
     /// partition of the ordered pair × verdict surface a substrate-
     /// level THEOREM rather than a per-consumer inline four-way
-    /// dispatch. THEORY.md §V.1 — knowable platform; the full-verdict
+    /// dispatch. Knowable platform; the full-verdict
     /// projection was an unnamed four-primitive composition recurring
     /// at every prospective "how do these two postures relate?"
     /// callsite pre-lift.
@@ -2274,11 +2274,11 @@ impl ResourceLimits {
     /// method the algebra exposes, and the doubly-indexed all-pairs
     /// scaffolding lives at ONE implementation site.
     ///
-    /// Theory anchor: THEORY.md §II.1 invariant 5 — composition preserves
+    /// Anchor: invariant 5 — composition preserves
     /// proofs; the set-level chain verdict on N preset-carried resource
     /// proofs is itself a typed named `bool` predicate composing them via
     /// the underlying pair-level [`Self::is_comparable`] projection.
-    /// THEORY.md §V.1 — knowable platform; the doubly-indexed all-pairs
+    /// Knowable platform; the doubly-indexed all-pairs
     /// comparability conjunction becomes a TYPE-level operation on the
     /// posture algebra rather than an inline two-primitive scaffolding at
     /// every consumer that decides "is this slice a totally-ordered
@@ -2455,11 +2455,11 @@ impl ResourceLimits {
     /// to, factored down to a per-projection choice of pair-level
     /// primitive.
     ///
-    /// Theory anchor: THEORY.md §II.1 invariant 5 — composition preserves
+    /// Anchor: invariant 5 — composition preserves
     /// proofs; the set-level antichain verdict on N preset-carried
     /// resource proofs is itself a typed named `bool` predicate composing
     /// them via the underlying pair-level [`Self::is_incomparable`]
-    /// projection. THEORY.md §V.1 — knowable platform; the doubly-indexed
+    /// projection. Knowable platform; the doubly-indexed
     /// all-pairs incomparability conjunction becomes a TYPE-level
     /// operation on the posture algebra rather than an inline two-
     /// primitive scaffolding at every consumer that decides "is this
@@ -2597,11 +2597,11 @@ impl ResourceLimits {
     /// projections' pre-lift shapes carried, doubled. Post-lift the
     /// mixed-set verdict binds at ONE typed method the algebra exposes.
     ///
-    /// Theory anchor: THEORY.md §II.1 invariant 5 — composition
+    /// Anchor: invariant 5 — composition
     /// preserves proofs; the set-level mixed-set verdict on N preset-
     /// carried resource proofs is itself a typed named `bool` predicate
     /// composing them via the underlying set-level [`Self::is_chain`] +
-    /// [`Self::is_antichain`] projections. THEORY.md §V.1 — knowable
+    /// [`Self::is_antichain`] projections. Knowable
     /// platform; the doubly-negated set-level conjunction becomes a
     /// TYPE-level operation on the posture algebra rather than an inline
     /// negation-composition at every consumer that decides "is this
@@ -2756,11 +2756,11 @@ impl ResourceLimits {
     /// only on the pair-level primitive it delegates to (`geq` in place of
     /// `leq`).
     ///
-    /// Theory anchor: THEORY.md §II.1 invariant 5 — composition preserves
+    /// Anchor: invariant 5 — composition preserves
     /// proofs; the sequence-level ascending verdict on N preset-carried
     /// resource proofs is itself a typed named `bool` predicate composing
     /// them via the underlying pair-level [`Self::leq`] projection.
-    /// THEORY.md §V.1 — knowable platform; the consecutive-pair leq
+    /// Knowable platform; the consecutive-pair leq
     /// conjunction becomes a TYPE-level operation on the posture algebra
     /// rather than an inline windowed scaffolding at every consumer that
     /// decides "is this slice a leq-monotone ascending sequence?"
@@ -2889,8 +2889,8 @@ impl ResourceLimits {
     /// scaffolding at every prospective callsite. Post-lift the
     /// descending verdict binds at ONE typed method the algebra exposes.
     ///
-    /// Theory anchor: THEORY.md §II.1 invariant 5 — composition preserves
-    /// proofs. THEORY.md §V.1 — knowable platform.
+    /// Anchor: invariant 5 — composition preserves
+    /// proofs. Knowable platform.
     ///
     /// Frontier inspiration: `Iterator::is_sorted_by` with a reversed
     /// comparator on a totally-ordered carrier; Coq's `StronglySorted`
@@ -2956,13 +2956,13 @@ impl MacroDef {
     /// (substitute path) consume the projection immediately and never
     /// outlive the borrow.
     ///
-    /// Theory anchor: THEORY.md §VI.1 — generation over composition; two
+    /// Anchor: generation over composition; two
     /// inline copies of the body-peel match is the ≥2 trigger, and the
     /// substrate names the projection ONCE so authoring surfaces and
     /// future expansion strategies (a third interpreter? a JIT? a
     /// debugger that wants to render the body without the outer
-    /// quasi-quote marker?) bind to ONE primitive. THEORY.md §II.1
-    /// invariant 2 — free middle; the two expansion strategies emit
+    /// quasi-quote marker?) bind to ONE primitive.
+    /// Invariant 2 — free middle; the two expansion strategies emit
     /// IDENTICAL output for the same (macro, args) pair, and sharing one
     /// body-projection makes that per-strategy agreement structural at
     /// the entry to the walker, not a two-site discipline the
@@ -3017,10 +3017,10 @@ impl MacroDef {
 /// index-keyed (`apply_compiled`) expansion strategies share ONE binder and
 /// can never drift.
 ///
-/// Theory anchor: THEORY.md §V.1 — knowable platform / "make invalid states
+/// Anchor: knowable platform / "make invalid states
 /// unrepresentable"; the lambda-list ordering (required → optional → rest,
-/// rest-is-last, at-most-one-rest) becomes structural. THEORY.md §VI.1 —
-/// generation over composition; the positional binding loop (verbatim in
+/// rest-is-last, at-most-one-rest) becomes structural.
+/// Generation over composition; the positional binding loop (verbatim in
 /// both `bind_args` and `apply_compiled`, the ≥2 PRIME-DIRECTIVE trigger) is
 /// lifted to ONE owner, `bind`, which the optional arm extends in one place.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -3054,10 +3054,10 @@ pub struct MacroParams {
 /// to that macro consumes the same parsed `Sexp` via `Clone`, never re-
 /// reading the source.
 ///
-/// Theory anchor: THEORY.md §V.1 — knowable platform / "make invalid states
+/// Anchor: knowable platform / "make invalid states
 /// unrepresentable"; the (name, default?) pair is one entry rather than two
-/// parallel `Vec`s a regression could desynchronize. THEORY.md §VI.1 —
-/// generation over composition; the binder's optional arm consults
+/// parallel `Vec`s a regression could desynchronize.
+/// Generation over composition; the binder's optional arm consults
 /// `param.default` in ONE place, so the substitute and bytecode strategies
 /// inherit identical default-resolution semantics from the shared `bind`.
 #[derive(Debug, Clone, PartialEq)]
@@ -3122,18 +3122,18 @@ impl OptionalParam {
     /// with no payload), so the no-default path is free of allocation
     /// beyond the function return slot.
     ///
-    /// Theory anchor: THEORY.md §V.1 — knowable platform / "make invalid
+    /// Anchor: knowable platform / "make invalid
     /// states unrepresentable"; the "no-default-form floor" structural
     /// concept becomes a NAMED projection on [`OptionalParam`] rather than
     /// re-derived `param.default.clone().unwrap_or(Sexp::Nil)` arithmetic
     /// at every site that walks the bound optional run. Authoring tools
     /// (REPL, LSP, `tatara-check`) that want to render "this optional
     /// binds to {default-form|nil} when absent" bind to ONE method on the
-    /// typed param. THEORY.md §VI.1 — generation over composition; the
+    /// typed param. Generation over composition; the
     /// constructor pair `bare` / `with_default` defines the typed shapes
     /// and the `resolved_default` accessor names the symmetric
-    /// bound-value projection — the typed accessor companion. THEORY.md
-    /// §II.1 invariant 2 — free middle; both expansion strategies route
+    /// bound-value projection — the typed accessor companion.
+    /// Invariant 2 — free middle; both expansion strategies route
     /// through the SHARED `MacroParams::bind`, so the new accessor is
     /// exposed to the bytecode and substitute paths uniformly via that
     /// shared binder.
@@ -3168,9 +3168,9 @@ impl OptionalParam {
 /// CALL SITE, because a value the call never supplied has no source position
 /// of its own and the call site is the honest place to point an error at.
 ///
-/// Theory anchor: THEORY.md §V.1 — knowable platform; "which lambda-list
+/// Anchor: knowable platform; "which lambda-list
 /// shapes does this expansion path accept?" stops being a per-path answer.
-/// THEORY.md §VI.1 — generation over composition.
+/// Generation over composition.
 pub trait MacroArgCarrier: Clone {
     /// Per-call synthesis context — `()` when the carrier needs none.
     type Site: Copy;
@@ -3232,11 +3232,11 @@ impl MacroParams {
     /// canonical `char` lead byte on the typed algebra, pinned by
     /// `macro_params_rest_marker_prefixed_by_lambda_list_keyword_lead`.
     ///
-    /// Theory anchor: THEORY.md §II.1 invariant 2 — free middle; the
+    /// Anchor: invariant 2 — free middle; the
     /// (`&rest` rest-slot marker, canonical `&'static str`) pairing
     /// binds at ONE `pub const` on the typed [`MacroParams`] algebra
     /// regardless of which parser / authoring surface reaches in.
-    /// THEORY.md §V.1 — knowable platform; the canonical CL lambda-
+    /// Knowable platform; the canonical CL lambda-
     /// list `&rest` keyword becomes a TYPE-level constant on the
     /// typed macro-params algebra rather than an inline `"&rest"`
     /// literal at the parser's rest-slot dispatch arm.
@@ -3260,11 +3260,11 @@ impl MacroParams {
     /// — pinned by
     /// `macro_params_optional_marker_prefixed_by_lambda_list_keyword_lead`.
     ///
-    /// Theory anchor: THEORY.md §II.1 invariant 2 — free middle; the
+    /// Anchor: invariant 2 — free middle; the
     /// (`&optional` section-switch marker, canonical `&'static str`)
     /// pairing binds at ONE `pub const` on the typed [`MacroParams`]
     /// algebra regardless of which parser / authoring surface reaches
-    /// in. THEORY.md §V.1 — knowable platform; the canonical CL
+    /// in. Knowable platform; the canonical CL
     /// lambda-list `&optional` keyword becomes a TYPE-level constant
     /// on the typed macro-params algebra rather than an inline
     /// `"&optional"` literal at the parser's optional-section
@@ -3315,11 +3315,11 @@ impl MacroParams {
     /// marker it aliased. Pinned structurally at
     /// `macro_params_lambda_list_keyword_lead_distinct_from_every_other_algebra_marker`.
     ///
-    /// Theory anchor: THEORY.md §II.1 invariant 2 — free middle; the
+    /// Anchor: invariant 2 — free middle; the
     /// (CL lambda-list-keyword LEAD byte, canonical `'&'`) pairing
     /// binds at ONE constant on the typed [`MacroParams`] algebra
     /// regardless of which of the two `&'static str` marker consumers
-    /// reaches in. THEORY.md §V.1 — knowable platform; the canonical
+    /// reaches in. Knowable platform; the canonical
     /// CL lambda-list-keyword LEAD byte becomes a TYPE-level constant
     /// on the substrate algebra rather than an inline `'&'` glyph at
     /// every docstring pinning the family disjointness contract.
@@ -3380,16 +3380,16 @@ impl MacroParams {
     /// Self::LAMBDA_LIST_KEYWORDS[j]` — pinned by
     /// `macro_params_lambda_list_keywords_pairwise_distinct`.
     ///
-    /// Theory anchor: THEORY.md §II.1 invariant 2 — free middle; the
+    /// Anchor: invariant 2 — free middle; the
     /// CL lambda-list-keyword family closure binds at ONE `pub const`
     /// on the typed [`MacroParams`] algebra regardless of which
     /// consumer (parser dispatch, family-wide contract sweep,
     /// authoring / rendering surface, `is_lambda_list_keyword`
-    /// membership gate) reaches in. THEORY.md §V.1 — knowable
+    /// membership gate) reaches in. Knowable
     /// platform; the family's cardinality becomes a TYPE-level
     /// constant on the substrate algebra rather than a per-consumer
-    /// hand-rolled enumeration of the two markers. THEORY.md §VI.1 —
-    /// generation over composition; the family-wide contract sweeps
+    /// hand-rolled enumeration of the two markers.
+    /// Generation over composition; the family-wide contract sweeps
     /// (LEAD-byte round-trip, pairwise disjointness, membership gate)
     /// emerge from the composition of TWO substrate primitives (this
     /// `pub const` array + the per-role `pub const REST_MARKER` /
@@ -3456,13 +3456,13 @@ impl MacroParams {
     ///     classify as `false` — pinned by
     ///     `macro_params_is_lambda_list_keyword_rejects_unrecognised_ampersand_prefixed_names`.
     ///
-    /// Theory anchor: THEORY.md §II.1 invariant 2 — free middle; the
+    /// Anchor: invariant 2 — free middle; the
     /// closed-set membership gate binds at ONE typed method on the
     /// [`MacroParams`] algebra regardless of which consumer reaches
-    /// in. THEORY.md §III — the typescape; the "is this a CL
+    /// in. The typescape; the "is this a CL
     /// lambda-list keyword?" projection becomes a TYPE projection on
     /// the substrate algebra rather than per-consumer inline
-    /// enumeration of the two markers. THEORY.md §V.1 — knowable
+    /// enumeration of the two markers. Knowable
     /// platform; a future third marker (`&key`, `&aux`, `&body`)
     /// extends [`Self::LAMBDA_LIST_KEYWORDS`] ONCE and every
     /// membership-gate consumer picks up the new marker for free.
@@ -3525,17 +3525,17 @@ impl MacroParams {
     /// [`names`](Self::names) and to the `Vec::with_capacity` hint
     /// [`bind`](Self::bind) computes for the bound-values vec.
     ///
-    /// Theory anchor: THEORY.md §V.1 — knowable platform; the structural
+    /// Anchor: knowable platform; the structural
     /// "rest-start boundary / rest-less max arity" concept becomes a
     /// named `&MacroParams` projection rather than re-derived arithmetic
     /// at every site that walks the bound run. Authoring tools (REPL,
     /// LSP, `tatara-check`) that want to render "this macro takes
     /// between `required.len()` and `fixed_arity()` args (or unbounded
     /// if `rest.is_some()`)" bind to ONE method on the typed param
-    /// list. THEORY.md §VI.1 — generation over composition; three
+    /// list. Generation over composition; three
     /// inline copies of the same arithmetic in one function is past
     /// the ≥2 PRIME-DIRECTIVE trigger once the structural shape is
-    /// named. THEORY.md §II.1 invariant 2 — free middle; both
+    /// named. Invariant 2 — free middle; both
     /// expansion strategies route through the SHARED `bind`, so the
     /// new primitive is exposed to the bytecode and substitute paths
     /// uniformly — no per-strategy drift in how the boundary is
@@ -3580,15 +3580,15 @@ impl MacroParams {
     /// `macro_params_total_arity_matches_names_len` AND
     /// `macro_params_total_arity_equals_fixed_arity_plus_rest_bit`.
     ///
-    /// Theory anchor: THEORY.md §V.1 — knowable platform; the
+    /// Anchor: knowable platform; the
     /// "how many named slots does this macro declare?" projection
     /// becomes a NAMED `&MacroParams` accessor rather than re-derived
     /// arithmetic at [`Self::bind`]'s capacity hint AND at the
     /// [`Expander::register_macro_def`] arity-ceiling gate.
-    /// THEORY.md §VI.1 — generation over composition; two inline copies
+    /// Generation over composition; two inline copies
     /// of the same three-arm arithmetic across two consumers is the
     /// ≥2 PRIME-DIRECTIVE trigger once the structural shape is named.
-    /// THEORY.md §II.1 invariant 2 — free middle; both the binder AND
+    /// Invariant 2 — free middle; both the binder AND
     /// the arity-guard consult ONE primitive, so a regression that
     /// drifts the guard's arity computation from the binder's capacity
     /// hint (e.g. one counts `rest` as one slot, the other counts it
@@ -3639,7 +3639,7 @@ impl MacroParams {
     /// macro CALL SITE span for `Spanned` (a value the CALL never supplied
     /// has no source position of its own, so it is stamped at the call).
     ///
-    /// Theory anchor: THEORY.md §VI.1 — generation over composition; the
+    /// Anchor: generation over composition; the
     /// binding loop had reached three copies (plain, spanned, and
     /// `tatara-lisp-eval`'s macro-time env binder), well past the ≥2
     /// PRIME-DIRECTIVE trigger.
@@ -3841,7 +3841,7 @@ impl Expander {
     /// three-corner face on the resource-posture surface now binds at ONE
     /// typed bundle across ALL three surfaces.
     ///
-    /// Theory grounding: THEORY.md §II.1 invariants 1 + 2 — typed entry +
+    /// Grounding: invariants 1 + 2 — typed entry +
     /// free middle. Pre-lift the "expander with a chosen resource posture"
     /// concept was untyped: consumers composed [`Self::new`] +
     /// [`Self::set_resource_limits`] at their call site with no
@@ -4181,15 +4181,15 @@ impl Expander {
     /// is gated behind the conditional), so a substitute-only expander never
     /// emits the `compile_template`-side rejection chain.
     ///
-    /// Theory anchor: THEORY.md §VI.1 — generation over composition; two
+    /// Anchor: generation over composition; two
     /// byte-identical inline copies of the registration block across
     /// `with_macros` and `expand_program` is past the ≥2 PRIME-DIRECTIVE
-    /// trigger once the structural shape is named. THEORY.md §V.1 — knowable
+    /// trigger once the structural shape is named. Knowable
     /// platform; the macro-registration discipline becomes a NAMED primitive
     /// on the substrate's `Expander` surface rather than a per-consumer
     /// inline duplication that future emitters (an LSP, a REPL, a library-
-    /// merge operator) would have had to re-derive. THEORY.md §II.1
-    /// invariant 2 — free middle; both consumers route through the SAME
+    /// merge operator) would have had to re-derive.
+    /// Invariant 2 — free middle; both consumers route through the SAME
     /// registration primitive, so a regression that drifts ONE consumer's
     /// discipline from the other (one path skips the template pre-compile,
     /// one path inserts the `self.macros` entry in a different order, a
@@ -4368,14 +4368,14 @@ impl Expander {
     /// preserved by routing through this primitive instead of inlining
     /// the two-step chain.
     ///
-    /// Theory anchor: THEORY.md §VI.1 — generation over composition; two
+    /// Anchor: generation over composition; two
     /// inline copies of the `let forms = read(src)?; <expander>.expand_program(forms)`
     /// two-step chain across `RealizedCompiler::compile` and
     /// `realize_in_memory` is past the ≥2 PRIME-DIRECTIVE trigger once the
-    /// structural shape is named. THEORY.md §V.1 — knowable platform; the
+    /// structural shape is named. Knowable platform; the
     /// read-then-expand composition becomes a NAMED primitive on the
     /// substrate's `Expander` surface rather than a re-derived two-step
-    /// inline pipeline at every consumer. THEORY.md §II.1 invariant 2 —
+    /// inline pipeline at every consumer. Invariant 2 —
     /// free middle; both consumers route through the SAME composition
     /// primitive, so a regression that drifts ONE consumer's pipeline
     /// shape from the other cannot reach the substrate's runtime.
@@ -4474,23 +4474,23 @@ impl Expander {
     /// dispatcher composes with to extract a typed program from a
     /// post-expansion form set.
     ///
-    /// Theory anchor: THEORY.md §VI.1 — generation over composition;
+    /// Anchor: generation over composition;
     /// two inline copies of the `Expander::new() + expand_program +
     /// iter_calls_to(_, T::KEYWORD) + map + collect` pipeline across
     /// `compile_typed` and `compile_named_from_forms` is past the ≥2
     /// PRIME-DIRECTIVE trigger once the structural shape is named.
-    /// THEORY.md §V.1 — knowable platform; the program-level walk's
+    /// Knowable platform; the program-level walk's
     /// typed-keyword-projection composition becomes a NAMED primitive
     /// on the substrate's `Expander` surface rather than a re-derived
     /// three-step inline pipeline at every consumer. Authoring tools
     /// (REPL, LSP, `tatara-check`) that want to walk a program by
     /// typed keyword bind to ONE method on the `Expander` instead of
-    /// re-implementing the composition. THEORY.md §II.1 invariant 1 —
+    /// re-implementing the composition. Invariant 1 —
     /// typed entry; the typed-keyword filter over an expanded program
     /// IS the rust-level typed-entry-batch gate, and naming its
     /// single shape lifts the gate from two-site duplication to one
     /// rust method the substrate's diagnostic promotions hang off of.
-    /// THEORY.md §II.1 invariant 2 — free middle; both consumers
+    /// Invariant 2 — free middle; both consumers
     /// route through the SAME composition primitive, each binding the
     /// per-form projection that fits its call site — a regression
     /// that drifts ONE dispatcher's pipeline shape from the other
@@ -4631,7 +4631,7 @@ impl Expander {
     /// (a live-registry classifier) bind through the registry's owned
     /// borrow with `&self` outliving the walk.
     ///
-    /// Theory anchor: THEORY.md §VI.1 — generation over composition; the
+    /// Anchor: generation over composition; the
     /// keyword sibling [`Self::expand_and_collect_calls_to`] is now a
     /// CONSEQUENCE of this typed-decoded primitive + a constant-classifier
     /// decoder, parallel to how [`iter_calls_to`] is a consequence of
@@ -4641,14 +4641,14 @@ impl Expander {
     /// keyword pipeline's instrumentation from the classifier pipeline's
     /// instrumentation cannot reach the runtime — both compose through ONE
     /// `expand_program + iter_calls_to_any + map + collect` body, with the
-    /// keyword filter expressed as a closed-form classifier). THEORY.md
-    /// §V.1 — knowable platform; the typed-decoded expander walk becomes a
+    /// keyword filter expressed as a closed-form classifier).
+    /// Knowable platform; the typed-decoded expander walk becomes a
     /// NAMED primitive on the substrate's `Expander` surface rather than a
     /// future re-derived three-step inline pipeline per consumer.
     /// Authoring tools (REPL, LSP, `tatara-check`) that want to walk a
     /// program by typed-decoded classifier bind to ONE method on the
-    /// `Expander` instead of re-implementing the composition. THEORY.md
-    /// §II.1 invariant 2 — free middle; both expander-surface dispatchers
+    /// `Expander` instead of re-implementing the composition.
+    /// Invariant 2 — free middle; both expander-surface dispatchers
     /// (keyword + classifier) route through the SAME `expand_program +
     /// iter_calls_to_any + map + collect` composition primitive.
     ///
@@ -4750,14 +4750,14 @@ impl Expander {
     /// registered domain — binds to ONE method on the `Expander` instead of
     /// re-deriving the two-step `read + expand_and_collect_calls_to` chain.
     ///
-    /// Theory anchor: THEORY.md §VI.1 — generation over composition; four
+    /// Anchor: generation over composition; four
     /// inline copies of the `read(src)? + <expander>.expand_and_collect_calls_to`
     /// chain across the two fresh-expander dispatchers and the two
     /// preloaded-expander dispatchers is past the ≥2 PRIME-DIRECTIVE trigger
-    /// once the structural shape is named. THEORY.md §V.1 — knowable
+    /// once the structural shape is named. Knowable
     /// platform; the read-then-walk composition becomes a NAMED primitive on
     /// the substrate's `Expander` surface rather than a re-derived two-step
-    /// inline pipeline at every dispatcher. THEORY.md §II.1 invariant 2 —
+    /// inline pipeline at every dispatcher. Invariant 2 —
     /// free middle; all four dispatchers route through the SAME composition
     /// primitive, so a regression that drifts ONE dispatcher's read-then-walk
     /// pipeline from the others cannot reach the substrate's runtime — the
@@ -4867,7 +4867,7 @@ impl Expander {
     /// rejection chain inherits the from-forms typed-decoded primitive's
     /// shape verbatim, now sourced from `&str` via ONE composition point.
     ///
-    /// Theory anchor: THEORY.md §VI.1 — generation over composition;
+    /// Anchor: generation over composition;
     /// the (from-forms, from-source) × (keyword, classifier) 2×2 closes
     /// at the from-source classifier corner this method establishes —
     /// the prior runs' from-forms classifier sibling
@@ -4876,12 +4876,12 @@ impl Expander {
     /// b477d81) AND slice-side classifier sibling (`iter_calls_to_any`,
     /// run 38625e3) named three of the four corners; this lift names
     /// the fourth so the family is structurally complete at every
-    /// algebra level. THEORY.md §V.1 — knowable platform; the
+    /// algebra level. Knowable platform; the
     /// read-then-classifier-walk composition becomes a NAMED primitive
     /// on the substrate's `Expander` surface rather than a future
     /// re-derived `read(src)? + expand_and_collect_calls_to_any(…)`
     /// two-step chain at every consumer that wants to walk source text
-    /// by typed-decoded classifier. THEORY.md §II.1 invariant 2 — free
+    /// by typed-decoded classifier. Invariant 2 — free
     /// middle; the from-source keyword filter
     /// (`expand_source_and_collect_calls_to`) now routes through the
     /// from-source classifier filter via the constant-classifier
@@ -5024,22 +5024,22 @@ impl Expander {
     /// the first error via `Iterator::collect::<Result<Vec<R>, _>>()`
     /// inside [`Self::expand_and_collect_calls_to_any`].
     ///
-    /// Theory anchor: THEORY.md §VI.1 — generation over composition;
+    /// Anchor: generation over composition;
     /// the (named × typed-decoded classifier) cell becomes a NAMED
     /// primitive on the `Expander` surface composed FROM TWO substrate
     /// primitives ([`Self::expand_and_collect_calls_to_any`] +
     /// [`crate::compile::split_name_slot`]) rather than re-derived
     /// inline at every named-classifier consumer's call site.
-    /// THEORY.md §II.1 invariant 1 — typed entry; the typed-decoded
+    /// Invariant 1 — typed entry; the typed-decoded
     /// classifier-filtered + NAME-shape-gated + caller-projected walk
     /// IS the typed-entry-batch gate for named-form dispatch at the
     /// `Expander` surface, with the `&'static str` keyword discipline
-    /// preserved through the decoder's return type. THEORY.md §II.1
-    /// invariant 2 — free middle; ALL four cells of the named-form
+    /// preserved through the decoder's return type.
+    /// Invariant 2 — free middle; ALL four cells of the named-form
     /// dispatcher matrix on the `Expander` surface route through ONE
     /// composition point — a regression that drifts ONE cell's
     /// instrumentation from the others is structurally impossible.
-    /// THEORY.md §V.1 — knowable platform; the named-form classifier
+    /// Knowable platform; the named-form classifier
     /// walk becomes a discoverable primitive that LSP / REPL /
     /// `tatara-check` consumers bind to ONE method on the `Expander`
     /// instead of re-implementing the two-step `expand_and_collect_calls_to_any
@@ -5119,12 +5119,12 @@ impl Expander {
     /// short-circuits at the first failing matched form via
     /// `Iterator::collect::<Result<Vec<R>, _>>()`.
     ///
-    /// Theory anchor: same as [`Self::expand_and_collect_named_calls_to_any`].
-    /// THEORY.md §VI.1 (generation over composition; the from-source
+    /// Anchor: same as [`Self::expand_and_collect_named_calls_to_any`].
+    /// (generation over composition; the from-source
     /// posture inherits the named-form gate composition through
     /// delegation rather than re-deriving the `read(src)? + walk + gate`
     /// chain at every from-source named-classifier consumer's call
-    /// site), THEORY.md §II.1 invariant 2 (free middle; the from-source
+    /// site), invariant 2 (free middle; the from-source
     /// posture and the from-forms posture route through the SAME named-
     /// form composition).
     pub fn expand_source_and_collect_named_calls_to_any<R, F, D, T>(
@@ -5203,19 +5203,19 @@ impl Expander {
     /// constant-keyword cells routing through the classifier cells via
     /// constant-classifier decoding.
     ///
-    /// Theory anchor: THEORY.md §VI.1 — generation over composition;
+    /// Anchor: generation over composition;
     /// the `split_name_slot` composition lived at TWO sites pre-lift
     /// (`crate::compile::named_form_projection` body, which
     /// [`Self::expand_to_named`] routes through, AND
     /// [`Self::expand_and_collect_named_calls_to_any`] body, which the
     /// typed-decoded classifier consumers route through) — past the
     /// ≥2 PRIME-DIRECTIVE trigger once the named-form gate is named.
-    /// THEORY.md §V.1 — knowable platform; the named constant-keyword
+    /// Knowable platform; the named constant-keyword
     /// walk becomes a NAMED primitive on the `Expander` surface
     /// composable by any future consumer (REPL, LSP, `tatara-check`)
     /// instead of a re-derived two-line `expand_and_collect_named_
     /// calls_to_any(forms, constant-decoder, wrapper-projection)`
-    /// composition. THEORY.md §II.1 invariant 2 — free middle; both
+    /// composition. Invariant 2 — free middle; both
     /// the typed (`expand_to_named<T>`) and untyped (this method)
     /// constant-keyword named cells route through the SAME named
     /// classifier primitive — a regression that drifts ONE cell's
@@ -5300,13 +5300,13 @@ impl Expander {
     /// {from-forms, from-source}) close on the `Expander` surface
     /// post-lift, each routing through ONE composition point.
     ///
-    /// Theory anchor: same as [`Self::expand_and_collect_named_calls_to`].
-    /// THEORY.md §VI.1 (generation over composition; the from-source
+    /// Anchor: same as [`Self::expand_and_collect_named_calls_to`].
+    /// (generation over composition; the from-source
     /// posture inherits the constant-keyword named composition through
     /// delegation rather than re-deriving the
     /// `read(src)? + expand_and_collect_named_calls_to` chain at every
     /// from-source named-keyword consumer's call site),
-    /// THEORY.md §II.1 invariant 2 (free middle; the from-source
+    /// invariant 2 (free middle; the from-source
     /// posture and the from-forms posture route through the SAME
     /// composition).
     pub fn expand_source_and_collect_named_calls_to<R, F>(
@@ -5679,14 +5679,14 @@ fn contains_unquote(node: &Sexp) -> bool {
 /// (typed-shape enforcement on bound splice targets) ONE site to wrap
 /// rather than two inline arms to keep in lockstep.
 ///
-/// Theory anchor: THEORY.md §II.1 invariant 2 — free middle; the two
+/// Anchor: invariant 2 — free middle; the two
 /// expansion strategies MUST produce identical output for the same
 /// (macro, args) pair, and naming the splice coercion once makes that
 /// per-strategy agreement structural rather than a two-site discipline
 /// the `expansion_layers_agree_on_output_and_cache_wins` benchmark only
-/// observes after the fact. THEORY.md §V.1 — knowable platform; the
+/// observes after the fact. Knowable platform; the
 /// splice RESULT semantics becomes a NAMED primitive authoring tools and
-/// future runs bind to. THEORY.md §VI.1 — generation over composition;
+/// future runs bind to. Generation over composition;
 /// the two-site coercion is lifted to ONE function, closing the last
 /// inline-duplicated piece of the splice path the prior runs' gate lifts
 /// (02173dc gate-1, 68da647 gate-2, b456f1f composition) left behind.
@@ -5716,14 +5716,14 @@ fn splice_value_into(builder: &mut Vec<Sexp>, value: &Sexp) {
 /// authoring-tool substring greps (`tatara-check`, REPL) see no drift
 /// across the lift.
 ///
-/// Theory anchor: THEORY.md §V.1 — knowable platform; the closed set
+/// Anchor: knowable platform; the closed set
 /// of bytecode-invariant failure modes becomes a TYPE rather than a
-/// free-form `message: String` slot. THEORY.md §VI.1 — generation over
+/// free-form `message: String` slot. Generation over
 /// composition; the typed enum lands the structural-completeness floor
 /// for the bytecode-runtime surface, parallel to how `CompilerSpecIoStage`
 /// lands the structural-completeness floor for the disk-persistence
 /// surface (`compiler_spec.rs`, the immediately prior claude-routine
-/// lift on a sibling file). THEORY.md §II.1 invariant 5 (composition
+/// lift on a sibling file). Invariant 5 (composition
 /// preserves proofs): a well-formed bytecode invariant is the proof
 /// that drives the interpreter; the structural variant makes the
 /// proof's REJECTION shape first-class — authoring tools (REPL, LSP,
@@ -5793,18 +5793,18 @@ fn template_invariant_violation(macro_name: &str, kind: TemplateInvariantKind) -
 /// lifetime of `args_by_index`, matching the call site's borrow
 /// posture.
 ///
-/// Theory anchor: THEORY.md §VI.1 — generation over composition; two
+/// Anchor: generation over composition; two
 /// inline copies of the index-lookup-and-reject prelude across the
 /// `apply_compiled` body's `Subst` and `Splice` arms is past the ≥2
 /// PRIME-DIRECTIVE trigger once the structural shape is named.
-/// THEORY.md §V.1 — knowable platform / "make invalid states
+/// Knowable platform / "make invalid states
 /// unrepresentable"; the bytecode-runtime bound-arg-by-index lookup
 /// becomes a NAMED primitive on the substrate's `&[Sexp]` algebra
 /// rather than a re-derived `get + ok_or_else + template_invariant_
 /// violation` chain at every op-arm that reads by index. A future
 /// authoring tool (REPL, LSP, `tatara-check`) that wants to surface
 /// "this bytecode op's bound-arg lookup misfired at idx N" binds to
-/// ONE function. THEORY.md §II.1 invariant 2 — free middle; both
+/// ONE function. Invariant 2 — free middle; both
 /// expansion strategies route through the SHARED `MacroParams::bind`,
 /// AND the bytecode strategy's op-arms route through this SHARED
 /// `resolve_bound_arg` lookup — the bytecode-runtime's
@@ -5885,10 +5885,10 @@ fn resolve_bound_arg<'a>(
 /// it lands in the builder wraps ONE call boundary, not four inline
 /// `stack.last_mut().unwrap()` sites.
 ///
-/// Theory anchor: THEORY.md §VI.1 — generation over composition; four
+/// Anchor: generation over composition; four
 /// inline copies of the top-of-stack projection in one function is
 /// past the ≥2 PRIME-DIRECTIVE trigger once the structural shape is
-/// named. THEORY.md §V.1 — knowable platform; the bytecode-runtime's
+/// named. Knowable platform; the bytecode-runtime's
 /// current-builder projection becomes a NAMED primitive on the
 /// substrate's `&mut [Vec<Sexp>]` slice algebra rather than a re-derived
 /// `last_mut + unwrap` chain at every op-arm that emits into the
@@ -5896,7 +5896,7 @@ fn resolve_bound_arg<'a>(
 /// ("bytecode-runtime invariant: at least one stack frame during
 /// op-loop") so a regression that drifts the loop's frame management
 /// surfaces a NAMED panic, not a silent `unwrap` over `None`.
-/// THEORY.md §II.1 invariant 2 — free middle; both expansion
+/// Invariant 2 — free middle; both expansion
 /// strategies route through the SHARED `MacroParams::bind` upstream
 /// AND the bytecode strategy's op-arms now route through this SHARED
 /// `current_builder_mut` projection downstream — the bytecode-runtime's
@@ -5991,20 +5991,20 @@ fn current_builder_mut(stack: &mut [Vec<Sexp>]) -> &mut Vec<Sexp> {
 /// wraps ONE call boundary rather than keeping two inline chains in
 /// lockstep at the production op-loop sites.
 ///
-/// Theory anchor: THEORY.md §VI.1 — generation over composition; two
+/// Anchor: generation over composition; two
 /// inline copies of the stack-pop-and-reject projection across the
 /// `apply_compiled` body's `EndList` arm and post-loop final-pop is
 /// past the ≥2 PRIME-DIRECTIVE trigger once the structural shape is
 /// named — the same threshold [`resolve_bound_arg`] (the index-lookup
 /// sibling) crossed in the prior claude-routine run on this file
 /// (492a235) and [`current_builder_mut`] (the top-frame-borrow
-/// sibling) crossed two runs ago (c6a5a9d). THEORY.md §V.1 — knowable
+/// sibling) crossed two runs ago (c6a5a9d). Knowable
 /// platform / "make invalid states unrepresentable"; the bytecode-
 /// runtime stack-frame consume operation becomes a NAMED primitive
 /// on the substrate's `&mut Vec<Vec<Sexp>>` algebra rather than a
 /// re-derived `pop + ok_or_else + template_invariant_violation`
-/// chain at every op-arm that consumes a frame. THEORY.md §II.1
-/// invariant 2 — free middle; both pop-emitting sites route through
+/// chain at every op-arm that consumes a frame.
+/// Invariant 2 — free middle; both pop-emitting sites route through
 /// the SHARED `pop_builder_frame` projection, so a regression that
 /// drifts ONE site's posture (e.g. accepts an empty-stack pop at the
 /// `EndList` arm but not the final pop, or swaps the kind constructor
@@ -6345,9 +6345,9 @@ fn substitute(form: &Sexp, bindings: &HashMap<String, Sexp>) -> Result<Sexp> {
 /// copying the matched name into the variant is the cheapest way to keep
 /// `LispError` lifetime-free.
 ///
-/// Theory anchor: THEORY.md §VI.1 — generation over composition; four inline
-/// copies in one module is well past the three-times rule. THEORY.md §V.1 —
-/// knowable platform; the structural variant exposes `prefix` / `name` /
+/// Anchor: generation over composition; four inline
+/// copies in one module is well past the three-times rule.
+/// Knowable platform; the structural variant exposes `prefix` / `name` /
 /// `hint` as first-class fields so authoring tools (LSP, REPL,
 /// `tatara-check`) bind to the data shape instead of substring-parsing the
 /// rendered diagnostic.
@@ -6385,12 +6385,12 @@ fn unbound_template_var(prefix: UnquoteForm, name: &str, candidates: &[&str]) ->
 /// gate `,X/,@X` rejection variants now share ONE typed witness
 /// identity at their `got` slot.
 ///
-/// Theory anchor: THEORY.md §VI.1 — generation over composition; four
-/// inline copies in one module is past the three-times rule. THEORY.md
-/// §V.1 — knowable platform; the structural variant exposes `prefix` /
+/// Anchor: generation over composition; four
+/// inline copies in one module is past the three-times rule.
+/// Knowable platform; the structural variant exposes `prefix` /
 /// `got` as first-class fields so authoring tools (LSP, REPL,
 /// `tatara-check`) bind to the data shape instead of substring-parsing
-/// the rendered diagnostic. THEORY.md §II.1 invariant 1 — typed entry;
+/// the rendered diagnostic. Invariant 1 — typed entry;
 /// a non-symbol unquote target is exactly the failure mode the
 /// typed-entry gate exists to reject.
 fn non_symbol_unquote_target(prefix: UnquoteForm, got: &Sexp) -> LispError {
@@ -6440,19 +6440,19 @@ fn non_symbol_unquote_target(prefix: UnquoteForm, got: &Sexp) -> LispError {
 /// name)` (`compile_node`) or `bindings.get(name)` (`substitute`)
 /// without an intermediate allocation.
 ///
-/// Theory anchor: THEORY.md §VI.1 — generation over composition; four
+/// Anchor: generation over composition; four
 /// inline copies of the gate-1 projection (`compile_node`
 /// Unquote/UnquoteSplice + `substitute` Unquote + `substitute`
-/// list-inner UnquoteSplice) is past the three-times rule. THEORY.md
-/// §V.1 — knowable platform; the gate's identity becomes a NAMED
+/// list-inner UnquoteSplice) is past the three-times rule.
+/// Knowable platform; the gate's identity becomes a NAMED
 /// primitive consumer-binding rather than a four-times-inlined
 /// match-and-reject snippet — authoring surfaces (REPL, LSP,
 /// `tatara-check`) that want to surface "the typed-entry template-gate
 /// rejected your form because the unquote target wasn't a symbol" bind
-/// to ONE function. THEORY.md §II.1 invariant 1 — typed entry; an
+/// to ONE function. Invariant 1 — typed entry; an
 /// unquote target that isn't a symbol is exactly the failure mode the
-/// typed-entry template-gate exists to reject. THEORY.md §II.1
-/// invariant 2 — free middle; both bytecode AND substitute expansion
+/// typed-entry template-gate exists to reject.
+/// Invariant 2 — free middle; both bytecode AND substitute expansion
 /// paths now project through the SAME gate-1 primitive, so a macro
 /// that compiles under one strategy compiles under the other (the
 /// gate's posture is uniform across the two strategies, no
@@ -6500,19 +6500,19 @@ fn unquote_target_symbol(inner: &Sexp, form: UnquoteForm) -> Result<&str> {
 /// regression that drifts the marker becomes a type error at the call
 /// site, not a runtime substring drift.
 ///
-/// Theory anchor: THEORY.md §VI.1 — generation over composition; two
+/// Anchor: generation over composition; two
 /// inline copies of the gate-2 projection in one match block, paired
 /// with the two substitute-path inline copies, is four copies in two
 /// functions — past the three-times rule once the structural shape is
-/// named. THEORY.md §V.1 — knowable platform; the gate's identity
+/// named. Knowable platform; the gate's identity
 /// becomes a NAMED primitive consumer-binding rather than a
 /// twice-inlined position-and-reject snippet — authoring surfaces
 /// (REPL, LSP, `tatara-check`) that want to surface "the typed-entry
 /// template-gate rejected your form because the name isn't bound in
-/// scope" bind to ONE function per path. THEORY.md §II.1 invariant 1 —
+/// scope" bind to ONE function per path. Invariant 1 —
 /// typed entry; an unbound template variable is exactly the failure
-/// mode the typed-entry template-gate exists to reject. THEORY.md
-/// §II.1 invariant 2 — free middle; both expansion strategies'
+/// mode the typed-entry template-gate exists to reject.
+/// Invariant 2 — free middle; both expansion strategies'
 /// gate-2 emit the SAME structural variant, so a macro that compiles
 /// under one strategy compiles under the other.
 fn resolve_param_index(name: &str, params: &[&str], form: UnquoteForm) -> Result<usize> {
@@ -6557,16 +6557,16 @@ fn resolve_param_index(name: &str, params: &[&str], form: UnquoteForm) -> Result
 /// that drifts the marker becomes a type error at the call site, not
 /// a runtime substring drift.
 ///
-/// Theory anchor: THEORY.md §VI.1 — generation over composition; two
+/// Anchor: generation over composition; two
 /// inline copies of the gate-2 projection in the substitute walker,
 /// paired with the two compile-path inline copies, is four copies in
 /// two functions — past the three-times rule once the structural
-/// shape is named. THEORY.md §V.1 — knowable platform; the gate's
+/// shape is named. Knowable platform; the gate's
 /// identity becomes a NAMED primitive consumer-binding rather than a
-/// twice-inlined lookup-and-reject snippet. THEORY.md §II.1
-/// invariant 1 — typed entry; an unbound template variable is exactly
+/// twice-inlined lookup-and-reject snippet.
+/// Invariant 1 — typed entry; an unbound template variable is exactly
 /// the failure mode the typed-entry template-gate exists to reject.
-/// THEORY.md §II.1 invariant 2 — free middle; both expansion
+/// Invariant 2 — free middle; both expansion
 /// strategies' gate-2 emit the SAME structural variant.
 fn resolve_binding<'a>(
     bindings: &'a HashMap<String, Sexp>,
@@ -6622,16 +6622,16 @@ fn resolve_binding<'a>(
 /// `resolve_param_index(name, params, UnquoteForm::Splice)?` would
 /// type-check but render a misleading diagnostic).
 ///
-/// Theory anchor: THEORY.md §VI.1 — generation over composition; the
+/// Anchor: generation over composition; the
 /// gate-1+gate-2 SEQUENCE is itself a named primitive once both halves
 /// have been named (two prior runs landed the halves; this run lands the
-/// composition). THEORY.md §V.1 — knowable platform; the gate's
+/// composition). Knowable platform; the gate's
 /// composition is now load-bearing in the type system — gate-1 cannot be
 /// silently skipped, gate-2 cannot be silently reordered before gate-1,
-/// and the marker cannot drift between the two halves. THEORY.md §II.1
-/// invariant 1 — typed entry; the typed-entry template gate's full
+/// and the marker cannot drift between the two halves.
+/// Invariant 1 — typed entry; the typed-entry template gate's full
 /// rejection chain (non-symbol → unbound-symbol) is now ONE primitive.
-/// THEORY.md §II.1 invariant 2 — free middle; both expansion strategies
+/// Invariant 2 — free middle; both expansion strategies
 /// expose the gate's identity as ONE primitive per path, so a macro that
 /// passes the gate under one strategy passes under the other (no per-
 /// strategy composition drift can creep in).
@@ -6671,11 +6671,11 @@ fn resolve_unquote_in_params(inner: &Sexp, params: &[&str], form: UnquoteForm) -
 /// two; the gate's gate-1+gate-2 sequencing is structural across both
 /// expansion strategies.
 ///
-/// Theory anchor: same as `resolve_unquote_in_params`. THEORY.md §VI.1
+/// Anchor: same as `resolve_unquote_in_params`:
 /// (generation over composition; named composition of named gates),
-/// THEORY.md §V.1 (knowable platform; gate composition is type-system
-/// load-bearing), THEORY.md §II.1 invariant 1 (typed entry; the full
-/// rejection chain is ONE primitive), THEORY.md §II.1 invariant 2
+/// (knowable platform; gate composition is type-system
+/// load-bearing), invariant 1 (typed entry; the full
+/// rejection chain is ONE primitive), invariant 2
 /// (free middle; both strategies share the same composition shape).
 fn resolve_unquote_in_bindings<'a>(
     inner: &Sexp,
@@ -6713,15 +6713,15 @@ fn resolve_unquote_in_bindings<'a>(
 /// both paths with ONE structural variant — the typed-entry template gate
 /// is fully structural across both expansion strategies.
 ///
-/// Theory anchor: THEORY.md §VI.1 — generation over composition; two
+/// Anchor: generation over composition; two
 /// emission sites (substitute + compile_template) for one failure mode is
-/// past the three-times rule once the structural shape is named. THEORY.md
-/// §V.1 — knowable platform; the structural variant exposes `got` as a
+/// past the three-times rule once the structural shape is named.
+/// Knowable platform; the structural variant exposes `got` as a
 /// first-class field so authoring tools (LSP, REPL, `tatara-check`) bind to
 /// the data shape instead of substring-parsing the rendered diagnostic.
-/// THEORY.md §II.1 invariant 1 — typed entry; a `,@X` at a position with no
+/// Invariant 1 — typed entry; a `,@X` at a position with no
 /// containing list is exactly the failure mode the typed-entry gate exists
-/// to reject. THEORY.md §II.1 invariant 2 — free middle; both expansion
+/// to reject. Invariant 2 — free middle; both expansion
 /// paths now reject the same set of templates, so a macro that registers
 /// successfully has the same expansion behavior under either strategy.
 fn splice_outside_list(inner: &Sexp) -> LispError {
@@ -6746,7 +6746,7 @@ fn splice_outside_list(inner: &Sexp) -> LispError {
 /// `LispError::Compile { … }` triples at TWO call sites; after this lift
 /// both sites share ONE structural variant. Two strategies that picked
 /// different code paths now emit the same structural variant for the same
-/// failure mode (THEORY.md §II.1 invariant 2 — free middle: which strategy
+/// failure mode (invariant 2 — free middle: which strategy
 /// you picked must not change which inputs you reject OR how the rejection
 /// is shaped). Same posture as `splice_outside_list`'s path-uniform
 /// rejection across substitute + compile_template.
@@ -6755,14 +6755,14 @@ fn splice_outside_list(inner: &Sexp) -> LispError {
 /// list; the variant's owned `String`s are formed at the boundary so
 /// `LispError` stays lifetime-free.
 ///
-/// Theory anchor: THEORY.md §VI.1 — generation over composition; two
+/// Anchor: generation over composition; two
 /// inline copies of one shape is past the three-times-rule trigger once
 /// the structural variant is named (the test count gives this the
-/// fail-before-pass-after edge). THEORY.md §V.1 — knowable platform; the
+/// fail-before-pass-after edge). Knowable platform; the
 /// structural variant exposes `macro_name` / `param` as first-class
 /// fields so authoring tools (LSP, REPL, `tatara-check`) bind to the data
-/// shape instead of substring-parsing the rendered diagnostic. THEORY.md
-/// §II.1 invariant 1 — typed entry; a macro call with too few args is
+/// shape instead of substring-parsing the rendered diagnostic.
+/// Invariant 1 — typed entry; a macro call with too few args is
 /// exactly the failure mode the typed-entry gate exists to reject.
 fn missing_macro_arg(macro_name: &str, param: &str) -> LispError {
     LispError::MissingMacroArg {
@@ -6792,18 +6792,18 @@ fn missing_macro_arg(macro_name: &str, param: &str) -> LispError {
 /// formed at the boundary so `LispError` stays lifetime-free — same posture
 /// as `missing_macro_arg`.
 ///
-/// Theory anchor: THEORY.md §VI.1 — generation over composition; the
+/// Anchor: generation over composition; the
 /// rest-less surplus-args gate is a SINGLE-OWNER named rejection, not a
 /// silent truncation re-asserted at every consumer that walks the bound
-/// values. THEORY.md §V.1 — knowable platform; the structural variant
+/// values. Knowable platform; the structural variant
 /// exposes `macro_name` / `expected` / `got` as first-class fields so
 /// authoring tools bind to the data shape instead of substring-parsing
-/// the rendered diagnostic. THEORY.md §II.1 invariant 1 — typed entry; a
+/// the rendered diagnostic. Invariant 1 — typed entry; a
 /// macro call with too many args (and no `&rest` slot to absorb them) is
 /// exactly the failure mode the typed-entry gate exists to reject —
 /// silently dropping `args[expected..]` is structurally indistinguishable
-/// from honoring them, the asymmetry this gate closes. THEORY.md §II.1
-/// invariant 2 — free middle; both expansion strategies route through the
+/// from honoring them, the asymmetry this gate closes.
+/// Invariant 2 — free middle; both expansion strategies route through the
 /// SHARED `MacroParams::bind`, so the new rejection lands once and the
 /// substitute + bytecode paths inherit it unable to drift.
 fn too_many_macro_args(macro_name: &str, expected: usize, got: usize) -> LispError {
@@ -6835,15 +6835,15 @@ fn too_many_macro_args(macro_name: &str, expected: usize, got: usize) -> LispErr
 /// `splice_outside_list`) and projects through `to_string()` so the
 /// variant stays lifetime-free.
 ///
-/// Theory anchor: THEORY.md §VI.1 — generation over composition; one
+/// Anchor: generation over composition; one
 /// inline copy still earns a named primitive once the structural shape
 /// is named (the test count gives this the fail-before-pass-after edge,
 /// parallel to how `OddKwargs` was lifted from a single site for the
-/// structural-completeness payoff). THEORY.md §V.1 — knowable platform;
+/// structural-completeness payoff). Knowable platform;
 /// the structural variant exposes `position` / `got` as first-class
 /// fields so authoring tools (LSP, REPL, `tatara-check`) bind to the
 /// data shape instead of substring-parsing the rendered diagnostic.
-/// THEORY.md §II.1 invariant 1 — typed entry; a non-symbol element
+/// Invariant 1 — typed entry; a non-symbol element
 /// inside a defmacro param list is exactly the failure mode the
 /// typed-entry gate exists to reject — and it must reject DEFINITIONS
 /// as readily as it rejects CALLS.
@@ -6877,15 +6877,15 @@ fn non_symbol_param(position: usize, got: &Sexp) -> LispError {
 /// through `to_string()` at the variant boundary so the variant stays
 /// lifetime-free.
 ///
-/// Theory anchor: THEORY.md §VI.1 — generation over composition; one
+/// Anchor: generation over composition; one
 /// inline copy still earns a named primitive once the structural shape
 /// is named (the test count gives this the fail-before-pass-after
 /// edge, parallel to how `non_symbol_param` was lifted from a single
-/// site for the structural-completeness payoff). THEORY.md §V.1 —
-/// knowable platform; the structural variant exposes `rest_position` /
+/// site for the structural-completeness payoff).
+/// Knowable platform; the structural variant exposes `rest_position` /
 /// `got` as first-class fields so authoring tools (LSP, REPL,
 /// `tatara-check`) bind to the data shape instead of substring-parsing
-/// the rendered diagnostic. THEORY.md §II.1 invariant 1 — typed entry;
+/// the rendered diagnostic. Invariant 1 — typed entry;
 /// a `&rest` marker followed by no name (or by a non-symbol) is
 /// exactly the failure mode the typed-entry gate exists to reject —
 /// and the gate must reject DEFINITIONS as readily as it rejects
@@ -6913,12 +6913,12 @@ fn rest_param_missing_name(rest_position: usize, got: Option<&Sexp>) -> LispErro
 /// non-empty (it is only built when `list[i + 2..].first()` is `Some`), so
 /// `trailing[0]` does not panic.
 ///
-/// Theory anchor: THEORY.md §V.1 — knowable platform / "make invalid states
+/// Anchor: knowable platform / "make invalid states
 /// unrepresentable"; a param list with tokens after `&rest <name>` is
 /// nonsense `MacroParams` cannot hold, so the gate must REJECT it rather
-/// than truncate to the representable prefix. THEORY.md §II.1 invariant 1 —
+/// than truncate to the representable prefix. Invariant 1 —
 /// typed entry; the gate rejects malformed DEFINITIONS as readily as
-/// malformed calls. THEORY.md §VI.1 — generation over composition; this
+/// malformed calls. Generation over composition; this
 /// closes the `parse_params` walker's last uncovered failure mode, making
 /// the sibling docs' "every distinct failure mode is a structural variant"
 /// claim finally true.
@@ -6945,10 +6945,10 @@ fn rest_param_trailing_tokens(rest_position: usize, trailing: &[Sexp]) -> LispEr
 /// first `&optional`, `second_position` the second — naming both lets an LSP
 /// quick-fix point at the redundant marker to delete.
 ///
-/// Theory anchor: THEORY.md §V.1 — knowable platform / "make invalid states
+/// Anchor: knowable platform / "make invalid states
 /// unrepresentable"; a param list with two `&optional` sections is nonsense
 /// `MacroParams` cannot hold, so the gate must REJECT rather than bind args
-/// to a marker symbol. THEORY.md §II.1 invariant 1 — typed entry; the gate
+/// to a marker symbol. Invariant 1 — typed entry; the gate
 /// rejects malformed DEFINITIONS as readily as malformed calls.
 fn optional_marker_repeated(first_position: usize, second_position: usize) -> LispError {
     LispError::OptionalMarkerRepeated {
@@ -6972,11 +6972,11 @@ fn optional_marker_repeated(first_position: usize, second_position: usize) -> Li
 /// `non_symbol_param`'s sibling acceptance path; the list form `&optional
 /// (x default)` is admitted iff this gate accepts the spec.
 ///
-/// Theory anchor: THEORY.md §V.1 — knowable platform / "make invalid states
+/// Anchor: knowable platform / "make invalid states
 /// unrepresentable"; an `&optional` list spec of any other shape is
 /// nonsense `MacroParams` cannot hold, so the gate must REJECT rather than
-/// bind args to a marker symbol or drop the extras silently. THEORY.md
-/// §II.1 invariant 1 — typed entry; a malformed default-form spec is
+/// bind args to a marker symbol or drop the extras silently.
+/// Invariant 1 — typed entry; a malformed default-form spec is
 /// exactly the failure mode the typed-entry gate exists to reject — and
 /// the gate must reject DEFINITIONS as readily as it rejects CALLS.
 fn optional_param_malformed(
@@ -7015,20 +7015,20 @@ fn optional_param_malformed(
 /// `LispError::CompilerSpecIo.stage`. `arity` is `usize` (the length
 /// of the form including the head element).
 ///
-/// Theory anchor: THEORY.md §VI.1 — generation over composition; one
+/// Anchor: generation over composition; one
 /// inline copy still earns a named primitive once the structural
 /// shape is named (the test count gives this the fail-before/pass-
 /// after edge, parallel to how `non_symbol_param` and
 /// `rest_param_missing_name` were lifted from a single site for the
-/// structural-completeness payoff). THEORY.md §V.1 — knowable
+/// structural-completeness payoff). Knowable
 /// platform; the structural variant exposes `head` / `arity` as
 /// first-class fields so authoring tools (LSP, REPL, `tatara-check`)
 /// bind to the data shape instead of substring-parsing the rendered
-/// diagnostic. THEORY.md §II.1 invariant 1 — typed entry; a defmacro
+/// diagnostic. Invariant 1 — typed entry; a defmacro
 /// form with too few elements is exactly the failure mode the typed-
 /// entry gate exists to reject — and the gate must reject
-/// DEFINITIONS as readily as it rejects CALLS. THEORY.md §II.1
-/// invariant 2 — free middle; the arity gate fires inside
+/// DEFINITIONS as readily as it rejects CALLS.
+/// Invariant 2 — free middle; the arity gate fires inside
 /// `macro_def_from` BEFORE either expansion strategy runs, so both
 /// `Expander::new()` (bytecode) and `Expander::new_substitute_only()`
 /// (substitute) reject the SAME malformed defmacro at the SAME gate.
@@ -7076,20 +7076,20 @@ fn defmacro_arity(head: MacroDefHead, arity: usize) -> LispError {
 /// primitive on the substrate's Sexp-display-source rejection
 /// surface.
 ///
-/// Theory anchor: THEORY.md §VI.1 — generation over composition; one
+/// Anchor: generation over composition; one
 /// inline copy still earns a named primitive once the structural
 /// shape is named (the test count gives this the fail-before/pass-
 /// after edge, parallel to how `defmacro_arity`, `non_symbol_param`,
 /// and `rest_param_missing_name` were lifted from a single site for
-/// the structural-completeness payoff). THEORY.md §V.1 — knowable
+/// the structural-completeness payoff). Knowable
 /// platform; the structural variant exposes `head` / `got` as
 /// first-class fields so authoring tools (LSP, REPL,
 /// `tatara-check`) bind to the data shape instead of substring-
-/// parsing the rendered diagnostic. THEORY.md §II.1 invariant 1 —
+/// parsing the rendered diagnostic. Invariant 1 —
 /// typed entry; a defmacro form whose name slot isn't a symbol is
 /// exactly the failure mode the typed-entry gate exists to reject —
 /// and the gate must reject DEFINITIONS as readily as it rejects
-/// CALLS. THEORY.md §II.1 invariant 2 — free middle; the
+/// CALLS. Invariant 2 — free middle; the
 /// name-symbol gate fires inside `macro_def_from` BEFORE either
 /// expansion strategy runs, so both `Expander::new()` (bytecode) and
 /// `Expander::new_substitute_only()` (substitute) reject the SAME
@@ -7146,21 +7146,21 @@ fn defmacro_non_symbol_name(head: MacroDefHead, got: &Sexp) -> LispError {
 /// `defmacro_non_symbol_name`'s helpers after the typed-witness
 /// promotion of their `got` slots.
 ///
-/// Theory anchor: THEORY.md §VI.1 — generation over composition; one
+/// Anchor: generation over composition; one
 /// inline copy still earns a named primitive once the structural
 /// shape is named (the test count gives this the fail-before/pass-
 /// after edge, parallel to how `defmacro_arity`,
 /// `defmacro_non_symbol_name`, `non_symbol_param`, and
 /// `rest_param_missing_name` were lifted from a single site for
-/// the structural-completeness payoff). THEORY.md §V.1 — knowable
+/// the structural-completeness payoff). Knowable
 /// platform; the structural variant exposes `head` / `got` as
 /// first-class fields so authoring tools (LSP, REPL,
 /// `tatara-check`) bind to the data shape instead of substring-
-/// parsing the rendered diagnostic. THEORY.md §II.1 invariant 1 —
+/// parsing the rendered diagnostic. Invariant 1 —
 /// typed entry; a defmacro form whose param-list slot isn't a list
 /// is exactly the failure mode the typed-entry gate exists to
 /// reject — and the gate must reject DEFINITIONS as readily as it
-/// rejects CALLS. THEORY.md §II.1 invariant 2 — free middle; the
+/// rejects CALLS. Invariant 2 — free middle; the
 /// param-list gate fires inside `macro_def_from` BEFORE either
 /// expansion strategy runs, so both `Expander::new()` (bytecode)
 /// and `Expander::new_substitute_only()` (substitute) reject the
@@ -7380,7 +7380,7 @@ mod tests {
 
     /// **All three expansion strategies produce identical output.**
     ///
-    /// The load-bearing invariant — THEORY.md §II.1's free middle. Fully
+    /// The load-bearing invariant — the free middle. Fully
     /// deterministic, so it belongs in the ordinary suite. It used to be
     /// welded to the timing assertion below, which meant a benchmark losing a
     /// core to a neighbouring test reported *this* as failing, and the
@@ -8635,7 +8635,7 @@ mod tests {
         // either path's rejection shape (or drops one path's rejection
         // entirely) fails-loudly here. Sibling of
         // `splice_outside_list_substitute_and_bytecode_paths_agree` —
-        // both close `THEORY.md §II.1 invariant 2 — free middle` for one
+        // both close `invariant 2 — free middle` for one
         // failure mode each.
         let src = "(defmacro need-two (a b) `(,a ,b)) (need-two 1)";
         let mut subst = Expander::new_substitute_only();
@@ -8846,7 +8846,7 @@ mod tests {
         // shared `MacroParams::bind` makes the rejection lands once and
         // both paths inherit it. Mirror of
         // `missing_macro_arg_substitute_and_bytecode_paths_agree` —
-        // both close `THEORY.md §II.1 invariant 2 — free middle` for
+        // both close `invariant 2 — free middle` for
         // one failure mode each.
         let src = "(defmacro pair (a b) `(cons ,a ,b)) (pair 1 2 3)";
         let mut subst = Expander::new_substitute_only();
@@ -9456,8 +9456,8 @@ mod tests {
     // `defmacro_non_list_params`). Every test in this block names
     // `MacroDefHead` directly — the symbol exists only after the
     // lift, so the entire block is fail-before/pass-after by
-    // construction (compile-time edge). Theory anchor: THEORY.md
-    // §VI.1 — three-times rule; THEORY.md §V.1 — the closed set is
+    // construction (compile-time edge). Anchor:
+    // three-times rule; the closed set is
     // a TYPE rather than a `matches!` literal.
 
     #[test]

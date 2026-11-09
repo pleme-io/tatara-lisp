@@ -73,7 +73,7 @@ pub trait TataraDomain: Sized {
 // modes — not a list, missing head symbol, wrong head — used to be
 // inline `LispError::Compile { form: KEYWORD.to_string(), message: …}`
 // triples in the trait default. The three-times-rule signal
-// (THEORY.md §VI.1) calls for one named primitive per shape; these
+// calls for one named primitive per shape; these
 // are them.
 //
 // All three are now structural: `not_a_list_form_err` returns
@@ -99,14 +99,14 @@ pub trait TataraDomain: Sized {
 /// list form"`), so existing `format!("{err}").contains("expected
 /// list form")` assertions pass unchanged.
 ///
-/// Theory anchor: THEORY.md §V.1 — knowable platform. The legacy
+/// Anchor: knowable platform. The legacy
 /// `Compile { form, message }` shape required consumers to
 /// pattern-match on `message == "expected list form"` to recognize
 /// this specific gate (versus the sibling `missing head symbol`
 /// gate, which produces the same `Compile` shape with a different
 /// message). After this lift the discriminator is the variant
 /// itself — a regression that drifts the message string can no
-/// longer drift the gate's identity. THEORY.md §II.1 invariant 1 —
+/// longer drift the gate's identity. Invariant 1 —
 /// typed entry; a non-list form is exactly the failure mode the
 /// typed-entry gate exists to reject, and the gate's identity is
 /// now load-bearing in the type system.
@@ -145,7 +145,7 @@ pub fn not_a_list_form_err(keyword: &'static str) -> LispError {
 /// `format!("{err}").contains("missing head symbol")` assertions pass
 /// unchanged.
 ///
-/// Theory anchor: THEORY.md §V.1 — knowable platform. The legacy
+/// Anchor: knowable platform. The legacy
 /// `Compile { form, message }` shape required consumers to
 /// pattern-match on `message == "missing head symbol"` to recognize
 /// this specific gate (versus the sibling `expected list form` and
@@ -154,7 +154,7 @@ pub fn not_a_list_form_err(keyword: &'static str) -> LispError {
 /// is the variant itself — a regression that drifts the message
 /// string can no longer drift the gate's identity, AND the two
 /// distinct sub-modes (empty vs. present-but-not-symbol) are
-/// structurally addressable. THEORY.md §II.1 invariant 1 — typed
+/// structurally addressable. Invariant 1 — typed
 /// entry; an empty form / non-symbol-head form is exactly the
 /// failure mode the typed-entry gate exists to reject, and the
 /// gate's identity is now load-bearing in the type system.
@@ -171,7 +171,7 @@ pub fn missing_head_err(keyword: &'static str, got: Option<SexpWitness>) -> Lisp
 /// `format!("{err}").contains("expected ({KEYWORD}")` assertions pass
 /// unchanged.
 ///
-/// Theory anchor: THEORY.md §V.1 — knowable platform. A diagnostic
+/// Anchor: knowable platform. A diagnostic
 /// whose `got` is embedded in a free-form message is structurally
 /// incomplete; an authoring surface that wants to render
 /// "did-you-mean" suggestions on the offending head must re-parse
@@ -289,14 +289,14 @@ pub fn head_mismatch(keyword: &'static str, got: String) -> LispError {
 /// }
 /// ```
 ///
-/// ## Theory grounding
+/// ## Grounding
 ///
-/// THEORY.md §II.1 invariant 1 — typed entry; the four structural
+/// Invariant 1 — typed entry; the four structural
 /// gates ARE the typed-entry boundary of the derived-domain idiom, and
 /// the testkit makes their identity load-bearing at the per-implementor
 /// test surface.
 ///
-/// THEORY.md §V.1 — knowable platform; the four structural rejections
+/// Knowable platform; the four structural rejections
 /// were previously re-derived per implementor with
 /// `matches!(err, LispError::NotAListForm { ... })` scaffolds. The
 /// testkit collapses the scaffolds onto ONE substrate entry so future
@@ -304,7 +304,7 @@ pub fn head_mismatch(keyword: &'static str, got: String) -> LispError {
 /// `assert_closed_set_well_formed` posture that closed the closed-set
 /// enum idiom's 36+ per-implementor test modules onto ONE checker.
 ///
-/// THEORY.md §VI.1 — generation over composition; the four gate
+/// Generation over composition; the four gate
 /// primitives ([`not_a_list_form_err`], [`missing_head_err`],
 /// [`head_mismatch`]) already compose the structural rejections at the
 /// GENERATION site. This testkit closes the LOOP at the VERIFICATION
@@ -496,8 +496,8 @@ pub type Kwargs<'a> = HashMap<String, &'a Sexp>;
 /// surfaces (REPL, LSP, `tatara-check`) render the mismatch without
 /// re-reading the source.
 ///
-/// Theory anchor: THEORY.md §II.1 invariant 1 — "Typed entry. Ill-typed input
-/// errors before the value exists." THEORY.md §V.1 — "knowable platform"
+/// Anchor: invariant 1 — "Typed entry. Ill-typed input
+/// errors before the value exists." "knowable platform"
 /// requires the diagnostic to name what was passed, not only what was
 /// expected.
 pub fn parse_kwargs(args: &[Sexp]) -> Result<Kwargs<'_>> {
@@ -539,7 +539,7 @@ pub fn parse_kwargs(args: &[Sexp]) -> Result<Kwargs<'_>> {
 /// kwarg-gate failure mode binds to ONE structural variant of `LispError`,
 /// not a `Compile`-shaped substring.
 ///
-/// Theory anchor: THEORY.md §II.1 invariant 1 (typed entry — "Ill-typed input
+/// Anchor: invariant 1 (typed entry — "Ill-typed input
 /// errors before the value exists"); §V.1 ("knowable platform … Render
 /// Anywhere" — naming the likely intended keyword is the floor of a
 /// constructive diagnostic).
@@ -595,19 +595,19 @@ pub fn reject_unknown_kwargs(kw: &Kwargs<'_>, allowed: &[&str]) -> Result<()> {
 /// that order load-bearing data on the substrate, not a discipline the
 /// derive's emit template happens to encode correctly.
 ///
-/// Theory anchor: THEORY.md §II.1 invariant 1 — "Typed entry. Ill-typed
+/// Anchor: invariant 1 — "Typed entry. Ill-typed
 /// input errors before the value exists." The kwargs gate is the
 /// typed-entry boundary for every derived domain; closing the gate
 /// behind ONE primitive lifts the closed-set posture from the derive's
-/// emit template to the substrate's typed surface. THEORY.md §VI.1 —
-/// generation over composition; the two-call sequence in the derive's
+/// emit template to the substrate's typed surface.
+/// Generation over composition; the two-call sequence in the derive's
 /// emit template, multiplied across every consumer in the fleet, is
 /// well past the three-times rule once the structural shape is named.
-/// THEORY.md §V.1 — knowable platform; authoring tools (REPL, LSP,
+/// Knowable platform; authoring tools (REPL, LSP,
 /// `tatara-check`) that want to surface "this form's kwargs gate
 /// rejected because …" bind to the unified primitive's call site
 /// instead of guessing which of the two component functions the
-/// rejection came from. THEORY.md §II.1 invariant 2 (free middle) —
+/// rejection came from. Invariant 2 (free middle) —
 /// every consumer routes through the SAME composition, so a regression
 /// that drifts the order or skips a stage on one path can never reach
 /// the substrate's runtime: the type system binds every consumer to
@@ -658,16 +658,16 @@ pub fn parse_kwargs_strict<'a>(args: &'a [Sexp], allowed: &[&str]) -> Result<Kwa
 /// diagnostic surface — every distinct kwarg-gate failure mode is now
 /// a structural variant of `LispError`.
 ///
-/// Theory anchor: THEORY.md §V.1 — "Knowable platform … Render
+/// Anchor: "Knowable platform … Render
 /// Anywhere." A diagnostic whose offending `key` / hint / allowed-set
 /// are embedded in a free-form message is structurally incomplete; an
 /// authoring surface that wants to render a squiggly under the typo
 /// or surface the allowed-set as completions must re-parse the
 /// message. After this lift the slots exist in the variant's data
-/// shape itself. THEORY.md §II.1 invariant 1 (typed entry) — an
+/// shape itself. Invariant 1 (typed entry) — an
 /// unknown kwarg is exactly the failure mode the typed-entry gate
 /// exists to reject; naming it structurally is the typed posture for
-/// that gate's diagnostic. THEORY.md §VI.1 (generation over
+/// that gate's diagnostic. (generation over
 /// composition — one named primitive per structural shape).
 #[must_use]
 pub fn unknown_kwarg(key: &str, allowed: &[&str]) -> LispError {
@@ -723,19 +723,19 @@ pub fn unknown_kwarg(key: &str, allowed: &[&str]) -> LispError {
 /// `Kwargs<'static>` (a future static-bound shape) both type-check
 /// uniformly.
 ///
-/// Theory anchor: THEORY.md §VI.1 — generation over composition; four
+/// Anchor: generation over composition; four
 /// inline copies of one structural projection past the three-times rule
-/// once the structural shape is named. THEORY.md §V.1 — knowable
+/// once the structural shape is named. Knowable
 /// platform; the substrate's typed-entry kwargs-lookup surface is now
 /// the named PAIR `{required, optional}` — authoring tools (REPL, LSP,
 /// `tatara-check`) that want to surface "this domain reads kwarg X as
 /// optional" bind to the `optional` primitive's signature, not the
-/// HashMap-level `get` chain. THEORY.md §II.1 invariant 1 — typed entry;
+/// HashMap-level `get` chain. Invariant 1 — typed entry;
 /// the kwargs-lookup gate's two postures (required vs. optional) are
 /// now structurally named, so a future fourth posture (e.g. "required
 /// with non-empty constraint") extends the pair as a peer rather than
 /// silently piggybacking on the inlined `get(key).copied()` chain.
-/// THEORY.md §II.1 invariant 2 — free middle; the typed-entry kwargs
+/// Invariant 2 — free middle; the typed-entry kwargs
 /// gate's lookup shape is uniform across every derived domain (and
 /// every hand-written `TataraDomain` impl), so a future emitter that
 /// wants to instrument the lookup (a span-aware lookup, a debug-mode
@@ -774,14 +774,14 @@ pub fn required<'a>(kw: &'a Kwargs<'_>, key: &str) -> Result<&'a Sexp> {
 /// `kwarg_item_form` / `kwargs_pos_form`, so a typo in any of the three
 /// can never drift independent of the others.
 ///
-/// Theory anchor: THEORY.md §VI.1 — "Generation over composition.
+/// Anchor: "Generation over composition.
 /// Three-times rule: when a pattern repeats three times, extract an
 /// archetype/backend/synthesizer and generate from it." Seven inline
-/// copies in one module is the textbook signal. THEORY.md §V.1 —
-/// knowable platform; the typed `KwargPath` enum encodes the closed set
+/// copies in one module is the textbook signal.
+/// Knowable platform; the typed `KwargPath` enum encodes the closed set
 /// of three reachable path shapes at the type level so authoring tools
 /// bind to path-shape identity rather than substring-matching the
-/// rendered prefix. THEORY.md §II.1 invariant 1 (typed entry) — the
+/// rendered prefix. Invariant 1 (typed entry) — the
 /// kwargs-path identity is now load-bearing data on the variant rather
 /// than a projection-to-String.
 #[must_use]
@@ -805,7 +805,7 @@ pub fn kwarg_form(key: &str) -> crate::error::KwargPath {
 /// position the same way `kwarg_form` will — one helper, every consumer
 /// inherits.
 ///
-/// Theory anchor: THEORY.md §V.1 — "Knowable platform … Render
+/// Anchor: "Knowable platform … Render
 /// Anywhere." A diagnostic that names the kwarg but loses the item index
 /// is structurally incomplete; the path completes it.
 ///
@@ -839,7 +839,7 @@ pub fn kwarg_item_form(key: &str, idx: usize) -> crate::error::KwargPath {
 /// way `kwarg_form` / `kwarg_item_form` will — one helper, every
 /// consumer inherits.
 ///
-/// Theory anchor: THEORY.md §VI.1 (generation over composition — the
+/// Anchor: (generation over composition — the
 /// fourth `form:`-label primitive after `kwarg_form`,
 /// `kwarg_item_form`, and the registry-keyword path; one helper per
 /// distinct path shape so the substrate's diagnostic surface stays
@@ -867,7 +867,7 @@ pub fn kwargs_pos_form(idx: usize) -> crate::error::KwargPath {
 /// `SexpShape::Int` etc. directly rather than substring-matching the
 /// rendered `got` literal.
 ///
-/// Theory anchor: THEORY.md §V.1 — knowable platform. An error that names
+/// Anchor: knowable platform. An error that names
 /// only the expected side leaves the operator to guess what was passed;
 /// naming both is the floor of constructive diagnostics. The typed
 /// projection extends that posture: not just naming both sides, but
@@ -885,7 +885,7 @@ pub fn kwargs_pos_form(idx: usize) -> crate::error::KwargPath {
 /// _)| qf.sexp_shape())` (quote-family axis), with `Nil` / `List`
 /// arms projecting to their own `SexpShape` variants directly. See
 /// [`Sexp::shape`]'s docstring for the closed-set composition law and
-/// the THEORY anchors.
+/// the anchors.
 #[must_use]
 pub fn sexp_shape(s: &Sexp) -> SexpShape {
     s.shape()
@@ -929,16 +929,16 @@ pub fn sexp_shape(s: &Sexp) -> SexpShape {
 /// typed identity for substring-grep callers and the
 /// `TypeMismatch.got` slot.
 ///
-/// Theory anchor: THEORY.md §V.1 — knowable platform / constructive
+/// Anchor: knowable platform / constructive
 /// diagnostics. The canonical-label projection becomes a NAMED
 /// primitive on the substrate's `Sexp` algebra rather than a free
 /// function consumers reach across module boundaries to call.
-/// THEORY.md §VI.1 — generation over composition; the projection now
+/// Generation over composition; the projection now
 /// lives on the typed `Sexp` algebra alongside `Sexp::shape` /
 /// `Sexp::witness` / `Sexp::to_json` / `Sexp::from_json`, so a
 /// future `Sexp` variant lands at the algebra's match site (via
 /// `Sexp::shape`'s exhaustive arm) without a module-path
-/// indirection. THEORY.md §II.1 invariant 1 — typed entry; the
+/// indirection. Invariant 1 — typed entry; the
 /// offending Sexp's canonical-label identity is part of the proof
 /// of WHAT the typed-entry gate rejected.
 #[must_use]
@@ -978,15 +978,15 @@ pub fn sexp_type_name(s: &Sexp) -> &'static str {
 /// typed JOINT projection — both halves of the identity bundled
 /// into ONE owned `SexpWitness` value.
 ///
-/// Theory anchor: THEORY.md §V.1 — knowable platform / constructive
+/// Anchor: knowable platform / constructive
 /// diagnostics. An error that names only the shape leaves the operator
 /// to guess what they wrote; an error that names only the literal
 /// withholds the structural identity tools want to pattern-match on.
-/// The witness names both. THEORY.md §VI.1 — generation over
+/// The witness names both. Generation over
 /// composition; the projection now lives on the typed `Sexp` algebra
 /// alongside `Sexp::shape`, so a future `Sexp` variant lands at the
 /// algebra's match site (via `Sexp::shape`'s exhaustive arm) without
-/// a module-path indirection. THEORY.md §II.1 invariant 1 — typed
+/// a module-path indirection. Invariant 1 — typed
 /// entry; the offending Sexp's identity is part of the proof of WHAT
 /// the typed-entry gate rejected.
 #[must_use]
@@ -1032,12 +1032,12 @@ pub use tatara_closed_set::suggest;
 /// duplicate key) is now a structural variant of `LispError`, not a
 /// `Compile`-shaped substring.
 ///
-/// Theory anchor: THEORY.md §V.1 — "Knowable platform … Render
+/// Anchor: "Knowable platform … Render
 /// Anywhere." A diagnostic whose offending `key` is embedded in a
 /// free-form message is structurally incomplete; an authoring surface
 /// that wants to render a squiggly under the duplicate or hint a fix
 /// must re-parse the message. After this lift the slot exists in the
-/// variant's data shape itself. THEORY.md §II.1 invariant 1 (typed
+/// variant's data shape itself. Invariant 1 (typed
 /// entry — "Ill-typed input errors before the value exists") — a
 /// duplicate kwarg is exactly the failure mode the typed-entry gate
 /// exists to reject; naming it structurally is the typed posture for
@@ -1077,13 +1077,13 @@ pub fn duplicate_kwarg(key: &str) -> LispError {
 /// share (every derive-generated extractor and every hand-written
 /// `TataraDomain` impl); `Missing` stays for compile-time-known names.
 ///
-/// Theory anchor: THEORY.md §V.1 — "Knowable platform … Render
+/// Anchor: "Knowable platform … Render
 /// Anywhere." A diagnostic whose offending `key` is embedded in a
 /// free-form message is structurally incomplete; an authoring surface
 /// that wants to render a squiggly under the missing kwarg slot or
 /// render a "did you mean :X?" hint must re-parse the message. After
 /// this lift the slot exists in the variant's data shape itself.
-/// THEORY.md §II.1 invariant 1 (typed entry — "Ill-typed input errors
+/// Invariant 1 (typed entry — "Ill-typed input errors
 /// before the value exists") — a missing required kwarg is exactly the
 /// failure mode the typed-entry gate exists to reject; naming it
 /// structurally is the typed posture for that gate's diagnostic.
@@ -1106,7 +1106,7 @@ pub fn missing_kwarg(key: &str) -> LispError {
 /// Three inline `format!("expected {X}, got {}", sexp_type_name(_))`
 /// copies in this module (`type_err`, `extract_string_list` per-item,
 /// `extract_vec_via_serde` non-list) used to assemble the same shape by
-/// hand; the three-times rule (THEORY.md §VI.1) calls for one named
+/// hand; the three-times rule calls for one named
 /// primitive. This is it. Future runs that thread `pos: Option<usize>`
 /// from `Sexp` spans add ONE field to the variant; every type-mismatch
 /// site inherits positional rendering with no consumer changes.
@@ -1165,7 +1165,7 @@ fn range_err(key: &str, target: NumericWidth, value: NumericLiteral) -> LispErro
 ///
 /// — collapse to ONE generic primitive parameterized by the projection
 /// function `project: FnOnce(&'a Sexp) -> Option<T>` and the typed-name
-/// label `expected: &'static str`. The four-times rule (THEORY.md §VI.1)
+/// label `expected: &'static str`. The four-times rule
 /// is decisively crossed; lifting it into ONE primitive means the next
 /// change to the typed-atom failure-projection shape (e.g. threading
 /// `pos: Option<usize>` once `Sexp` carries spans, attaching a structural
@@ -1190,15 +1190,15 @@ fn range_err(key: &str, target: NumericWidth, value: NumericLiteral) -> LispErro
 /// added) is ONE one-line public delegate plus ONE call site — no
 /// new error-path duplication.
 ///
-/// Theory anchor: THEORY.md §VI.1 — generation over composition;
+/// Anchor: generation over composition;
 /// three-times rule decisively crossed (four byte-identical
 /// extract+project+type-err shapes across `extract_string`,
-/// `extract_int`, `extract_float`, `extract_bool`). THEORY.md §V.1 —
-/// knowable platform / constructive diagnostics: the typed-atom
+/// `extract_int`, `extract_float`, `extract_bool`).
+/// Knowable platform / constructive diagnostics: the typed-atom
 /// kwarg-failure projection lives in ONE primitive so authoring
 /// surfaces (`tatara-check`, REPL, LSP) pick up the diagnostic-shape
 /// promotion mechanically once the variant is structurally extended.
-/// THEORY.md §II.1 invariant 1 — typed entry; the typed-atom
+/// Invariant 1 — typed entry; the typed-atom
 /// extractor IS the rust-level typed-entry gate for primitive kwargs,
 /// and naming its single shape lifts the gate from four-site
 /// duplication to one rust function the substrate's diagnostic
@@ -1298,13 +1298,13 @@ where
 /// both public list extractors pick up the upgrade mechanically, same
 /// property `extract_atom` gives the four atom extractors.
 ///
-/// Theory anchor: THEORY.md §VI.1 — generation over composition; the
+/// Anchor: generation over composition; the
 /// list-typed extractor skeleton recurs at two sites (the PRIME-DIRECTIVE
 /// ≥2 trigger) and is lifted to one owner, exactly as the atom skeleton was.
-/// THEORY.md §V.1 — knowable platform; the list-kwarg outer gate + per-item
+/// Knowable platform; the list-kwarg outer gate + per-item
 /// path live in ONE primitive so authoring surfaces (`tatara-check`, REPL,
 /// LSP) pick up diagnostic-shape promotions once, not per-extractor.
-/// THEORY.md §II.1 invariant 1 — typed entry; the list extractor IS the
+/// Invariant 1 — typed entry; the list extractor IS the
 /// rust-level typed-entry gate for list-shaped kwargs, and naming its single
 /// skeleton lifts the gate from two-site duplication to one function the
 /// substrate's diagnostic promotions hang off of.
@@ -1654,9 +1654,9 @@ pub fn extract_optional_bool(kw: &Kwargs<'_>, key: &str) -> Result<Option<bool>>
 // now structurally typed. This is the LAST `LispError::Compile { ... }`
 // construction site in this file.
 //
-// Theory anchor: THEORY.md §VI.1 (generation over composition — the
+// Anchor: (generation over composition — the
 // generator must lean on the library, not duplicate the library inline).
-// THEORY.md §II.1 invariant 1 (typed entry) — `from_value` failures are
+// Invariant 1 (typed entry) — `from_value` failures are
 // exactly the failure mode the typed-entry JSON gate exists to reject;
 // naming them structurally is the typed posture for that gate's
 // diagnostic.
@@ -1701,12 +1701,12 @@ pub fn extract_optional_bool(kw: &Kwargs<'_>, key: &str) -> Result<Option<bool>>
 /// every projection site; this helper picks up the new shape mechanically
 /// with no signature change.
 ///
-/// Theory anchor: THEORY.md §VI.1 — generation over composition; the
-/// three-times rule's load-bearing trigger. THEORY.md §V.1 — knowable
+/// Anchor: generation over composition; the
+/// three-times rule's load-bearing trigger. Knowable
 /// platform; the typed-entry JSON-projection boundary's rejection shape
 /// lives in ONE primitive so authoring surfaces (`tatara-check`, REPL,
 /// LSP) pick up the diagnostic-shape promotion mechanically once the
-/// variant is structurally extended. THEORY.md §II.1 invariant 1 (typed
+/// variant is structurally extended. Invariant 1 (typed
 /// entry) — a `from_value` failure is exactly the failure mode the
 /// typed-entry JSON gate exists to reject; naming its single shape lifts
 /// the gate from three-site duplication to one rust function the

@@ -58,7 +58,7 @@ resources" can be re-expressed in this algebra:
 
 ## The process moves between lattice points
 
-The eight-phase loop (THEORY §IV.3) maps onto the algebra:
+The eight-phase loop maps onto the algebra:
 
 | Phase | What | Lattice expression |
 |---|---|---|
@@ -78,7 +78,7 @@ notion.
 
 ## Lattice laws — the proof discipline
 
-THEORY §I.3 belief 4: "every declaration has a proof." For the
+Every declaration has a proof. For the
 env lattice, the proofs are the lattice laws. Every law is a
 unit test in `lattice::tests::laws`, and the test file is the
 canonical proof statement. If a future change to `meet` or

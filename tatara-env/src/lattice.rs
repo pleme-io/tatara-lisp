@@ -2,7 +2,7 @@
 //!
 //! ## What this is
 //!
-//! `theory/THEORY.md` distinguishes two views of convergence:
+//! There are two views of convergence:
 //!
 //! - **convergence-as-lattice** (static): the structure of all
 //!   possible states the system can inhabit. A dimension of the

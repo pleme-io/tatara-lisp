@@ -12,7 +12,7 @@
 //!     codeberg:owner/repo/path[?ref=...]                       Codeberg
 //!     https://example.com/program.tlisp[#blake3=hex]           direct + pin
 //!
-//! See theory/WASM-PACKAGING.md for the URL grammar. URLs are
+//! URLs are
 //! BLAKE3-cached at ~/.cache/tatara/sources so subsequent runs of
 //! the same ref skip the network.
 //!

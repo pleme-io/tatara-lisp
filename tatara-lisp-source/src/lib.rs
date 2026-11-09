@@ -1,7 +1,6 @@
 //! `tatara-lisp-source` — resolve a Nix-flake-style URL into bytes.
 //!
-//! Implements [`theory/WASM-PACKAGING.md` §II](https://github.com/pleme-io/theory/blob/main/WASM-PACKAGING.md):
-//! a `tatara-script` user can pass any of the following as the script
+//! A `tatara-script` user can pass any of the following as the script
 //! path argument, and the resolver fetches the bytes + computes a
 //! BLAKE3 content hash for caching:
 //!

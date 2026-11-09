@@ -104,7 +104,7 @@
 //! # Provenance
 //!
 //! This crate is `pleme-io/tatara`'s `tatara-lisp/src/closed_set.rs` moved
-//! verbatim, per `theory/TATARA-LISP-CONSOLIDATION.md` phase 2 step 1.
+//! verbatim, in phase 2 step 1 of the consolidation plan.
 //! `tatara-lisp` neither carries nor re-exports `ClosedSet`, which keeps the
 //! published `tatara-lisp` small enough for the phase-3 facade.
 //!

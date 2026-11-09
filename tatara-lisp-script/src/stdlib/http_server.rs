@@ -17,8 +17,7 @@
 //! Blocks the calling thread until SIGTERM/SIGINT.
 //!
 //! Production HTTP services (with dynamic handlers, path params,
-//! middleware) ship through wasm-operator per
-//! [theory/WASM-STACK.md §IV](../../../../theory/WASM-STACK.md). This
+//! middleware) ship through wasm-operator. This
 //! stdlib primitive is for the smallest demo case where a script
 //! "serves something" without coordinating a cluster.
 

@@ -4,14 +4,12 @@
 > declaration is well-formed, a rendering of the declaration into
 > an executable artifact, and a convergence of the running world
 > toward the declared state."
->
-> — `theory/THEORY.md` §I.1
 
-This document is the operational counterpart to that theory, in
+This document is the operational counterpart to that statement, in
 the small. `tatara-env` makes the **lattice view of convergence**
 first-class; `tatara-rollout` makes the **process view of
 convergence** first-class. Together they cover both halves of
-THEORY §IV.1 and the eight-phase loop of §IV.3.
+convergence and the eight-phase loop.
 
 ## The two views
 

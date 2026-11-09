@@ -18,8 +18,8 @@
 //! ```
 //!
 //! This crate is the ClosedSet half of `pleme-io/tatara`'s
-//! `tatara-lisp-derive`, split out per
-//! `theory/TATARA-LISP-CONSOLIDATION.md` phase 2 step 1. The emitted trait
+//! `tatara-lisp-derive`, split out in
+//! phase 2 step 1 of the consolidation plan. The emitted trait
 //! path is `::tatara_closed_set::ClosedSet` — `tatara-lisp` neither carries
 //! nor re-exports `ClosedSet`, which is what keeps the published
 //! `tatara-lisp` small enough for the phase-3 facade.

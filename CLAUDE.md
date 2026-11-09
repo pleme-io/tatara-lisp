@@ -6,7 +6,7 @@ pending-closed-set-carrier-coupling: phase-2-step-2 blocked on an operator rulin
 > **★★ PHASE 2 STEP 2 IS BLOCKED, and the blocker is structural, not
 > effortful. Read this before attempting the error-variant port (2026-07-29).**
 
-`theory/TATARA-LISP-CONSOLIDATION.md` phase 2 orders step 1 (split
+The consolidation plan's phase 2 orders step 1 (split
 `tatara-closed-set` out; **landed**, `011e8d0`) before step 2 (port A's ~45
 structural `LispError` variants + their payload carriers). The two steps carry a
 constraint the plan states as absolute —
@@ -125,6 +125,6 @@ CI by re-adding `--no-build`** — that flag is what hid all of this for two mon
 The cost it was buying is real (56s vs 87 min) and the lever for that is a shared
 binary cache, never the flag.
 
-> **★★★ CSE / Knowable Construction.** This repo operates under **Constructive Substrate Engineering** — canonical specification at [`pleme-io/theory/CONSTRUCTIVE-SUBSTRATE-ENGINEERING.md`](https://github.com/pleme-io/theory/blob/main/CONSTRUCTIVE-SUBSTRATE-ENGINEERING.md). The Compounding Directive (operational rules: solve once, load-bearing fixes only, idiom-first, models stay current, direction beats velocity) is in the org-level pleme-io/CLAUDE.md ★★★ section. Read both before non-trivial changes.
+> **★★★ CSE / Knowable Construction.** This repo operates under **Constructive Substrate Engineering**. The Compounding Directive (operational rules: solve once, load-bearing fixes only, idiom-first, models stay current, direction beats velocity) is in the org-level pleme-io/CLAUDE.md ★★★ section. Read it before non-trivial changes.
 
 Homoiconic S-expression reader + macroexpander + `#[derive(TataraDomain)]` proc macro — the pleme-io Lisp authoring surface, extracted from the `pleme-io/tatara` mono-workspace so downstream consumers (e.g. `cordel`) can git-dep it hermetically inside a Nix sandbox.

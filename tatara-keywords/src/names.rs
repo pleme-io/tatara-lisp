@@ -117,7 +117,7 @@ impl Corpus {
     /// Record one sighting.
     ///
     /// **An empty word is refused here, at the one place every extractor passes
-    /// through.** Measured 2026-08-17: `pleme-io/theory`'s `naming-gate` was red
+    /// through.** Measured 2026-08-17: a repository's `naming-gate` was red
     /// on a violation whose subject was the empty string —
     ///
     /// ```text
@@ -878,10 +878,10 @@ mod tests {
     #[test]
     fn cited_repos_are_extracted_from_prose_and_links() {
         let src = "see [`pleme-io/camelot-incept`](https://github.com/pleme-io/camelot-incept) \
-                   and pleme-io/theory/blob/main/BUILD.md";
+                   and pleme-io/manual/blob/main/BUILD.md";
         assert_eq!(
             cited_repos(src),
-            vec!["camelot-incept".to_string(), "theory".to_string()],
+            vec!["camelot-incept".to_string(), "manual".to_string()],
             "a deep link cites the repo it is rooted at, not the whole path"
         );
     }
@@ -1038,7 +1038,7 @@ Some prose between the tables.
     #[test]
     fn backticked_paths_and_phrases_are_not_names() {
         assert_eq!(
-            backticked("`caixa` (box) see `theory/CAIXA.md` and `two words`"),
+            backticked("`caixa` (box) see `manual/CAIXA.md` and `two words`"),
             vec![("caixa".to_string(), true)]
         );
     }

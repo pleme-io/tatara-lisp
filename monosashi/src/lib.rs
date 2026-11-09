@@ -4,7 +4,7 @@
 //! A program on a gradual substrate slides along a continuum — loose and
 //! dynamic at one end, locked and Rust-like at the other — and it slides
 //! *because of what the author wrote*. `blue` calls that continuum the
-//! blueshift (`theory/BLUE.md` §V.20) and reports it as a rung plus the
+//! blueshift and reports it as a rung plus the
 //! factors that caused it. `tatara-lisp` has the same continuum, drawn by its
 //! own gradual checker, and needs the same reading.
 //!

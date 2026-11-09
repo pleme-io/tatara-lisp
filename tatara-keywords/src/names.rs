@@ -18,11 +18,11 @@
 //! `bancada` was minted as a node name while already registered to banken's
 //! `(defbancada)` session domain. Three independent surfaces each said "free":
 //!
-//! 1. **`VOCABULARY.md` is not the index.** 34 of 82 single-token minted names
+//! 1. **The vocabulary table is not the index.** 34 of 82 single-token minted names
 //!    had a row — 41%. A clean grep of the registry proves nothing, because the
 //!    registry is a lagging subset of the corpus.
-//! 2. **`NAMING.md` said the word was UNTAKEN.** It sat in Craft/Making 匠's
-//!    *Room to grow* column while `VOCABULARY.md` registered it. Two surfaces
+//! 2. **The naming-family table said the word was UNTAKEN.** It sat in Craft/Making
+//!    匠's *Room to grow* column while the vocabulary table registered it. Two surfaces
 //!    disagreed, and the one an author consults when picking a word was the
 //!    wrong one. [`stale_reservations`] is that check.
 //! 3. **The obvious sweep returns a silent zero.** `~/code/github/pleme-io` is
@@ -44,14 +44,14 @@
 //! pretend otherwise.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::Declaration;
 
 /// Fold a word to its comparison key: lowercase, diacritics stripped.
 ///
 /// Load-bearing, not cosmetic. The fleet's own surfaces disagree on accents —
-/// the registry row is `alfândega` while the file is `ALFANDEGA.md`, and
+/// the registry row is `alfândega` while the doc's filename is `ALFANDEGA`, and
 /// `mutirao` finds 2 mentions where `mutirão` finds 12. A comparison that
 /// respects diacritics reports two free words where one taken word exists.
 #[must_use]
@@ -76,12 +76,12 @@ pub fn fold(s: &str) -> String {
 pub enum Surface {
     /// A directory under the org root — a repo, whether or not any doc knows.
     Repo,
-    /// A `theory/<NAME>.md` filename. Often the real name-of-record.
-    TheoryDoc,
-    /// A per-word gloss row in `VOCABULARY.md`'s **`## Naming`** section — the
+    /// A `<NAME>.md` filename in the docs directory. Often the real name-of-record.
+    DesignDoc,
+    /// A per-word gloss row in the vocabulary table's **`## Naming`** section — the
     /// name-of-record. This, and only this, is what "registered" means.
     Registry,
-    /// A bolded row in any OTHER `VOCABULARY.md` section.
+    /// A bolded row in any OTHER section of the vocabulary table.
     ///
     /// Measured 2026-08-08: 336 bolded rows, of which 40 are in `## Naming`.
     /// The other ~296 are types, concepts and English terms (`HelmRelease`,
@@ -89,7 +89,7 @@ pub enum Surface {
     /// but they are not a name registration, and conflating the two is what
     /// made the first run of this tool report 209 "registered" names.
     Term,
-    /// A word listed as a MEMBER of a family in `NAMING.md`.
+    /// A word listed as a MEMBER of a family in the naming-family table.
     FamilyMember,
     /// A word parked in a family's *Room to grow* column. RESERVED, not free.
     RoomToGrow,
@@ -121,7 +121,7 @@ impl Corpus {
     /// on a violation whose subject was the empty string —
     ///
     /// ```text
-    /// `` is advertised as untaken in a NAMING.md Room-to-grow column but is
+    /// `` is advertised as untaken in a family's Room-to-grow column but is
     ///    already claimed by [Term, FamilyMember] — move it into Members
     /// ```
     ///
@@ -199,7 +199,7 @@ impl Corpus {
 ///
 /// **This is the check that would have prevented the 2026-08-08 rename.**
 /// `bancada` sat in Craft/Making 匠's *Room to grow* column while
-/// `VOCABULARY.md` registered it to banken. An author consulting the family
+/// the vocabulary table registered it to banken. An author consulting the family
 /// table — the correct place to look for an untaken word — got a false
 /// all-clear from the registry's own pages.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -232,10 +232,10 @@ pub fn stale_reservations(c: &Corpus) -> Vec<StaleReservation> {
         .collect()
 }
 
-/// A theory doc with no `## Naming` row — the backfill queue.
+/// A design doc with no `## Naming` row — the backfill queue.
 ///
-/// **The denominator is theory docs, not minted names, and the difference is
-/// not a rounding.** Whether `BUILD.md` or `MIRAGEM.md` names a *minted
+/// **The denominator is design docs, not minted names, and the difference is
+/// not a rounding.** Whether a doc called `build` or `mirage` names a *minted
 /// primitive* or states a *concept* is a judgement no lint can make without
 /// classifying words, so this counts the decidable thing and says which one it
 /// counted. Repos are deliberately excluded for the same reason at larger
@@ -250,7 +250,7 @@ pub fn unregistered(c: &Corpus) -> Vec<String> {
         .iter()
         .filter(|(_, seen)| {
             let s: BTreeSet<Surface> = seen.iter().map(|(sf, _)| *sf).collect();
-            !s.contains(&Surface::Registry) && s.contains(&Surface::TheoryDoc)
+            !s.contains(&Surface::Registry) && s.contains(&Surface::DesignDoc)
         })
         .map(|(w, _)| w.clone())
         .collect()
@@ -273,7 +273,7 @@ pub fn phantoms(c: &Corpus) -> Vec<String> {
             // `Term` counts as something: a type defined in the glossary is a
             // real referent even with no repo and no doc of its own.
             (s.contains(&Surface::Registry) || s.contains(&Surface::FamilyMember))
-                && !s.contains(&Surface::TheoryDoc)
+                && !s.contains(&Surface::DesignDoc)
                 && !s.contains(&Surface::Repo)
                 && !s.contains(&Surface::Term)
         })
@@ -287,7 +287,7 @@ pub fn phantoms(c: &Corpus) -> Vec<String> {
 // interesting case is testable without a filesystem — the same seam the
 // TYPED-SPEC triplet asks for.
 
-/// Bolded first-cell names from `VOCABULARY.md`, tagged by section.
+/// Bolded first-cell names from the vocabulary table, tagged by section.
 ///
 /// Matches `| **word** | …`. Trailing parenthetical glosses are dropped, so
 /// `| **banken** (番犬) |` yields `banken`. A row inside `## Naming` is a
@@ -333,9 +333,9 @@ pub fn names_in_vocabulary(src: &str) -> Vec<(String, Surface)> {
     out
 }
 
-/// Backticked words from `NAMING.md`'s family table, tagged by column.
+/// Backticked words from the naming-family table, tagged by column.
 ///
-/// **Columns bind by HEADER NAME, never by position.** `NAMING.md` holds more
+/// **Columns bind by HEADER NAME, never by position.** The naming doc holds more
 /// than one four-column table, and the law table
 /// (`| Language | Layer | The word denotes… | Examples |`) has *shipped
 /// examples* exactly where the family table has *Room to grow*. Reading by
@@ -444,7 +444,7 @@ fn backticked(cell: &str) -> Vec<(String, bool)> {
 /// live corpus rather than guessed:
 ///
 /// - **An OCI image path.** `ghcr.io/pleme-io/mysql` names an image in the
-///   org's registry, not a repository. Four of CAMELOT.md's findings were this.
+///   org's registry, not a repository. Four findings in one environment doc were this.
 /// - **A truncated placeholder.** `pleme-io/crossplane-<provider>` stops at the
 ///   `<`, leaving a trailing hyphen. Six findings, all of that shape.
 /// - **A capital letter.** Repo names here are lowercase, so `pleme-io/CLAUDE`
@@ -499,7 +499,7 @@ pub fn cited_repos(src: &str) -> Vec<String> {
 /// Fenced code blocks are skipped, because a URL inside an example manifest is
 /// illustrative, not a reference. That exclusion is not hypothetical — it is
 /// the difference between the corpus's two apparent dead links and its one
-/// real one: `TERRENO.md`'s is a `gitRepository.url` inside a sample
+/// real one: one doc's is a `gitRepository.url` inside a sample
 /// `ArchitectureGem` YAML.
 #[must_use]
 pub fn linked_repos(src: &str) -> Vec<String> {
@@ -535,12 +535,130 @@ pub fn linked_repos(src: &str) -> Vec<String> {
     out
 }
 
+/// Where the naming registry lives.
+///
+/// Every location is configuration, and none has a default: the registry is a
+/// set of documents the operator keeps somewhere, and this tool cannot know
+/// where. A location that is unset, or set to a path that does not exist,
+/// turns off only the rules that read it, and [`Registry::notices`] says so in
+/// one plain line each. The repo-directory scan of `--root` needs none of
+/// them and always runs.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Registry {
+    /// A directory of design documents. Each `<NAME>.md` filename is a name of
+    /// record, and the bodies are scanned for repo citations and links.
+    pub docs: Option<PathBuf>,
+    /// The vocabulary table: rows whose first cell is a bolded word, with a
+    /// `## Naming` section of per-word gloss rows.
+    pub vocabulary: Option<PathBuf>,
+    /// The naming-family table: one row per family, with `Members` and
+    /// `Room to grow` columns.
+    pub families: Option<PathBuf>,
+}
+
+/// One configurable location: its flag, its environment variable, what it
+/// holds, and the rules that are off without it.
+struct Location {
+    flag: &'static str,
+    env: &'static str,
+    holds: &'static str,
+    rules: &'static str,
+}
+
+const DOCS: Location = Location {
+    flag: "--docs",
+    env: "TATARA_KEYWORDS_DOCS",
+    holds: "a directory of <NAME>.md design documents",
+    rules: "design-doc names, the dead-link rule and the phantom-repo rule are off",
+};
+const VOCABULARY: Location = Location {
+    flag: "--vocabulary",
+    env: "TATARA_KEYWORDS_VOCABULARY",
+    holds: "a vocabulary table with a `## Naming` section",
+    rules: "registry rows and the one-word-two-rows rule are off",
+};
+const FAMILIES: Location = Location {
+    flag: "--families",
+    env: "TATARA_KEYWORDS_FAMILIES",
+    holds: "a naming-family table with Members and Room to grow columns",
+    rules: "family members and the stale-reservation rule are off",
+};
+
+impl Registry {
+    /// The command-line flags that configure the registry, in the order
+    /// [`Registry::resolve`] reads them.
+    pub const FLAGS: [&'static str; 3] = [DOCS.flag, VOCABULARY.flag, FAMILIES.flag];
+
+    /// Resolve every location from a flag lookup and an environment lookup.
+    ///
+    /// The flag wins over the environment. An empty value is the same as an
+    /// unset one, so `VAR=` cannot switch a rule on with a path of `""`.
+    #[must_use]
+    pub fn resolve(
+        flag: impl Fn(&str) -> Option<String>,
+        env: impl Fn(&str) -> Option<String>,
+    ) -> Self {
+        let pick = |l: &Location| {
+            flag(l.flag)
+                .filter(|v| !v.is_empty())
+                .or_else(|| env(l.env).filter(|v| !v.is_empty()))
+                .map(PathBuf::from)
+        };
+        Self {
+            docs: pick(&DOCS),
+            vocabulary: pick(&VOCABULARY),
+            families: pick(&FAMILIES),
+        }
+    }
+
+    /// One plain line for each location that is unset or missing on disk.
+    #[must_use]
+    pub fn notices(&self) -> Vec<String> {
+        [
+            (&DOCS, &self.docs, true),
+            (&VOCABULARY, &self.vocabulary, false),
+            (&FAMILIES, &self.families, false),
+        ]
+        .into_iter()
+        .filter_map(|(l, path, is_dir)| match path {
+            None => Some(format!(
+                "no {} configured, so {}; set {} or {} to {}",
+                l.flag.trim_start_matches('-'),
+                l.rules,
+                l.flag,
+                l.env,
+                l.holds
+            )),
+            Some(p) if (is_dir && !p.is_dir()) || (!is_dir && !p.is_file()) => Some(format!(
+                "{} {} does not exist, so {}",
+                l.flag,
+                p.display(),
+                l.rules
+            )),
+            Some(_) => None,
+        })
+        .collect()
+    }
+
+    /// File stems in the docs directory that are the registry's own pages or
+    /// the directory's index, not names: the configured tables, and a doc
+    /// named after the directory that holds it.
+    fn own_pages(&self) -> BTreeSet<String> {
+        [&self.docs, &self.vocabulary, &self.families]
+            .into_iter()
+            .flatten()
+            .filter_map(|p| p.file_stem().or_else(|| p.file_name()))
+            .map(|s| fold(&s.to_string_lossy()))
+            .collect()
+    }
+}
+
 /// Linked repos that do not exist under `root` — dead links, gated at zero.
 ///
 /// # Errors
-/// Propagates filesystem errors from reading `root/theory`.
-pub fn dead_links(root: &Path) -> std::io::Result<Vec<(String, String)>> {
-    scan_theory(root, linked_repos)
+/// Propagates filesystem errors from reading `docs`.
+pub fn dead_links(root: &Path, docs: &Path) -> std::io::Result<Vec<(String, String)>> {
+    scan_docs(root, docs, linked_repos)
 }
 
 /// Cited repos that do not exist under `root`.
@@ -550,30 +668,30 @@ pub fn dead_links(root: &Path) -> std::io::Result<Vec<(String, String)>> {
 /// one, and it is why this gate belongs in a CI job that clones the org rather
 /// than on a workstation. Spot-checked 2026-08-08 on three findings
 /// (`utsuroi`, `veneziana`, `checkout`): all three return 404 from the GitHub
-/// API, against a control (`theory`) that resolves — so on today's checkout of
+/// API, against a control repo that resolves — so on today's checkout of
 /// 978 repos the two oracles agree.
 ///
 /// # Errors
-/// Propagates filesystem errors from reading `root/theory`.
-pub fn phantom_repos(root: &Path) -> std::io::Result<Vec<(String, String)>> {
-    scan_theory(root, cited_repos)
+/// Propagates filesystem errors from reading `docs`.
+pub fn phantom_repos(root: &Path, docs: &Path) -> std::io::Result<Vec<(String, String)>> {
+    scan_docs(root, docs, cited_repos)
 }
 
-/// Walk `root/theory/*.md`, extract names with `extract`, keep the missing.
+/// Walk `docs/*.md`, extract names with `extract`, keep the missing.
 ///
 /// One walk shared by both rules, so a fix to the traversal cannot land for
 /// dead links and miss bare citations.
-fn scan_theory(
+fn scan_docs(
     root: &Path,
+    docs: &Path,
     extract: fn(&str) -> Vec<String>,
 ) -> std::io::Result<Vec<(String, String)>> {
-    let theory = root.join("theory");
-    if !theory.is_dir() {
+    if !docs.is_dir() {
         return Ok(Vec::new());
     }
     let mut out = Vec::new();
     let mut seen = BTreeSet::new();
-    for entry in std::fs::read_dir(&theory)? {
+    for entry in std::fs::read_dir(docs)? {
         let entry = entry?;
         let path = entry.path();
         if path.extension().is_none_or(|e| e != "md") {
@@ -595,17 +713,18 @@ fn scan_theory(
     Ok(out)
 }
 
-/// Gather the whole corpus from an org checkout.
+/// Gather the whole corpus from an org checkout and the configured registry.
 ///
 /// `root` is the org directory (`~/code/github/pleme-io`). Walks only what it
-/// needs — repo directory names, `theory/` filenames, and the two registry
-/// documents — and **never consults a `.gitignore`**, which is the specific
-/// reason the prescribed `rg` sweep returned a silent zero.
+/// needs — repo directory names, then whatever [`Registry`] locations are
+/// configured: design-doc filenames and the two registry tables — and
+/// **never consults a `.gitignore`**, which is the specific reason the
+/// prescribed `rg` sweep returned a silent zero.
 ///
 /// # Errors
 /// Propagates filesystem errors. A scan that swallowed an unreadable directory
 /// would report a zero it did not earn — the same rule [`crate::scan`] follows.
-pub fn scan_corpus(root: &Path) -> std::io::Result<Corpus> {
+pub fn scan_corpus(root: &Path, registry: &Registry) -> std::io::Result<Corpus> {
     let mut c = Corpus::default();
 
     for entry in std::fs::read_dir(root)? {
@@ -620,42 +739,42 @@ pub fn scan_corpus(root: &Path) -> std::io::Result<Corpus> {
         c.see(&name, Surface::Repo, &name);
     }
 
-    let theory = root.join("theory");
-    if theory.is_dir() {
+    if let Some(docs) = registry.docs.as_deref().filter(|d| d.is_dir()) {
         // Docs whose stem is a heading, not a minted name.
-        const NOT_NAMES: &[&str] = &[
-            "readme",
-            "vocabulary",
-            "naming",
-            "theory",
-            "index",
-            "claude",
-            "license",
-        ];
-        for entry in std::fs::read_dir(&theory)? {
+        const NOT_NAMES: &[&str] = &["readme", "index", "claude", "license"];
+        let own = registry.own_pages();
+        for entry in std::fs::read_dir(docs)? {
             let entry = entry?;
             let f = entry.file_name().to_string_lossy().into_owned();
             let Some(stem) = f.strip_suffix(".md") else {
                 continue;
             };
-            if NOT_NAMES.contains(&fold(stem).as_str()) {
+            let folded = fold(stem);
+            if NOT_NAMES.contains(&folded.as_str()) || own.contains(&folded) {
                 continue;
             }
-            c.see(stem, Surface::TheoryDoc, stem);
+            c.see(stem, Surface::DesignDoc, stem);
         }
-        if let Ok(src) = std::fs::read_to_string(theory.join("VOCABULARY.md")) {
-            for (w, surface) in names_in_vocabulary(&src) {
-                c.see(&w, surface, &w);
-            }
+    }
+    if let Some(src) = read_table(registry.vocabulary.as_deref()) {
+        for (w, surface) in names_in_vocabulary(&src) {
+            c.see(&w, surface, &w);
         }
-        if let Ok(src) = std::fs::read_to_string(theory.join("NAMING.md")) {
-            for (w, surface) in names_in_naming_families(&src) {
-                c.see(&w, surface, &w);
-            }
+    }
+    if let Some(src) = read_table(registry.families.as_deref()) {
+        for (w, surface) in names_in_naming_families(&src) {
+            c.see(&w, surface, &w);
         }
     }
 
     Ok(c)
+}
+
+/// The text of a configured table, or `None` when it is unset or unreadable.
+/// [`Registry::notices`] is what reports the missing case.
+#[must_use]
+pub fn read_table(path: Option<&Path>) -> Option<String> {
+    path.and_then(|p| std::fs::read_to_string(p).ok())
 }
 
 #[cfg(test)]
@@ -757,8 +876,8 @@ mod tests {
     #[test]
     fn a_doc_without_a_registry_row_is_unregistered() {
         let c = corpus(&[
-            ("eclusa", Surface::TheoryDoc),
-            ("postigo", Surface::TheoryDoc),
+            ("eclusa", Surface::DesignDoc),
+            ("postigo", Surface::DesignDoc),
             ("postigo", Surface::Registry),
         ]);
         assert_eq!(unregistered(&c), vec!["eclusa".to_string()]);
@@ -770,7 +889,7 @@ mod tests {
         let c = corpus(&[
             ("camelot-incept", Surface::FamilyMember),
             ("magma", Surface::FamilyMember),
-            ("magma", Surface::TheoryDoc),
+            ("magma", Surface::DesignDoc),
         ]);
         assert_eq!(phantoms(&c), vec!["camelot-incept".to_string()]);
     }
@@ -853,14 +972,14 @@ mod tests {
     }
 
     /// The diacritic split is the whole reason `fold` exists: the registry row
-    /// is `alfândega` and the file is `ALFANDEGA.md`, and they must meet.
+    /// is `alfândega` and the doc's filename is `ALFANDEGA`, and they must meet.
     #[test]
     fn the_registry_row_and_the_ascii_filename_fold_together() {
         let mut c = Corpus::default();
         for (w, s) in names_in_vocabulary("## Naming\n| **alfândega** | … |") {
             c.see(&w, s, &w);
         }
-        c.see("ALFANDEGA", Surface::TheoryDoc, "ALFANDEGA");
+        c.see("ALFANDEGA", Surface::DesignDoc, "ALFANDEGA");
         assert_eq!(c.sightings.len(), 1, "one name, not two");
         assert!(unregistered(&c).is_empty(), "the row DOES cover the doc");
     }
@@ -870,7 +989,7 @@ mod tests {
     fn a_term_row_does_not_count_as_registration() {
         let mut c = Corpus::default();
         c.see("bacia", Surface::Term, "bacia");
-        c.see("BACIA", Surface::TheoryDoc, "BACIA");
+        c.see("BACIA", Surface::DesignDoc, "BACIA");
         assert_eq!(unregistered(&c), vec!["bacia".to_string()]);
         assert!(!c.is_free("bacia"), "but the word is still taken");
     }
@@ -971,7 +1090,7 @@ Real reference: [`x`](https://github.com/pleme-io/openclaw-artifact-registry)
     }
 
     /// **The bug that made all 19 of the first live run's findings false.**
-    /// NAMING.md's law table has *shipped examples* in the same column
+    /// The naming doc's law table has *shipped examples* in the same column
     /// position the family table uses for *Room to grow*.
     #[test]
     fn the_law_tables_examples_column_is_not_room_to_grow() {
@@ -1083,5 +1202,189 @@ Some prose between the tables.
         assert_eq!(stale[0].word, "bancada");
         assert_eq!(stale[0].claimed_by, vec![Surface::Registry]);
         assert!(!c.is_free("bancada"), "and step 4 now answers correctly");
+    }
+
+    /// A throwaway org checkout plus a registry that lives beside it:
+    ///
+    /// ```text
+    /// org/alpha/  org/beta/  org/.hidden/  org/stray.txt
+    /// docs/GAMMA.md   cites pleme-io/alpha (exists) and pleme-io/zeta (missing)
+    /// docs/EPSILON.md links github.com/pleme-io/zeta, cites pleme-io/omega
+    /// docs/notes.txt  cites pleme-io/ignored (not a .md doc)
+    /// docs/DOCS.md    the directory's own index
+    /// docs/README.md  a heading, not a name
+    /// tables/VOCAB.md   one `## Naming` row, `delta`
+    /// tables/FAMILY.md  member `beta`, room to grow `kappa`
+    /// ```
+    struct Fixture {
+        base: PathBuf,
+    }
+
+    impl Fixture {
+        fn new(tag: &str) -> Self {
+            let base =
+                std::env::temp_dir().join(format!("tatara-keywords-{tag}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&base);
+            for d in ["org/alpha", "org/beta", "org/.hidden", "docs", "tables"] {
+                std::fs::create_dir_all(base.join(d)).unwrap();
+            }
+            let w = |p: &str, s: &str| std::fs::write(base.join(p), s).unwrap();
+            w("org/stray.txt", "not a repo");
+            w("docs/GAMMA.md", "see pleme-io/alpha and pleme-io/zeta\n");
+            w(
+                "docs/EPSILON.md",
+                "<https://github.com/pleme-io/zeta> and pleme-io/omega\n",
+            );
+            w("docs/notes.txt", "see pleme-io/ignored\n");
+            w("docs/DOCS.md", "index\n");
+            w("docs/README.md", "readme\n");
+            w("tables/VOCAB.md", "## Naming\n| **delta** | the gloss |\n");
+            w(
+                "tables/FAMILY.md",
+                "| Family | Domain | Members (shipped) | Room to grow (untaken) |\n\
+                 |---|---|---|---|\n\
+                 | **Craft** 匠 | making | `beta` | `kappa` (a reserve) |\n",
+            );
+            Self { base }
+        }
+
+        fn org(&self) -> PathBuf {
+            self.base.join("org")
+        }
+
+        fn registry(&self) -> Registry {
+            Registry {
+                docs: Some(self.base.join("docs")),
+                vocabulary: Some(self.base.join("tables/VOCAB.md")),
+                families: Some(self.base.join("tables/FAMILY.md")),
+            }
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.base);
+        }
+    }
+
+    fn surfaces_of(c: &Corpus) -> BTreeMap<String, BTreeSet<Surface>> {
+        c.sightings
+            .iter()
+            .map(|(w, s)| (w.clone(), s.iter().map(|(sf, _)| *sf).collect()))
+            .collect()
+    }
+
+    /// Unset is OFF, and OFF says so: one line per location, each naming the
+    /// flag and the variable that would turn it on. The repo scan still runs,
+    /// and nothing from the registry leaks in.
+    #[test]
+    fn an_unset_registry_turns_its_rules_off_and_says_how_to_set_it() {
+        let notices = Registry::default().notices();
+        assert_eq!(notices.len(), 3, "{notices:?}");
+        for (line, flag, env) in [
+            (&notices[0], "--docs", "TATARA_KEYWORDS_DOCS"),
+            (&notices[1], "--vocabulary", "TATARA_KEYWORDS_VOCABULARY"),
+            (&notices[2], "--families", "TATARA_KEYWORDS_FAMILIES"),
+        ] {
+            assert!(line.starts_with("no "), "{line}");
+            assert!(line.contains(flag) && line.contains(env), "{line}");
+            assert!(line.contains(" are off"), "{line}");
+        }
+
+        let f = Fixture::new("unset");
+        let c = scan_corpus(&f.org(), &Registry::default()).unwrap();
+        let mut want = BTreeMap::new();
+        want.insert("alpha".to_string(), BTreeSet::from([Surface::Repo]));
+        want.insert("beta".to_string(), BTreeSet::from([Surface::Repo]));
+        assert_eq!(surfaces_of(&c), want);
+    }
+
+    /// Set is ON: the same fixture with every location configured reads the
+    /// design-doc names, the registry row and both family columns, and skips
+    /// the registry's own pages, headings, hidden directories and plain files.
+    #[test]
+    fn a_configured_registry_reads_the_fixture_tables() {
+        let f = Fixture::new("set");
+        let r = f.registry();
+        assert!(r.notices().is_empty(), "{:?}", r.notices());
+        let c = scan_corpus(&f.org(), &r).unwrap();
+        let mut want = BTreeMap::new();
+        want.insert("alpha".to_string(), BTreeSet::from([Surface::Repo]));
+        want.insert(
+            "beta".to_string(),
+            BTreeSet::from([Surface::Repo, Surface::FamilyMember]),
+        );
+        want.insert("gamma".to_string(), BTreeSet::from([Surface::DesignDoc]));
+        want.insert("epsilon".to_string(), BTreeSet::from([Surface::DesignDoc]));
+        want.insert("delta".to_string(), BTreeSet::from([Surface::Registry]));
+        want.insert("kappa".to_string(), BTreeSet::from([Surface::RoomToGrow]));
+        assert_eq!(surfaces_of(&c), want);
+    }
+
+    /// The two repo-citation rules read only the configured docs directory,
+    /// skip non-Markdown files and repos that exist, and report each missing
+    /// repo once, against the first doc that cited it.
+    #[test]
+    fn the_citation_rules_read_the_configured_docs_directory() {
+        let f = Fixture::new("cite");
+        let docs = f.base.join("docs");
+        let mut phantom = phantom_repos(&f.org(), &docs).unwrap();
+        phantom.sort();
+        let names: Vec<&str> = phantom.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, vec!["omega", "zeta"], "{phantom:?}");
+        assert_eq!(
+            dead_links(&f.org(), &docs).unwrap(),
+            vec![("zeta".to_string(), "EPSILON.md".to_string())]
+        );
+        let gone = f.base.join("no-such-dir");
+        assert!(phantom_repos(&f.org(), &gone).unwrap().is_empty());
+        assert!(dead_links(&f.org(), &gone).unwrap().is_empty());
+    }
+
+    /// A configured path that is missing, or the wrong kind, is reported and
+    /// read as nothing; a good path is silent.
+    #[test]
+    fn a_missing_or_wrong_kind_location_is_reported_and_read_as_nothing() {
+        let f = Fixture::new("missing");
+        let r = Registry {
+            docs: Some(f.base.join("tables/VOCAB.md")),
+            vocabulary: Some(f.base.join("tables")),
+            families: Some(f.base.join("tables/NOPE.md")),
+        };
+        let n = r.notices();
+        assert_eq!(n.len(), 3, "{n:?}");
+        assert!(n[0].starts_with("--docs ") && n[0].contains("does not exist"));
+        assert!(n[1].starts_with("--vocabulary ") && n[1].contains("does not exist"));
+        assert!(n[2].starts_with("--families ") && n[2].contains("does not exist"));
+        let c = scan_corpus(&f.org(), &r).unwrap();
+        assert_eq!(c.sightings.len(), 2, "repos only: {c:?}");
+        assert_eq!(read_table(None), None);
+        assert_eq!(read_table(Some(&f.base.join("tables/NOPE.md"))), None);
+        assert_eq!(
+            read_table(Some(&f.base.join("docs/DOCS.md"))).as_deref(),
+            Some("index\n")
+        );
+    }
+
+    /// The flag wins over the environment; an empty value is unset.
+    #[test]
+    fn the_flag_wins_and_an_empty_value_is_unset() {
+        let flags = |f: &str| match f {
+            "--docs" => Some("/flag/docs".to_string()),
+            "--vocabulary" => Some(String::new()),
+            _ => None,
+        };
+        let env = |v: &str| match v {
+            "TATARA_KEYWORDS_DOCS" => Some("/env/docs".to_string()),
+            "TATARA_KEYWORDS_VOCABULARY" => Some("/env/vocab".to_string()),
+            "TATARA_KEYWORDS_FAMILIES" => Some(String::new()),
+            _ => None,
+        };
+        let r = Registry::resolve(flags, env);
+        assert_eq!(r.docs, Some(PathBuf::from("/flag/docs")));
+        assert_eq!(r.vocabulary, Some(PathBuf::from("/env/vocab")));
+        assert_eq!(r.families, None);
+        assert_eq!(Registry::resolve(|_| None, |_| None), Registry::default());
+        assert_eq!(Registry::FLAGS, ["--docs", "--vocabulary", "--families"]);
     }
 }

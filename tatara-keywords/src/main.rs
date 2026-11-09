@@ -36,10 +36,23 @@ USAGE:
     check         exit 1 if two types in the tree claim one keyword, or if the
                   tree claims a keyword the ledger reserves elsewhere
 
-    names  --root DIR [--max-phantom-repos N]
+    names  --root DIR [--docs DIR] [--vocabulary FILE] [--families FILE]
+           [--max-phantom-repos N]
                   the SECOND namespace: pleme-io primitive names, gathered
-                  from repo directories, theory/ filenames, VOCABULARY.md rows
-                  and NAMING.md family columns. Same collision engine.
+                  from repo directories under --root and from a naming
+                  registry: design-doc filenames, vocabulary-table rows and
+                  naming-family columns. Same collision engine.
+
+                  The registry has no default location. Each part is set by
+                  its flag or environment variable, and a part that is unset
+                  turns off only the rules that read it, with one line saying
+                  so:
+      --docs DIR         TATARA_KEYWORDS_DOCS: a directory of <NAME>.md
+                         design documents
+      --vocabulary FILE  TATARA_KEYWORDS_VOCABULARY: a vocabulary table with
+                         a `## Naming` section
+      --families FILE    TATARA_KEYWORDS_FAMILIES: a naming-family table with
+                         Members and Room to grow columns
 
                   GATES on the three rules a machine can decide with no false
                   positives: a word both claimed and advertised in a family's
@@ -52,7 +65,7 @@ USAGE:
                   a ratchet that never tightens is a cap nobody keeps.
 
                   REPORTS, never gates, the two that need a judgement call —
-                  which theory docs lack a naming row, and which named things
+                  which design docs lack a naming row, and which named things
                   have nothing behind them. Telling a minted primitive from a
                   stated concept is not decidable without classifying words,
                   so it stays with the human at step 6.
@@ -252,8 +265,19 @@ fn elide(items: &[String], verbose: bool) -> String {
 /// a human must classify because a doctrine legitimately has neither).
 fn run_names(args: &[String]) -> Result<ExitCode, String> {
     let root = PathBuf::from(flag_value(args, "--root")?.unwrap_or_else(|| ".".into()));
-    let corpus =
-        names::scan_corpus(&root).map_err(|e| format!("scanning {}: {e}", root.display()))?;
+    let mut flags = std::collections::BTreeMap::new();
+    for f in names::Registry::FLAGS {
+        flags.insert(f, flag_value(args, f)?);
+    }
+    let registry = names::Registry::resolve(
+        |f| flags.get(f).cloned().flatten(),
+        |v| std::env::var(v).ok(),
+    );
+    for line in registry.notices() {
+        eprintln!("tatara-keywords names: {line}");
+    }
+    let corpus = names::scan_corpus(&root, &registry)
+        .map_err(|e| format!("scanning {}: {e}", root.display()))?;
 
     // Same vacuity refusal as `check`. A names sweep that read nothing is the
     // exact failure this tool exists to replace — the fleet-root `.gitignore`
@@ -262,7 +286,7 @@ fn run_names(args: &[String]) -> Result<ExitCode, String> {
         eprintln!(
             "tatara-keywords names: 0 names found under {} — refusing to report a \
              name namespace clean when the scan found nothing. Point --root at an \
-             org checkout containing repo directories and a theory/ directory.",
+             org checkout containing repo directories.",
             root.display()
         );
         return Ok(ExitCode::from(2));
@@ -273,7 +297,7 @@ fn run_names(args: &[String]) -> Result<ExitCode, String> {
     // GATING 1 — the check that would have caught the 2026-08-08 rename.
     for s in names::stale_reservations(&corpus) {
         eprintln!(
-            "tatara-keywords names: `{}` is advertised as untaken in a NAMING.md \
+            "tatara-keywords names: `{}` is advertised as untaken in a family's \
              Room-to-grow column but is already claimed by {:?} — move it into \
              Members, or the next minter gets the same false all-clear",
             s.word, s.claimed_by
@@ -282,7 +306,7 @@ fn run_names(args: &[String]) -> Result<ExitCode, String> {
     }
 
     // GATING 2 — one word, two rows in the `## Naming` registry.
-    if let Ok(src) = std::fs::read_to_string(root.join("theory").join("VOCABULARY.md")) {
+    if let Some(src) = names::read_table(registry.vocabulary.as_deref()) {
         let mut seen: std::collections::BTreeMap<String, Vec<String>> = Default::default();
         for (r, surface) in names::names_in_vocabulary(&src) {
             if surface == names::Surface::Registry {
@@ -304,16 +328,25 @@ fn run_names(args: &[String]) -> Result<ExitCode, String> {
     //
     // Ratcheted rather than absolute, because a *plan* document legitimately
     // names repos it proposes to create: five of the thirty-eight findings on
-    // 2026-08-08 are MESH-EXECUTION-PLAN.md's. The count is exact and
+    // 2026-08-08 came from one mesh execution plan. The count is exact and
     // decidable, so a cap is sound here in a way it is not for `unregistered`
     // — pass today's number, then lower it as docs are corrected.
     //
     // The rule needs an ORG checkout to answer "does this repo exist", and a
-    // CI job that checked out `theory` alone would find no sibling repos and
+    // CI job that checked out the docs repo alone would find no sibling repos and
     // flag every citation. So the oracle is calibrated first: below a floor of
     // sibling repos it is not trusted, and the rule reports as UNEVALUATED
     // rather than clean or red. Asking for a cap the run cannot honour is an
     // error, not a silent pass — that is the whole vacuous-guard failure mode.
+    let Some(docs) = registry.docs.as_deref() else {
+        if flag_value(args, "--max-phantom-repos")?.is_some() {
+            return Err("--max-phantom-repos was given, but no docs directory is \
+                 configured, so there is nothing to scan for repo citations. Set \
+                 --docs or TATARA_KEYWORDS_DOCS, or drop the flag."
+                .into());
+        }
+        return finish_names(&corpus, &root, bad, args);
+    };
     const ORG_FLOOR: usize = 50;
     let repo_count = corpus
         .sightings
@@ -349,8 +382,8 @@ fn run_names(args: &[String]) -> Result<ExitCode, String> {
     // GATING 3a — a dead LINK. Zero tolerance: unlike a bare prose mention,
     // a `github.com/pleme-io/<name>` URL either resolves or 404s, so there is
     // no proposal reading of it. Code fences are excluded by the scanner.
-    for (name, doc) in names::dead_links(&root)
-        .map_err(|e| format!("reading theory/ under {}: {e}", root.display()))?
+    for (name, doc) in
+        names::dead_links(&root, docs).map_err(|e| format!("reading {}: {e}", docs.display()))?
     {
         eprintln!(
             "tatara-keywords names: `{doc}` LINKS to \
@@ -360,8 +393,8 @@ fn run_names(args: &[String]) -> Result<ExitCode, String> {
         bad += 1;
     }
 
-    let phantom = names::phantom_repos(&root)
-        .map_err(|e| format!("reading theory/ under {}: {e}", root.display()))?;
+    let phantom = names::phantom_repos(&root, docs)
+        .map_err(|e| format!("reading {}: {e}", docs.display()))?;
     for (name, doc) in &phantom {
         eprintln!(
             "tatara-keywords names: `{doc}` cites `pleme-io/{name}` as a repo, and \
@@ -413,7 +446,7 @@ fn finish_names(
     let unreg = names::unregistered(corpus);
     if !unreg.is_empty() {
         eprintln!(
-            "tatara-keywords names: ADVISORY — {} theory doc(s) with no `## Naming` \
+            "tatara-keywords names: ADVISORY — {} design doc(s) with no `## Naming` \
              row: {}",
             unreg.len(),
             elide(&unreg, verbose)
@@ -436,7 +469,7 @@ fn finish_names(
         .count();
     eprintln!(
         "tatara-keywords names: {} word(s) claimed over {}, {registered} with a \
-         `## Naming` row, {} theory doc(s) without one (ADVISORY: the denominator \
+         `## Naming` row, {} design doc(s) without one (ADVISORY: the denominator \
          is docs, not minted names — no lint can tell those apart) — \
          {bad} gating violation(s)",
         corpus.sightings.len(),

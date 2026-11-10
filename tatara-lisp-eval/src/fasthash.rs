@@ -28,17 +28,14 @@ impl FastHasher {
 impl Hasher for FastHasher {
     #[inline]
     fn write(&mut self, bytes: &[u8]) {
-        let mut chunks = bytes.chunks_exact(8);
-        for chunk in &mut chunks {
-            let mut word = [0u8; 8];
-            word.copy_from_slice(chunk);
-            self.add(u64::from_le_bytes(word));
+        let (words, tail) = bytes.as_chunks::<8>();
+        for word in words {
+            self.add(u64::from_le_bytes(*word));
         }
-        let tail = chunks.remainder();
-        if !tail.is_empty() {
+        if let Some(len) = u8::try_from(tail.len()).ok().filter(|&n| n > 0) {
             let mut word = [0u8; 8];
             word[..tail.len()].copy_from_slice(tail);
-            word[7] = tail.len() as u8;
+            word[7] = len;
             self.add(u64::from_le_bytes(word));
         }
     }
@@ -68,11 +65,11 @@ mod tests {
     use std::hash::Hash;
 
     const GOLDEN: [u64; 5] = [
-        9963731552681677918,
-        7520213095400374777,
-        4208978898528913939,
-        4208978898528913939,
-        5623186593915025326,
+        9_963_731_552_681_677_918,
+        7_520_213_095_400_374_777,
+        4_208_978_898_528_913_939,
+        4_208_978_898_528_913_939,
+        5_623_186_593_915_025_326,
     ];
 
     fn hash_of(s: &str) -> u64 {
@@ -114,6 +111,8 @@ mod tests {
         assert_eq!(words(|h| h.write_u8(7)), GOLDEN[2]);
         assert_eq!(words(|h| h.write_usize(7)), GOLDEN[3]);
         assert_eq!(hash_of("lookup"), GOLDEN[4]);
+        assert_eq!(words(|h| h.write(b"abcdefgh")), 16_295_004_723_668_454_517);
+        assert_eq!(words(|h| h.write(b"")), 0);
     }
 
     #[test]

@@ -21,6 +21,7 @@ pub mod code;
 pub mod env;
 pub mod error;
 pub mod eval;
+pub mod fasthash;
 pub mod ffi;
 pub mod fiber;
 pub mod hof;

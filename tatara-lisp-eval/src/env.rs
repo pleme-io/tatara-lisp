@@ -73,7 +73,7 @@ impl Seal {
     }
 }
 
-type Bindings = HashMap<Arc<str>, Value>;
+type Bindings = crate::fasthash::FastMap<Arc<str>, Value>;
 
 pub struct Frame {
     bindings: Mutex<Bindings>,

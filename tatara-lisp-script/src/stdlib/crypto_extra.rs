@@ -60,7 +60,11 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
     interp.register_fn(
         "uuid-v4",
         Arity::Exact(0),
-        |_args: &[Value], _ctx: &mut ScriptCtx, _sp| Ok(Value::Str(Arc::from(uuid_v4()))),
+        |_args: &[Value], _ctx: &mut ScriptCtx, sp| {
+            uuid_v4()
+                .map(|id| Value::Str(Arc::from(id)))
+                .map_err(|e| EvalError::native_fn("uuid-v4", e.to_string(), sp))
+        },
     );
 
     interp.register_fn(
@@ -75,7 +79,8 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
                     sp,
                 ));
             }
-            let bytes = random_bytes(n as usize);
+            let bytes = random_bytes(n as usize)
+                .map_err(|e| EvalError::native_fn("random-hex", e.to_string(), sp))?;
             Ok(Value::Str(Arc::from(hex::encode(bytes))))
         },
     );
@@ -93,57 +98,79 @@ pub fn install(interp: &mut Interpreter<ScriptCtx>) {
                     sp,
                 ));
             }
-            let range = (hi - lo) as u64;
-            let r = {
-                let bytes = random_bytes(8);
-                let mut u = 0u64;
-                for b in bytes {
-                    u = (u << 8) | b as u64;
-                }
-                lo + (u % range) as i64
+            let range = hi.abs_diff(lo);
+            let draw = || {
+                random_bytes(8)
+                    .map(|bytes| u64::from_be_bytes(bytes.try_into().expect("8 bytes")))
+                    .map_err(|e| EvalError::native_fn("random-int", e.to_string(), sp))
             };
-            Ok(Value::Int(r))
+            let offset = uniform_below(range, draw)?;
+            Ok(Value::Int(lo.wrapping_add_unsigned(offset)))
         },
     );
 }
 
-fn random_bytes(n: usize) -> Vec<u8> {
-    // Mix /dev/urandom (when available) with a process-unique fallback.
-    let mut out = vec![0u8; n];
-    if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
-        use std::io::Read;
-        if f.read_exact(&mut out).is_ok() {
-            return out;
-        }
-    }
-    // Fallback: weak (timestamp + pid + counter) — scripts should not rely
-    // on this, but it's better than zeros if /dev/urandom is absent.
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0);
-    let pid = std::process::id() as u64;
-    for (i, b) in out.iter_mut().enumerate() {
-        let seed = ts
-            .wrapping_add(pid)
-            .wrapping_add(i as u64)
-            .wrapping_mul(2_862_933_555_777_941_757);
-        *b = (seed >> 32) as u8;
-    }
-    out
+const ENTROPY_SOURCE: &str = "/dev/urandom";
+
+fn random_bytes(n: usize) -> std::io::Result<Vec<u8>> {
+    random_bytes_from(std::path::Path::new(ENTROPY_SOURCE), n)
 }
 
-fn uuid_v4() -> String {
-    let mut bytes = random_bytes(16);
+fn random_bytes_from(source: &std::path::Path, n: usize) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let mut out = vec![0u8; n];
+    std::fs::File::open(source)?.read_exact(&mut out)?;
+    Ok(out)
+}
+
+fn uniform_below<E>(range: u64, mut draw: impl FnMut() -> Result<u64, E>) -> Result<u64, E> {
+    let rejected_below = range.wrapping_neg() % range;
+    loop {
+        let value = draw()?;
+        if value >= rejected_below {
+            return Ok(value % range);
+        }
+    }
+}
+
+fn uuid_v4() -> std::io::Result<String> {
+    let mut bytes = random_bytes(16)?;
     // v4 variant bits
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
     bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    format!(
+    Ok(format!(
         "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
         bytes[0], bytes[1], bytes[2], bytes[3],
         bytes[4], bytes[5],
         bytes[6], bytes[7],
         bytes[8], bytes[9],
         bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
-    )
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_missing_entropy_source_is_an_error_not_a_clock_fallback() {
+        let missing = std::path::Path::new("/nonexistent/tatara-entropy");
+        assert!(random_bytes_from(missing, 16).is_err());
+    }
+
+    #[test]
+    fn uniform_below_rejects_the_biased_tail() {
+        let mut draws = [0u64, 1, 2, 3, u64::MAX].into_iter();
+        let range = 3 * (1u64 << 62);
+        let first = uniform_below(range, || Ok::<_, ()>(draws.next().unwrap())).unwrap();
+        assert_eq!(first, u64::MAX % range);
+    }
+
+    #[test]
+    fn random_bytes_reads_the_os_source() {
+        let a = random_bytes(32).unwrap();
+        let b = random_bytes(32).unwrap();
+        assert_eq!(a.len(), 32);
+        assert_ne!(a, b);
+    }
 }

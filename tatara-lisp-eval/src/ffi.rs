@@ -388,6 +388,7 @@ pub(crate) struct FnRegistry<H> {
     index: Arc<crate::fasthash::FastMap<Arc<str>, usize>>,
     revision: u64,
     operators: [usize; 8],
+    pub(crate) words: Option<crate::words::Live>,
     /// The host's interrupt: once set, the next evaluation step returns
     /// [`crate::EvalError::Halted`]. Shared by clones, since a fork is the
     /// same running program. See `Interpreter::set_interrupt`.
@@ -496,6 +497,7 @@ impl<H> Clone for FnRegistry<H> {
             index: Arc::clone(&self.index),
             revision: self.revision,
             operators: self.operators,
+            words: self.words.clone(),
             halt: Arc::clone(&self.halt),
             meter: Meter::new(self.meter.budget),
             observer: self.observer.clone(),
@@ -511,6 +513,7 @@ impl<H> Default for FnRegistry<H> {
             index: Arc::default(),
             revision: 0,
             operators: [0; 8],
+            words: None,
             halt: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             meter: Meter::new(Budget::tree_walker_default()),
             observer: None,
@@ -556,6 +559,10 @@ impl<H> FnRegistry<H> {
 
     pub(crate) fn lookup(&self, name: &str) -> Option<&FnEntry<H>> {
         self.index.get(name).map(|&at| &self.entries[at])
+    }
+
+    pub(crate) fn addr_of(&self, name: &str) -> usize {
+        self.lookup(name).map_or(0, |e| e.callable.addr())
     }
 
     pub(crate) fn revision(&self) -> u64 {

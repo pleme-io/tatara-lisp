@@ -192,6 +192,7 @@ impl<H: 'static> Interpreter<H> {
             arity,
             callable: FnImpl::Native(Arc::new(callable)),
         });
+        crate::words::after_register(self);
         self.globals.define(
             name.clone(),
             Value::NativeFn(Arc::new(NativeFn { name, arity })),
@@ -231,6 +232,7 @@ impl<H: 'static> Interpreter<H> {
             arity,
             callable: FnImpl::Owned(Arc::new(callable)),
         });
+        crate::words::after_register(self);
         self.globals.define(
             name.clone(),
             Value::NativeFn(Arc::new(NativeFn { name, arity })),
@@ -255,6 +257,7 @@ impl<H: 'static> Interpreter<H> {
             arity,
             callable: FnImpl::Higher(Arc::new(callable)),
         });
+        crate::words::after_register(self);
         self.globals.define(
             name.clone(),
             Value::NativeFn(Arc::new(NativeFn { name, arity })),
@@ -326,6 +329,7 @@ impl<H: 'static> Interpreter<H> {
             arity,
             callable: FnImpl::Awaitable(Arc::new(crate::ffi::Awaitable { ready, call })),
         });
+        crate::words::after_register(self);
         self.globals.define(
             name.clone(),
             Value::NativeFn(Arc::new(NativeFn { name, arity })),
@@ -2504,17 +2508,7 @@ fn sf_define<H: 'static>(
                     head_list[0].span,
                 )
             })?;
-            let (params, rest) = parse_lambda_params(&head_list[1..], items[1].span)?;
-            let body = items[2..].to_vec();
-            let closure = Arc::new(Closure {
-                params,
-                rest,
-                body,
-                captured_env: env.clone(),
-                source: span,
-                name: Some(Arc::<str>::from(name)),
-            });
-            env.define(Arc::<str>::from(name), Value::Closure(closure));
+            define_function(name, &head_list[1..], items, span, env)?;
             Ok(Value::Nil)
         }
         _ => Err(EvalError::bad_form(
@@ -2523,6 +2517,26 @@ fn sf_define<H: 'static>(
             items[1].span,
         )),
     }
+}
+
+pub(crate) fn define_function(
+    name: &str,
+    params: &[Spanned],
+    items: &[Spanned],
+    span: Span,
+    env: &Env,
+) -> Result<()> {
+    let (params, rest) = parse_lambda_params(params, items[1].span)?;
+    let closure = Arc::new(Closure {
+        params,
+        rest,
+        body: items[2..].to_vec(),
+        captured_env: env.clone(),
+        source: span,
+        name: Some(Arc::<str>::from(name)),
+    });
+    env.define(Arc::<str>::from(name), Value::Closure(closure));
+    Ok(())
 }
 
 fn sf_set<H: 'static>(

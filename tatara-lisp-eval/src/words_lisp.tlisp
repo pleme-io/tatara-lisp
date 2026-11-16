@@ -1,0 +1,169 @@
+(define (assoc m k v) (hash-map-set m k v))
+(define (assoc-in m path v)
+  (cond
+    ((null? path) v)
+    ((null? (cdr path)) (hash-map-set (or m (hash-map)) (car path) v))
+    (else
+      (let ((sub (or (hash-map-get m (car path)) (hash-map))))
+        (hash-map-set
+          (or m (hash-map))
+          (car path)
+          (assoc-in
+            sub
+            (cdr path)
+            v))))))
+(define (butlast xs)
+  (if (null? (cdr xs))
+    ()
+    (cons (car xs) (butlast (cdr xs)))))
+(define (concat &rest lists) (apply append lists))
+(define (count xs)
+  (cond
+    ((null? xs) 0)
+    ((list? xs) (length xs))
+    ((hash-map? xs) (hash-map-count xs))
+    ((string? xs) (string-length xs))
+    (else (error :count "not countable"))))
+(define (dec x) (- x 1))
+(define (dissoc m k) (hash-map-remove m k))
+(define (distinct xs)
+  (foldl
+    (lambda (acc x) (if (member? x acc) acc (append acc (list x))))
+    (list)
+    xs))
+(define (empty? xs) (null? xs))
+(define (even? x) (= 0 (modulo x 2)))
+(define (first xs) (car xs))
+(define (flatten xs)
+  (cond
+    ((null? xs) ())
+    ((list? (car xs)) (append (flatten (car xs)) (flatten (cdr xs))))
+    (else (cons (car xs) (flatten (cdr xs))))))
+(define (fourth xs) (car (cdr (cdr (cdr xs)))))
+(define (frequencies xs)
+  (foldl
+    (lambda (acc x)
+      (hash-map-update
+        acc
+        x
+        (lambda (n) (if (null? n) 1 (+ n 1)))))
+    (hash-map)
+    xs))
+(define (get m k) (hash-map-get m k))
+(define (get-in m path)
+  (cond
+    ((null? path) m)
+    ((null? m) ())
+    (else (get-in (hash-map-get m (car path)) (cdr path)))))
+(define (group-by-into-map f xs)
+  (foldl
+    (lambda (acc x)
+      (let* ((k (f x)) (current (or (hash-map-get acc k) (list))))
+        (hash-map-set
+          acc
+          k
+          (append current (list x)))))
+    (hash-map)
+    xs))
+(define (identity x) x)
+(define (inc x) (+ x 1))
+(define (interleave xs ys) (apply append (zip xs ys)))
+(define (intersperse sep xs)
+  (cond
+    ((null? xs) ())
+    ((null? (cdr xs)) (list (car xs)))
+    (else (cons (car xs) (cons sep (intersperse sep (cdr xs)))))))
+(define (into-hash-map xs)
+  (cond
+    ((null? xs) (hash-map))
+    ((and (list? (car xs)) (= (length (car xs)) 2))
+      (foldl
+        (lambda (acc pair) (hash-map-set acc (car pair) (second pair)))
+        (hash-map)
+        xs))
+    (else (apply hash-map xs))))
+(define (last xs) (if (null? (cdr xs)) (car xs) (last (cdr xs))))
+(define (lazy-drop n s)
+  (cond
+    ((<= n 0) s)
+    ((lazy-empty? s) s)
+    (else (lazy-drop (- n 1) (lazy-rest s)))))
+(define (lazy-empty) ())
+(define (lazy-empty? s) (null? s))
+(define (lazy-head s) (car s))
+(define (lazy-rest s) (force (second s)))
+(define (lazy-take n s)
+  (cond
+    ((<= n 0) ())
+    ((lazy-empty? s) ())
+    (else (cons (lazy-head s) (lazy-take (- n 1) (lazy-rest s))))))
+(define (max-by f xs)
+  (foldl
+    (lambda (best x) (if (> (f x) (f best)) x best))
+    (car xs)
+    (cdr xs)))
+(define (member? x xs) (any? (lambda (e) (equal? e x)) xs))
+(define (min-by f xs)
+  (foldl
+    (lambda (best x) (if (< (f x) (f best)) x best))
+    (car xs)
+    (cdr xs)))
+(define (negative? x) (< x 0))
+(define (not-empty? xs) (not (empty? xs)))
+(define (odd? x) (= 1 (modulo x 2)))
+(define (plist-get plist key)
+  (cond
+    ((null? plist) ())
+    ((null? (cdr plist)) ())
+    ((equal? (car plist) key) (second plist))
+    (else (plist-get (cdr (cdr plist)) key))))
+(define (position x xs) (find-index (lambda (e) (equal? e x)) xs))
+(define (positive? x) (> x 0))
+(define (range &rest args)
+  (cond
+    ((= (length args) 1) (range-impl 0 (car args) 1))
+    ((= (length args) 2) (range-impl (car args) (second args) 1))
+    ((= (length args) 3) (range-impl (car args) (second args) (third args)))
+    (else (error-msg "range: arity 1, 2, or 3"))))
+(define (range-impl start end step)
+  (cond
+    ((and (> step 0) (>= start end)) ())
+    ((and (< step 0) (<= start end)) ())
+    (else (cons start (range-impl (+ start step) end step)))))
+(define (realize s)
+  (if (lazy-empty? s)
+    ()
+    (cons (lazy-head s) (realize (lazy-rest s)))))
+(define (repeat-list x n) (if (<= n 0) () (cons x (repeat-list x (- n 1)))))
+(define (rest xs) (cdr xs))
+(define (safe-nth n xs)
+  (cond
+    ((null? xs) ())
+    ((<= n 0) (car xs))
+    (else (safe-nth (- n 1) (cdr xs)))))
+(define (second xs) (car (cdr xs)))
+(define (select-keys m keys)
+  (foldl
+    (lambda (acc k)
+      (if (hash-map-has? m k)
+        (hash-map-set
+          acc
+          k
+          (hash-map-get m k))
+        acc))
+    (hash-map)
+    keys))
+(define (some? x) (not (null? x)))
+(define (tap f x)
+  (f x)
+  x)
+(define (third xs) (car (cdr (cdr xs))))
+(define (unwrap-or v default) (if (null? v) default v))
+(define (update-in m path f) (assoc-in m path (f (get-in m path))))
+(define (zero? x) (= x 0))
+(define (zip xs ys) (map (lambda (a b) (list a b)) xs ys))
+(define (zipmap keys vals)
+  (foldl
+    (lambda (acc pair) (hash-map-set acc (car pair) (second pair)))
+    (hash-map)
+    (zip keys vals)))

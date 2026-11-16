@@ -23,7 +23,10 @@ use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
-use tatara_lisp::Span;
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::OnceLock;
+
+use tatara_lisp::{Span, Spanned, SpannedForm};
 
 use crate::error::{EvalError, Result};
 use crate::eval::Interpreter;
@@ -100,6 +103,191 @@ pub fn install_words<H: 'static>(interp: &mut Interpreter<H>) {
     install_number_words(interp);
     install_lazy_words(interp);
     install_map_words(interp);
+    let registry = &interp.registry;
+    let addrs = fallback()
+        .universe
+        .iter()
+        .map(|name| (Arc::clone(name), registry.addr_of(name)))
+        .collect();
+    interp.registry.words = Some(Live {
+        addrs: Arc::new(addrs),
+        revision: interp.registry.revision(),
+        lisp: Arc::default(),
+    });
+}
+
+/// The Lisp definition every native word was written from
+/// (`words_lisp.tlisp`). A word runs natively while every name its
+/// definition reaches is still the function the word was installed beside;
+/// once an embedder registers one of those names again, the word returns to
+/// its Lisp definition, which looks each name up when it runs, so the
+/// embedder's function is the one called.
+pub const FALLBACK_SOURCE: &str = include_str!("words_lisp.tlisp");
+
+#[derive(Clone, Debug)]
+pub(crate) struct Live {
+    addrs: Arc<BTreeMap<Arc<str>, usize>>,
+    revision: u64,
+    lisp: Arc<BTreeSet<Arc<str>>>,
+}
+
+struct Fallback {
+    forms: Vec<(Arc<str>, Spanned)>,
+    reaches: BTreeMap<Arc<str>, BTreeSet<Arc<str>>>,
+    universe: BTreeSet<Arc<str>>,
+}
+
+fn fallback() -> &'static Fallback {
+    static TABLE: OnceLock<Fallback> = OnceLock::new();
+    TABLE.get_or_init(|| {
+        let forms: Vec<(Arc<str>, Spanned)> = tatara_lisp::read_spanned(FALLBACK_SOURCE)
+            .expect("words_lisp.tlisp reads")
+            .into_iter()
+            .map(|form| (defined_name(&form), form))
+            .collect();
+        let words: BTreeSet<Arc<str>> = forms.iter().map(|(n, _)| Arc::clone(n)).collect();
+        let direct: BTreeMap<Arc<str>, BTreeSet<Arc<str>>> = forms
+            .iter()
+            .map(|(name, form)| {
+                let mut seen = BTreeSet::new();
+                symbols(form, &mut seen);
+                seen.remove(name);
+                (Arc::clone(name), seen)
+            })
+            .collect();
+        let mut reaches = direct.clone();
+        loop {
+            let mut grew = false;
+            for name in &words {
+                let via: BTreeSet<Arc<str>> = reaches[name]
+                    .iter()
+                    .filter(|d| words.contains(*d) && *d != name)
+                    .flat_map(|d| reaches[d].iter().cloned())
+                    .collect();
+                let entry = reaches.get_mut(name).expect("every word has a row");
+                let before = entry.len();
+                entry.extend(via);
+                grew |= entry.len() != before;
+            }
+            if !grew {
+                break;
+            }
+        }
+        let universe = reaches
+            .values()
+            .flatten()
+            .cloned()
+            .chain(words.iter().cloned())
+            .collect();
+        Fallback {
+            forms,
+            reaches,
+            universe,
+        }
+    })
+}
+
+fn defined_name(form: &Spanned) -> Arc<str> {
+    let SpannedForm::List(items) = &form.form else {
+        panic!("words_lisp.tlisp holds only (define (name …) …) forms");
+    };
+    match items.get(1).map(|s| &s.form) {
+        Some(SpannedForm::List(head)) => Arc::from(
+            head.first()
+                .and_then(Spanned::as_symbol)
+                .expect("a defined name"),
+        ),
+        _ => panic!("words_lisp.tlisp holds only (define (name …) …) forms"),
+    }
+}
+
+fn symbols(form: &Spanned, out: &mut BTreeSet<Arc<str>>) {
+    match &form.form {
+        SpannedForm::Atom(tatara_lisp::Atom::Symbol(s)) => {
+            out.insert(Arc::from(s.as_str()));
+        }
+        SpannedForm::List(items) => items.iter().for_each(|f| symbols(f, out)),
+        _ => {}
+    }
+}
+
+/// Return to Lisp every native word that reaches a name registered again
+/// since the words were installed. Run after each registration; a no-op
+/// until [`install_words`] has finished and while nothing changed.
+pub(crate) fn after_register<H: 'static>(interp: &mut Interpreter<H>) {
+    let Some(live) = interp.registry.words.clone() else {
+        return;
+    };
+    if live.revision == interp.registry.revision() {
+        return;
+    }
+    let moved: BTreeSet<&Arc<str>> = live
+        .addrs
+        .iter()
+        .filter(|(name, addr)| interp.registry.addr_of(name) != **addr)
+        .map(|(name, _)| name)
+        .collect();
+    let mut lisp = (*live.lisp).clone();
+    let table = fallback();
+    for (name, form) in &table.forms {
+        if lisp.contains(name) || moved.contains(name) {
+            continue;
+        }
+        if !table.reaches[name].iter().any(|d| moved.contains(d)) {
+            continue;
+        }
+        let SpannedForm::List(items) = &form.form else {
+            continue;
+        };
+        let SpannedForm::List(head) = &items[1].form else {
+            continue;
+        };
+        if crate::eval::define_function(
+            name,
+            &head[1..],
+            items,
+            form.span,
+            interp.globals_snapshot(),
+        )
+        .is_err()
+        {
+            continue;
+        }
+        let Some(closure) = interp.lookup_global(name) else {
+            continue;
+        };
+        let arity = interp
+            .registry
+            .lookup(name)
+            .map_or(Arity::Any, |entry| entry.arity);
+        interp.registry.insert(crate::ffi::FnEntry {
+            name: Arc::clone(name),
+            arity,
+            callable: crate::ffi::FnImpl::Higher(Arc::new(
+                move |args: &[Value], host: &mut H, caller: &Caller<H>, sp: Span| {
+                    caller.apply_value(&closure, args.to_vec(), host, sp)
+                },
+            )),
+        });
+        lisp.insert(Arc::clone(name));
+    }
+    interp.registry.words = Some(Live {
+        addrs: live.addrs,
+        revision: interp.registry.revision(),
+        lisp: Arc::new(lisp),
+    });
+}
+
+/// The words that have returned to their Lisp definition in this
+/// interpreter, by name.
+#[must_use]
+pub fn returned_to_lisp<H>(interp: &Interpreter<H>) -> Vec<String> {
+    interp
+        .registry
+        .words
+        .as_ref()
+        .map(|live| live.lisp.iter().map(ToString::to_string).collect())
+        .unwrap_or_default()
 }
 
 fn install_list_words<H: 'static>(interp: &mut Interpreter<H>) {

@@ -64,6 +64,10 @@ pub enum Op {
     /// for TCO. Only emit at tail position; the compiler tracks tail
     /// position structurally.
     TailCall(usize),
+    /// `f a b → r` — `Call(2)` of a global operator. When `f` is still the
+    /// interpreter's own primitive for `kind` and both operands are Ints or
+    /// both Floats, the VM computes `r` in place; otherwise it is the call.
+    Arith(Arith),
     /// `v →` — pop the return value, restore the previous frame,
     /// push v as the result of the outer call.
     Return,
@@ -124,6 +128,7 @@ impl Op {
             Self::Jmp(_) => 0,
             Self::JmpNot(_) | Self::JmpIf(_) => -1,
             Self::Call(arity) | Self::TailCall(arity) => -(*arity as i32),
+            Self::Arith(_) => -2,
             Self::Return => -1,
             Self::MakeClosure(_) => 1,
             Self::MakeList(n) => 1 - *n as i32,
@@ -131,5 +136,79 @@ impl Op {
             Self::PushHandler { .. } | Self::PopHandler => 0,
             Self::Halt => 0,
         })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Arith {
+    Add,
+    Sub,
+    Mul,
+    Lt,
+    Gt,
+    Le,
+    Ge,
+    NumEq,
+}
+
+impl Arith {
+    pub const ALL: [Self; 8] = [
+        Self::Add,
+        Self::Sub,
+        Self::Mul,
+        Self::Lt,
+        Self::Gt,
+        Self::Le,
+        Self::Ge,
+        Self::NumEq,
+    ];
+
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Add => "+",
+            Self::Sub => "-",
+            Self::Mul => "*",
+            Self::Lt => "<",
+            Self::Gt => ">",
+            Self::Le => "<=",
+            Self::Ge => ">=",
+            Self::NumEq => "=",
+        }
+    }
+
+    #[must_use]
+    pub fn of(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|kind| kind.name() == name)
+    }
+
+    #[must_use]
+    pub fn ints(self, a: i64, b: i64) -> Option<crate::value::Value> {
+        use crate::value::Value::{Bool, Int};
+        match self {
+            Self::Add => a.checked_add(b).map(Int),
+            Self::Sub => a.checked_sub(b).map(Int),
+            Self::Mul => a.checked_mul(b).map(Int),
+            Self::Lt => Some(Bool(a < b)),
+            Self::Gt => Some(Bool(a > b)),
+            Self::Le => Some(Bool(a <= b)),
+            Self::Ge => Some(Bool(a >= b)),
+            Self::NumEq => Some(Bool(a == b)),
+        }
+    }
+
+    #[must_use]
+    pub fn floats(self, a: f64, b: f64) -> crate::value::Value {
+        use crate::value::Value::{Bool, Float};
+        match self {
+            Self::Add => Float(a + b),
+            Self::Sub => Float(a - b),
+            Self::Mul => Float(a * b),
+            Self::Lt => Bool(a < b),
+            Self::Gt => Bool(a > b),
+            Self::Le => Bool(a <= b),
+            Self::Ge => Bool(a >= b),
+            Self::NumEq => Bool(a == b),
+        }
     }
 }

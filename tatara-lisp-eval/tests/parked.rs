@@ -270,3 +270,30 @@ fn a_parked_state_from_other_source_is_refused_by_name() {
         .expect("refused");
     assert!(matches!(err, ParkError::Malformed(_)), "got {err:?}");
 }
+
+const TAIL_RELAY: &str = "
+(define (wait k) (+ (next-mail) k))
+(define (relay a b c) (wait (+ a b c)))
+(define (start) (relay 1 2 3))
+(list (start) 0)";
+
+#[test]
+fn a_frame_a_tail_call_reused_parks_with_its_new_function_s_locals() {
+    assert_eq!(uninterrupted(TAIL_RELAY, &[10]), "(16 0)");
+    let mut interp = node(true);
+    let chunk = compile(&mut interp, TAIL_RELAY);
+    let parked = over_the_wire(&park_at_next_mail(TAIL_RELAY));
+    assert_eq!(
+        parked.frames.len(),
+        2,
+        "top level, and start's frame now running wait"
+    );
+    for frame in &parked.frames {
+        let locals = match frame.func {
+            FnRef::Top => chunk.top.locals,
+            FnRef::Table(i) => chunk.fn_table[i].locals,
+        };
+        assert_eq!(frame.stack_base - frame.locals_base, locals, "{frame:?}");
+    }
+    assert_eq!(resume_elsewhere(TAIL_RELAY, &parked, &[10]), "(16 0)");
+}

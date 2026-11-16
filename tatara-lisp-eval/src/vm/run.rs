@@ -13,7 +13,7 @@ use tatara_lisp::Span;
 use thiserror::Error;
 
 use super::chunk::{CaptureSource, Chunk, CompiledFn, FnRef};
-use super::op::Op;
+use super::op::{Arith, Op};
 use crate::error::EvalError;
 use crate::eval::Interpreter;
 use crate::value::Value;
@@ -254,6 +254,8 @@ struct HandlerRecord {
 }
 
 /// One activation record. The VM is a stack of these.
+type Cells = crate::fasthash::FastMap<usize, Arc<Mutex<Value>>>;
+
 struct Frame {
     /// The function being executed.
     func: Arc<CompiledFn>,
@@ -283,7 +285,7 @@ struct Frame {
     /// established lazily on first `MakeClosure` that references the
     /// slot. After promotion, `set!`/`StoreLocal` writes through the
     /// cell so every closure capturing the slot sees the change.
-    local_cells: std::collections::HashMap<usize, Arc<Mutex<Value>>>,
+    local_cells: Cells,
     /// Active error handlers on this frame, innermost last.
     handlers: Vec<HandlerRecord>,
 }
@@ -303,6 +305,14 @@ pub struct Vm {
     /// Set by `do_call` when a primitive parked. Read and cleared by the
     /// run loop, which turns it into [`Progress::Blocked`].
     blocked: bool,
+    globals: crate::fasthash::FastMap<(usize, usize), CachedGlobal>,
+    operators: (u64, [bool; 8]),
+}
+
+struct CachedGlobal {
+    stamp: crate::env::EnvStamp,
+    value: Value,
+    _pin: std::sync::Weak<Chunk>,
 }
 
 impl Vm {
@@ -328,6 +338,8 @@ impl Vm {
             slice: 0,
             started: false,
             blocked: false,
+            globals: crate::fasthash::FastMap::default(),
+            operators: (0, [false; 8]),
         }
     }
 
@@ -467,7 +479,7 @@ impl Vm {
             locals_base: 0,
             stack_base: top_locals,
             captures: Vec::new(),
-            local_cells: std::collections::HashMap::new(),
+            local_cells: Cells::default(),
             handlers: Vec::new(),
         };
         // Reserve slots for locals.
@@ -516,7 +528,7 @@ impl Vm {
                 locals_base: 0,
                 stack_base: top_locals,
                 captures: Vec::new(),
-                local_cells: std::collections::HashMap::new(),
+                local_cells: Cells::default(),
                 handlers: Vec::new(),
             });
             for _ in 0..top_locals {
@@ -643,13 +655,7 @@ impl Vm {
                 }
 
                 Op::LoadGlobal(name_idx) => {
-                    let name = self.frames[frame_idx].chunk.names.get(name_idx).clone();
-                    let v = self
-                        .lookup_global(interp, &name)
-                        .ok_or_else(|| VmError::Unbound {
-                            name: name.to_string(),
-                            at: span,
-                        })?;
+                    let v = self.load_global(interp, frame_idx, name_idx, span)?;
                     self.stack.push(v);
                 }
                 Op::StoreGlobal(name_idx) => {
@@ -731,6 +737,15 @@ impl Vm {
                     if self.blocked {
                         self.blocked = false;
                         return Ok(Progress::Blocked);
+                    }
+                }
+                Op::Arith(kind) => {
+                    if !self.arith_in_place(interp, kind) {
+                        self.do_call(chunk, interp, host, 2, span, false)?;
+                        if self.blocked {
+                            self.blocked = false;
+                            return Ok(Progress::Blocked);
+                        }
                     }
                 }
                 Op::TailCall(arity) => {
@@ -896,8 +911,68 @@ impl Vm {
         self.stack.pop().unwrap_or(Value::Nil)
     }
 
-    fn lookup_global<H: 'static>(&self, interp: &Interpreter<H>, name: &str) -> Option<Value> {
-        interp.lookup_global(name)
+    fn load_global<H: 'static>(
+        &mut self,
+        interp: &Interpreter<H>,
+        frame_idx: usize,
+        name_idx: usize,
+        span: Span,
+    ) -> Result<Value, VmError> {
+        let chunk = &self.frames[frame_idx].chunk;
+        let key = (Arc::as_ptr(chunk) as usize, name_idx);
+        let stamp = interp.globals_snapshot().stamp();
+        if let (Some(stamp), Some(hit)) = (stamp, self.globals.get(&key)) {
+            if hit.stamp == stamp {
+                return Ok(hit.value.clone());
+            }
+        }
+        let name = chunk.names.get(name_idx);
+        let value = interp.lookup_global(name).ok_or_else(|| VmError::Unbound {
+            name: name.to_string(),
+            at: span,
+        })?;
+        if let Some(stamp) = stamp {
+            let pin = Arc::downgrade(chunk);
+            self.globals.insert(
+                key,
+                CachedGlobal {
+                    stamp,
+                    value: value.clone(),
+                    _pin: pin,
+                },
+            );
+        }
+        Ok(value)
+    }
+
+    fn arith_in_place<H: 'static>(&mut self, interp: &Interpreter<H>, kind: Arith) -> bool {
+        let [.., callee, a, b] = &self.stack[..] else {
+            return false;
+        };
+        let result = match (a, b) {
+            (Value::Int(a), Value::Int(b)) => kind.ints(*a, *b),
+            (Value::Float(a), Value::Float(b)) => Some(kind.floats(*a, *b)),
+            _ => None,
+        };
+        let Some(result) = result else {
+            return false;
+        };
+        let primitive = matches!(callee, Value::NativeFn(f)
+            if &*f.name == kind.name() && f.arity.check(2).is_ok());
+        if !primitive || !self.operator_intact(interp, kind) {
+            return false;
+        }
+        self.stack.truncate(self.stack.len() - 3);
+        self.stack.push(result);
+        true
+    }
+
+    fn operator_intact<H: 'static>(&mut self, interp: &Interpreter<H>, kind: Arith) -> bool {
+        let revision = interp.registry.revision();
+        if self.operators.0 != revision {
+            self.operators = (revision, interp.registry.operators_intact());
+        }
+        self.operators.1[kind as usize]
     }
 
     fn do_call<H: 'static>(
@@ -1020,34 +1095,22 @@ impl Vm {
             });
         }
 
-        // Pop args from stack.
-        let stack_len = self.stack.len();
-        let args_start = stack_len - arity;
-        let args: Vec<Value> = self.stack.drain(args_start..).collect();
-        // Pop the callee.
-        self.stack.pop();
-
-        // Build the new locals layout.
-        let mut locals: Vec<Value> = Vec::with_capacity(body.locals);
-        for v in args.iter().take(required) {
-            locals.push(v.clone());
+        let args_start = self.stack.len() - arity;
+        if has_rest {
+            let rest: Vec<Value> = self.stack.drain(args_start + required..).collect();
+            self.stack.push(Value::list(rest));
         }
-        if let Some(_) = &body.rest {
-            let rest_args: Vec<Value> = args.iter().skip(required).cloned().collect();
-            locals.push(Value::list(rest_args));
-        }
-        while locals.len() < body.locals {
-            locals.push(Value::Nil);
-        }
+        let base = if tail && !self.frames.is_empty() {
+            self.frames[self.frames.len() - 1].locals_base
+        } else {
+            args_start - 1
+        };
+        self.stack.drain(base..args_start);
+        self.stack.resize(base + body.locals, Value::Nil);
 
         if tail && !self.frames.is_empty() {
-            // Reuse the current frame: drop its locals, push new ones.
             let frame_idx = self.frames.len() - 1;
             let f = &mut self.frames[frame_idx];
-            self.stack.truncate(f.locals_base);
-            for v in locals {
-                self.stack.push(v);
-            }
             f.func = body.clone();
             f.func_ref = FnRef::Table(cc.fn_index);
             f.chunk = Arc::clone(&cc.chunk);
@@ -1058,11 +1121,7 @@ impl Vm {
             // stack_base relative to locals_base stays the same.
             f.stack_base = f.locals_base + body.locals;
         } else {
-            // Push a new frame.
-            let locals_base = self.stack.len();
-            for v in locals {
-                self.stack.push(v);
-            }
+            let locals_base = base;
             let stack_base = self.stack.len();
             self.frames.push(Frame {
                 func: body.clone(),
@@ -1072,7 +1131,7 @@ impl Vm {
                 locals_base,
                 stack_base,
                 captures: cc.captures.clone(),
-                local_cells: std::collections::HashMap::new(),
+                local_cells: Cells::default(),
                 handlers: Vec::new(),
             });
         }

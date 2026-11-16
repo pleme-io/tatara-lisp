@@ -16,7 +16,7 @@
 //! cooperative tasks.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use arc_swap::ArcSwapOption;
@@ -98,6 +98,18 @@ pub struct Frame {
     /// Skipping only ever declines a release, so the flag cannot make one
     /// wrong.
     scope_open: AtomicBool,
+    writes: AtomicU64,
+    id: OnceLock<u64>,
+}
+
+static NEXT_FRAME_ID: AtomicU64 = AtomicU64::new(1);
+
+const STAMP_DEPTH: usize = 8;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EnvStamp {
+    depth: usize,
+    frames: [(u64, u64); STAMP_DEPTH],
 }
 
 impl Default for Frame {
@@ -106,6 +118,8 @@ impl Default for Frame {
             bindings: Mutex::default(),
             sealed: OnceLock::new(),
             scope_open: AtomicBool::new(true),
+            writes: AtomicU64::new(0),
+            id: OnceLock::new(),
         }
     }
 }
@@ -117,6 +131,17 @@ impl Frame {
 
     fn is_frozen(&self) -> bool {
         self.sealed.get().is_some()
+    }
+
+    fn wrote(&self) {
+        self.writes.fetch_add(1, Ordering::Release);
+    }
+
+    fn stamp(&self) -> (u64, u64) {
+        let id = *self
+            .id
+            .get_or_init(|| NEXT_FRAME_ID.fetch_add(1, Ordering::Relaxed));
+        (id, self.writes.load(Ordering::Acquire))
     }
 
     fn slot(&self) -> &ArcSwapOption<Bindings> {
@@ -163,6 +188,7 @@ impl Frame {
         } else {
             bindings.insert(name, value);
         }
+        self.wrote();
     }
 
     fn set(&self, name: &str, value: Value) -> Result<(), Value> {
@@ -171,6 +197,7 @@ impl Frame {
             return match bindings.get_mut(name) {
                 Some(slot) => {
                     *slot = value;
+                    self.wrote();
                     Ok(())
                 }
                 None => Err(value),
@@ -185,6 +212,7 @@ impl Frame {
         let mut next = (*current).clone();
         next.insert(key, value);
         self.slot().store(Some(Arc::new(next)));
+        self.wrote();
         Ok(())
     }
 
@@ -355,6 +383,37 @@ impl Env {
         if let Some(top) = self.frames.last() {
             top.insert(name.into(), value);
         }
+    }
+
+    /// What this environment reads as, stated so a cache can tell it is
+    /// unchanged: each frame's identity and how many writes it has taken, or
+    /// `None` when it is deeper than a stamp holds.
+    ///
+    /// Two equal stamps name the same frames in the same order with no write
+    /// between them. Frame identities are never reused and write counts only
+    /// rise, so no sequence of writes returns a frame to a stamp it had.
+    /// Read the stamp before the lookup it validates: a write that lands
+    /// between the two moves the stamp, so the cached value is never trusted.
+    ///
+    /// ```
+    /// use tatara_lisp_eval::{Env, Value};
+    /// let env = Env::new();
+    /// let before = env.stamp();
+    /// assert_eq!(before, env.stamp());
+    /// env.define("x", Value::Int(1));
+    /// assert_ne!(before, env.stamp());
+    /// ```
+    #[must_use]
+    pub fn stamp(&self) -> Option<EnvStamp> {
+        let depth = self.frames.len();
+        if depth > STAMP_DEPTH {
+            return None;
+        }
+        let mut frames = [(0, 0); STAMP_DEPTH];
+        for (slot, frame) in frames.iter_mut().zip(&self.frames) {
+            *slot = frame.stamp();
+        }
+        Some(EnvStamp { depth, frames })
     }
 
     /// Look up `name`, walking from innermost to outermost frame.
@@ -612,6 +671,7 @@ fn release_if_closed(frame: &Arc<Frame>, held: usize) -> bool {
     if published.is_some() {
         frame.slot().store(None);
     }
+    frame.wrote();
     drop(bindings);
     drop(drained);
     drop(published);

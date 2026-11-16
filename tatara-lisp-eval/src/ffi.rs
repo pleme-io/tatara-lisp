@@ -287,6 +287,19 @@ pub(crate) enum FnImpl<H> {
     Awaitable(Arc<dyn AwaitableCallable<H>>),
 }
 
+impl<H> FnImpl<H> {
+    fn addr(&self) -> usize {
+        match self {
+            Self::Native(f) => Arc::as_ptr(f).cast::<()>() as usize,
+            Self::Owned(f) => Arc::as_ptr(f).cast::<()>() as usize,
+            Self::Higher(f) => Arc::as_ptr(f).cast::<()>() as usize,
+            Self::Awaitable(f) => Arc::as_ptr(f).cast::<()>() as usize,
+        }
+    }
+}
+
+static NEXT_REVISION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
 impl<H> Clone for FnImpl<H> {
     fn clone(&self) -> Self {
         match self {
@@ -335,6 +348,9 @@ impl<H> FnImpl<H> {
 /// Registry of registered native functions for an `Interpreter<H>`.
 pub(crate) struct FnRegistry<H> {
     entries: Vec<FnEntry<H>>,
+    index: Arc<crate::fasthash::FastMap<Arc<str>, usize>>,
+    revision: u64,
+    operators: [usize; 8],
     /// The host's interrupt: once set, the next evaluation step returns
     /// [`crate::EvalError::Halted`]. Shared by clones, since a fork is the
     /// same running program. See `Interpreter::set_interrupt`.
@@ -436,6 +452,9 @@ impl<H> Clone for FnRegistry<H> {
     fn clone(&self) -> Self {
         Self {
             entries: self.entries.clone(),
+            index: Arc::clone(&self.index),
+            revision: self.revision,
+            operators: self.operators,
             halt: Arc::clone(&self.halt),
             meter: Meter::new(self.meter.budget),
             observer: self.observer.clone(),
@@ -448,6 +467,9 @@ impl<H> Default for FnRegistry<H> {
     fn default() -> Self {
         Self {
             entries: Vec::new(),
+            index: Arc::default(),
+            revision: 0,
+            operators: [0; 8],
             halt: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             meter: Meter::new(Budget::tree_walker_default()),
             observer: None,
@@ -482,16 +504,38 @@ impl<H> FnRegistry<H> {
     }
 
     pub(crate) fn insert(&mut self, entry: FnEntry<H>) {
-        // Shadow any earlier registration with the same name — last wins.
-        if let Some(slot) = self.entries.iter_mut().find(|e| e.name == entry.name) {
-            *slot = entry;
+        self.revision = NEXT_REVISION.fetch_add(1, Ordering::Relaxed);
+        if let Some(&at) = self.index.get(&*entry.name) {
+            self.entries[at] = entry;
         } else {
+            Arc::make_mut(&mut self.index).insert(Arc::clone(&entry.name), self.entries.len());
             self.entries.push(entry);
         }
     }
 
     pub(crate) fn lookup(&self, name: &str) -> Option<&FnEntry<H>> {
-        self.entries.iter().find(|e| &*e.name == name)
+        self.index.get(name).map(|&at| &self.entries[at])
+    }
+
+    pub(crate) fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    pub(crate) fn adopt_operators(&mut self) {
+        for kind in crate::vm::op::Arith::ALL {
+            self.operators[kind as usize] =
+                self.lookup(kind.name()).map_or(0, |e| e.callable.addr());
+        }
+    }
+
+    pub(crate) fn operators_intact(&self) -> [bool; 8] {
+        crate::vm::op::Arith::ALL.map(|kind| {
+            let adopted = self.operators[kind as usize];
+            adopted != 0
+                && self
+                    .lookup(kind.name())
+                    .is_some_and(|e| e.callable.addr() == adopted)
+        })
     }
 }
 

@@ -254,6 +254,7 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
     interp.register_fn(">=", Arity::AtLeast(2), |args: &[Value], _h: &mut H, sp| {
         cmp_chain(args, sp, |a, b| a >= b, |a, b| a >= b)
     });
+    interp.registry.adopt_operators();
 
     // ── Predicates ────────────────────────────────────────────────
     interp.register_fn("null?", Arity::Exact(1), |a: &[Value], _h: &mut H, _sp| {

@@ -32,7 +32,7 @@ use tatara_lisp::{Atom, Span, Spanned, SpannedForm};
 use thiserror::Error;
 
 use super::chunk::{CaptureSource, Chunk, CompiledFn};
-use super::op::Op;
+use super::op::{Arith, Op};
 use crate::value::Value;
 
 #[derive(Debug, Error)]
@@ -1353,11 +1353,14 @@ impl<'a> Compiler<'a> {
         tail: bool,
     ) -> Result<(), CompileError> {
         self.compile_form(&items[0], false)?;
+        let operator = self.global_operator(items);
         for arg in &items[1..] {
             self.compile_form(arg, false)?;
         }
         let arity = items.len() - 1;
-        if tail {
+        if let Some(kind) = operator {
+            self.emit_op(Op::Arith(kind), span);
+        } else if tail {
             self.emit_op(Op::TailCall(arity), span);
         } else {
             self.emit_op(Op::Call(arity), span);
@@ -1366,6 +1369,16 @@ impl<'a> Compiler<'a> {
     }
 
     // ── Helpers ──────────────────────────────────────────────────
+
+    fn global_operator(&self, items: &[Spanned]) -> Option<Arith> {
+        if items.len() != 3 || !matches!(&items[0].form, SpannedForm::Atom(Atom::Symbol(_))) {
+            return None;
+        }
+        match self.current().ops.last() {
+            Some(Op::LoadGlobal(idx)) => Arith::of(self.chunk.names.get(*idx)),
+            _ => None,
+        }
+    }
 
     fn emit_op(&mut self, op: Op, span: Span) {
         let f = self.current_mut();
@@ -1494,7 +1507,24 @@ mod tests {
         assert!(matches!(c.top.ops[0], Op::LoadGlobal(_)));
         assert!(matches!(c.top.ops[1], Op::Int(1)));
         assert!(matches!(c.top.ops[2], Op::Int(2)));
-        assert!(matches!(c.top.ops[3], Op::TailCall(2)));
+        assert!(matches!(c.top.ops[3], Op::Arith(Arith::Add)));
+    }
+
+    #[test]
+    fn an_operator_reached_any_other_way_is_a_call() {
+        let local = compile_str("((lambda (+) (+ 1 2)) -)");
+        assert!(local.fn_table[0]
+            .ops
+            .iter()
+            .all(|op| !matches!(op, Op::Arith(_))));
+        let computed = compile_str("((if #t + -) 1 2)");
+        assert!(computed
+            .top
+            .ops
+            .iter()
+            .all(|op| !matches!(op, Op::Arith(_))));
+        let three = compile_str("(+ 1 2 3)");
+        assert!(three.top.ops.iter().all(|op| !matches!(op, Op::Arith(_))));
     }
 
     #[test]

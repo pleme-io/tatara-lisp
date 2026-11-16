@@ -332,6 +332,8 @@ impl Vm {
             slice: 0,
             started: true,
             blocked: false,
+            globals: crate::fasthash::FastMap::default(),
+            operators: (0, [false; 8]),
         })
     }
 }
@@ -630,7 +632,7 @@ impl<H: 'static> Decoder<'_, H> {
             func.captures.len(),
             &format!("frame {index}"),
         )?;
-        let mut local_cells = HashMap::with_capacity(frame.local_cells.len());
+        let mut local_cells = super::Cells::default();
         for (slot, number) in &frame.local_cells {
             local_cells.insert(*slot, self.cell(*number)?);
         }

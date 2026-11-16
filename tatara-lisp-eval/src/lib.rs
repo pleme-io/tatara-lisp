@@ -39,7 +39,7 @@ pub mod type_check;
 pub mod value;
 pub mod vm;
 
-pub use env::{Env, Seal};
+pub use env::{Env, EnvStamp, Seal};
 pub use error::{EvalError, Result};
 pub use eval::{HeadBinding, Interpreter};
 pub use ffi::{

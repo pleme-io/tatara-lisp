@@ -26,8 +26,7 @@ jobs:
       - name: blue's rows on the candidate tatara-lisp-eval
         working-directory: blue
         run: |
-          nix develop -c cargo update -p tatara-lisp-eval -p tatara-lisp -p tatara-lisp-derive --config 'patch.crates-io.tatara-lisp-eval.path="../tatara-lisp/tatara-lisp-eval"' --config 'patch.crates-io.tatara-lisp.path="../tatara-lisp/tatara-lisp"' --config 'patch.crates-io.tatara-lisp-derive.path="../tatara-lisp/tatara-lisp-derive"'
-          nix develop -c cargo test -p blue-lang-test --test conformance --config 'patch.crates-io.tatara-lisp-eval.path="../tatara-lisp/tatara-lisp-eval"' --config 'patch.crates-io.tatara-lisp.path="../tatara-lisp/tatara-lisp"' --config 'patch.crates-io.tatara-lisp-derive.path="../tatara-lisp/tatara-lisp-derive"'
+          nix develop -c sh -c "cargo update -p tatara-lisp-eval -p tatara-lisp -p tatara-lisp-derive --config 'patch.crates-io.tatara-lisp-eval.path=\"../tatara-lisp/tatara-lisp-eval\"' --config 'patch.crates-io.tatara-lisp.path=\"../tatara-lisp/tatara-lisp\"' --config 'patch.crates-io.tatara-lisp-derive.path=\"../tatara-lisp/tatara-lisp-derive\"' && cargo test -p blue-lang-test --test conformance --config 'patch.crates-io.tatara-lisp-eval.path=\"../tatara-lisp/tatara-lisp-eval\"' --config 'patch.crates-io.tatara-lisp.path=\"../tatara-lisp/tatara-lisp\"' --config 'patch.crates-io.tatara-lisp-derive.path=\"../tatara-lisp/tatara-lisp-derive\"'"
 
   release:
     needs: blue-conformance

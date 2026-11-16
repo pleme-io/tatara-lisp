@@ -1329,11 +1329,65 @@ fn eval_application<H: 'static>(
     host: &mut H,
 ) -> Result<Value> {
     let head_val = eval_in(env, registry, expander, &items[0], host)?;
+    if let Some((nfn, f)) = inline_native(&head_val, items.len() - 1, registry) {
+        return call_native_inline(nfn, f, items, call_span, env, registry, expander, host);
+    }
     let mut args: Vec<Value> = Vec::with_capacity(items.len().saturating_sub(1));
     for arg_form in &items[1..] {
         args.push(eval_in(env, registry, expander, arg_form, host)?);
     }
     apply(&head_val, args, call_span, registry, expander, host)
+}
+
+const INLINE_ARGS: usize = 4;
+
+fn inline_native<'v, 'r, H>(
+    head: &'v Value,
+    argc: usize,
+    registry: &'r FnRegistry<H>,
+) -> Option<(&'v NativeFn, &'r Arc<dyn NativeCallable<H>>)> {
+    let Value::NativeFn(nfn) = head else {
+        return None;
+    };
+    if argc > INLINE_ARGS {
+        return None;
+    }
+    match &registry.lookup(&nfn.name)?.callable {
+        FnImpl::Native(f) => Some((nfn, f)),
+        _ => None,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn call_native_inline<H: 'static>(
+    nfn: &NativeFn,
+    f: &Arc<dyn NativeCallable<H>>,
+    items: &[Spanned],
+    call_span: Span,
+    env: &mut Env,
+    registry: &FnRegistry<H>,
+    expander: &SpannedExpander,
+    host: &mut H,
+) -> Result<Value> {
+    let mut buffer: [Value; INLINE_ARGS] = std::array::from_fn(|_| Value::Nil);
+    let count = items.len() - 1;
+    for (slot, arg_form) in buffer.iter_mut().zip(&items[1..]) {
+        *slot = eval_in(env, registry, expander, arg_form, host)?;
+    }
+    check_native_arity(nfn, count, call_span)?;
+    f.call(&buffer[..count], host, call_span)
+}
+
+fn check_native_arity(nfn: &NativeFn, argc: usize, call_span: Span) -> Result<()> {
+    if nfn.arity.check(argc).is_err() {
+        return Err(EvalError::ArityMismatch {
+            fn_name: nfn.name.clone(),
+            expected: nfn.arity,
+            got: argc,
+            at: call_span,
+        });
+    }
+    Ok(())
 }
 
 /// The registry entry behind a native function value, after the arity check.
@@ -1343,14 +1397,7 @@ fn native_entry<'r, H>(
     call_span: Span,
     registry: &'r FnRegistry<H>,
 ) -> Result<&'r FnEntry<H>> {
-    if nfn.arity.check(argc).is_err() {
-        return Err(EvalError::ArityMismatch {
-            fn_name: nfn.name.clone(),
-            expected: nfn.arity,
-            got: argc,
-            at: call_span,
-        });
-    }
+    check_native_arity(nfn, argc, call_span)?;
     registry.lookup(&nfn.name).ok_or_else(|| {
         EvalError::native_fn(
             nfn.name.clone(),
@@ -1516,6 +1563,10 @@ fn eval_in_tail<H: 'static>(
             // Function application: evaluate head + args, then either
             // resume (closure) or apply (everything else).
             let head_val = eval_in(env, registry, expander, &items[0], host)?;
+            if let Some((nfn, f)) = inline_native(&head_val, items.len() - 1, registry) {
+                return call_native_inline(nfn, f, items, form.span, env, registry, expander, host)
+                    .map(TailResult::Done);
+            }
             let mut args: Vec<Value> = Vec::with_capacity(items.len().saturating_sub(1));
             for arg_form in &items[1..] {
                 args.push(eval_in(env, registry, expander, arg_form, host)?);
@@ -1978,18 +2029,19 @@ fn activate<H: 'static>(
     expander: &SpannedExpander,
     host: &mut H,
 ) -> Result<TailResult<H>> {
-    // Build the body env: capture closure's lexical scope, push frame,
-    // bind params + rest.
     let captured = current.captured_env.frame_depth();
-    let mut env = current.captured_env.clone();
-    env.push();
-    let mut args = args.into_iter();
-    for (param, arg) in current.params.iter().zip(args.by_ref()) {
-        env.define(param.clone(), arg);
-    }
-    if let Some(rest_name) = &current.rest {
-        env.define(rest_name.clone(), Value::list(args));
-    }
+    let mut env = match &current.rest {
+        None => current
+            .captured_env
+            .with_frame(current.params.iter().cloned().zip(args)),
+        Some(rest_name) => {
+            let mut args = args.into_iter();
+            let mut bound: Vec<(Arc<str>, Value)> =
+                current.params.iter().cloned().zip(args.by_ref()).collect();
+            bound.push((rest_name.clone(), Value::list(args)));
+            current.captured_env.with_frame(bound.into_iter())
+        }
+    };
 
     let step = eval_closure_body(&mut env, current, registry, expander, host);
     // The call's frames die with `env`. Release them while `step` — the

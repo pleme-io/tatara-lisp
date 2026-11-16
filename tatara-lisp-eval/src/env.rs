@@ -1,23 +1,28 @@
 //! Lexical environment holding `Value`s.
 //!
-//! Each frame is an `Arc<Frame>` holding a `HashMap` behind a `Mutex`, until a
-//! fork seals it: from then on the map is published behind an `ArcSwapOption`
-//! and read without the lock, because every fork of a test runner or a
-//! supervisor reads the same shared frames. Cloning an `Env` Arc-clones
+//! Each frame is an `Arc<Frame>` holding its bindings behind a `RwLock`: one
+//! binding inline, up to eight in a vector scanned by a one-word fingerprint of
+//! each name, a hash map past that. std's `Mutex` on macOS boxes a pthread
+//! mutex per frame and every call pushes one; its `RwLock` is a single atomic
+//! word there and a futex on Linux.
+//!
+//! A fork seals a frame: from then on its bindings are published behind an
+//! `ArcSwapOption` and read without the lock, because every fork of a test
+//! runner or a supervisor reads the same shared frames. Cloning an `Env` Arc-clones
 //! the frames, so a closure that captures the env at creation shares
 //! state with subsequent definitions in those same frames — which is
 //! what makes top-level recursion and mutual recursion work: the closure
 //! looks up its own name in a frame that the enclosing `define` later
 //! populates.
 //!
-//! `Send + Sync` (`Mutex`). Single-threaded eval is the expected mode,
+//! `Send + Sync` (`RwLock`). Single-threaded eval is the expected mode,
 //! but Send + Sync is required to make `Value` itself Send + Sync,
 //! which is in turn required so channels can carry closures across
 //! cooperative tasks.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock, RwLock};
 
 use arc_swap::ArcSwapOption;
 
@@ -73,10 +78,167 @@ impl Seal {
     }
 }
 
-type Bindings = crate::fasthash::FastMap<Arc<str>, Value>;
+const FEW: usize = 8;
+
+#[derive(Clone, Copy)]
+struct Name<'a> {
+    text: &'a str,
+    print: u64,
+}
+
+impl<'a> Name<'a> {
+    #[inline]
+    fn of(text: &'a str) -> Self {
+        let bytes = text.as_bytes();
+        let print = match bytes {
+            [] => 0,
+            [first, .., last] | [first @ last] => {
+                (bytes.len() as u64)
+                    | (u64::from(*first) << 32)
+                    | (u64::from(*last) << 40)
+                    | (u64::from(bytes[bytes.len() / 2]) << 48)
+            }
+        };
+        Self { text, print }
+    }
+}
+
+#[derive(Clone)]
+struct Slot {
+    print: u64,
+    name: Arc<str>,
+    value: Value,
+}
+
+impl Slot {
+    #[inline]
+    fn is(&self, name: Name<'_>) -> bool {
+        self.print == name.print && *self.name == *name.text
+    }
+}
+
+#[derive(Clone)]
+enum Bindings {
+    One(Slot),
+    Few(Vec<Slot>),
+    Many(crate::fasthash::FastMap<Arc<str>, Value>),
+}
+
+impl Default for Bindings {
+    fn default() -> Self {
+        Self::Few(Vec::new())
+    }
+}
+
+impl Bindings {
+    fn with_capacity(n: usize) -> Self {
+        if n > FEW {
+            Self::Many(crate::fasthash::FastMap::with_capacity_and_hasher(
+                n,
+                std::hash::BuildHasherDefault::default(),
+            ))
+        } else if n > 1 {
+            Self::Few(Vec::with_capacity(n))
+        } else {
+            Self::default()
+        }
+    }
+
+    #[inline]
+    fn get(&self, name: Name<'_>) -> Option<&Value> {
+        match self {
+            Self::One(slot) => slot.is(name).then_some(&slot.value),
+            Self::Few(slots) => slots.iter().find(|s| s.is(name)).map(|s| &s.value),
+            Self::Many(map) => map.get(name.text),
+        }
+    }
+
+    fn get_mut(&mut self, name: Name<'_>) -> Option<&mut Value> {
+        match self {
+            Self::One(slot) => slot.is(name).then_some(&mut slot.value),
+            Self::Few(slots) => slots.iter_mut().find(|s| s.is(name)).map(|s| &mut s.value),
+            Self::Many(map) => map.get_mut(name.text),
+        }
+    }
+
+    fn key(&self, name: Name<'_>) -> Option<&Arc<str>> {
+        match self {
+            Self::One(slot) => slot.is(name).then_some(&slot.name),
+            Self::Few(slots) => slots.iter().find(|s| s.is(name)).map(|s| &s.name),
+            Self::Many(map) => map.get_key_value(name.text).map(|(k, _)| k),
+        }
+    }
+
+    fn insert(&mut self, name: Arc<str>, value: Value) {
+        let print = Name::of(&name).print;
+        if let Some(bound) = self.get_mut(Name { text: &name, print }) {
+            *bound = value;
+            return;
+        }
+        let slot = Slot { print, name, value };
+        match self {
+            Self::Few(slots) if slots.capacity() != 0 && slots.len() < FEW => {
+                slots.push(slot);
+                return;
+            }
+            Self::Many(map) => {
+                map.insert(slot.name, slot.value);
+                return;
+            }
+            _ => {}
+        }
+        match std::mem::take(self) {
+            Self::Few(slots) if slots.capacity() == 0 => *self = Self::One(slot),
+            Self::One(first) => {
+                let mut slots = Vec::with_capacity(4);
+                slots.push(first);
+                slots.push(slot);
+                *self = Self::Few(slots);
+            }
+            Self::Few(mut slots) if slots.len() < FEW => {
+                slots.push(slot);
+                *self = Self::Few(slots);
+            }
+            Self::Few(slots) => {
+                let mut map: crate::fasthash::FastMap<Arc<str>, Value> =
+                    slots.into_iter().map(|s| (s.name, s.value)).collect();
+                map.insert(slot.name, slot.value);
+                *self = Self::Many(map);
+            }
+            Self::Many(mut map) => {
+                map.insert(slot.name, slot.value);
+                *self = Self::Many(map);
+            }
+        }
+    }
+
+    fn iter(&self) -> impl Iterator<Item = (&Arc<str>, &Value)> {
+        let (few, many) = match self {
+            Self::One(slot) => (Some(std::slice::from_ref(slot).iter()), None),
+            Self::Few(slots) => (Some(slots.iter()), None),
+            Self::Many(map) => (None, Some(map.iter())),
+        };
+        few.into_iter()
+            .flatten()
+            .map(|s| (&s.name, &s.value))
+            .chain(many.into_iter().flatten())
+    }
+
+    fn values(&self) -> impl Iterator<Item = &Value> {
+        self.iter().map(|(_, v)| v)
+    }
+
+    fn len(&self) -> usize {
+        match self {
+            Self::One(_) => 1,
+            Self::Few(slots) => slots.len(),
+            Self::Many(map) => map.len(),
+        }
+    }
+}
 
 pub struct Frame {
-    bindings: Mutex<Bindings>,
+    bindings: RwLock<Bindings>,
     /// The map a fork published, read without `bindings`' lock.
     ///
     /// [`Frame::freeze`] moves the map here when a fork seals the frame, and
@@ -114,7 +276,7 @@ pub struct EnvStamp {
 impl Default for Frame {
     fn default() -> Self {
         Self {
-            bindings: Mutex::default(),
+            bindings: RwLock::default(),
             sealed: OnceLock::new(),
             scope_open: AtomicBool::new(true),
             version: AtomicU64::new(0),
@@ -125,6 +287,13 @@ impl Default for Frame {
 impl Frame {
     fn new() -> Self {
         Self::default()
+    }
+
+    fn holding(bindings: Bindings) -> Self {
+        Self {
+            bindings: RwLock::new(bindings),
+            ..Self::default()
+        }
     }
 
     fn is_frozen(&self) -> bool {
@@ -158,18 +327,19 @@ impl Frame {
         self.sealed.get().unwrap_or(&UNSEALED)
     }
 
-    fn sealed_get(&self, name: &str) -> Option<Value> {
+    fn sealed_get(&self, name: Name<'_>) -> Option<Value> {
         self.slot()
             .load()
             .as_ref()
             .and_then(|m| m.get(name).cloned())
     }
 
-    fn get(&self, name: &str) -> Option<Value> {
+    #[inline]
+    fn get(&self, name: Name<'_>) -> Option<Value> {
         if self.is_frozen() {
             return self.sealed_get(name);
         }
-        let bindings = self.bindings.lock().unwrap();
+        let bindings = self.bindings.read().unwrap();
         if let Some(v) = bindings.get(name) {
             return Some(v.clone());
         }
@@ -180,12 +350,12 @@ impl Frame {
         None
     }
 
-    fn contains(&self, name: &str) -> bool {
+    fn contains(&self, name: Name<'_>) -> bool {
         self.get(name).is_some()
     }
 
     fn insert(&self, name: Arc<str>, value: Value) {
-        let mut bindings = self.bindings.lock().unwrap();
+        let mut bindings = self.bindings.write().unwrap();
         if self.is_frozen() {
             let mut next = self
                 .slot()
@@ -200,8 +370,8 @@ impl Frame {
         self.wrote();
     }
 
-    fn set(&self, name: &str, value: Value) -> Result<(), Value> {
-        let mut bindings = self.bindings.lock().unwrap();
+    fn set(&self, name: Name<'_>, value: Value) -> Result<(), Value> {
+        let mut bindings = self.bindings.write().unwrap();
         if !self.is_frozen() {
             return match bindings.get_mut(name) {
                 Some(slot) => {
@@ -215,7 +385,7 @@ impl Frame {
         let Some(current) = self.slot().load_full() else {
             return Err(value);
         };
-        let Some(key) = current.get_key_value(name).map(|(k, _)| Arc::clone(k)) else {
+        let Some(key) = current.key(name).map(Arc::clone) else {
             return Err(value);
         };
         let mut next = (*current).clone();
@@ -227,7 +397,7 @@ impl Frame {
 
     /// Publish this frame's map for lock-free reads. Idempotent.
     fn freeze(&self) {
-        let mut bindings = self.bindings.lock().unwrap();
+        let mut bindings = self.bindings.write().unwrap();
         if self.is_frozen() {
             return;
         }
@@ -236,7 +406,7 @@ impl Frame {
     }
 
     fn entries(&self) -> Vec<(Arc<str>, Value)> {
-        let bindings = self.bindings.lock().unwrap();
+        let bindings = self.bindings.read().unwrap();
         if self.is_frozen() {
             drop(bindings);
             return self
@@ -256,7 +426,7 @@ impl Frame {
         if self.is_frozen() {
             return self.slot().load().as_ref().map_or(0, |m| m.len());
         }
-        self.bindings.lock().unwrap().len()
+        self.bindings.read().unwrap().len()
     }
 }
 
@@ -352,6 +522,7 @@ impl Env {
         if self.write_floor == 0 {
             return false;
         }
+        let name = Name::of(name);
         let writable_has_it = self.frames[self.write_floor..]
             .iter()
             .any(|f| f.contains(name));
@@ -366,6 +537,25 @@ impl Env {
     /// Push a fresh innermost frame, for `let` / lambda body scope.
     pub fn push(&mut self) {
         self.frames.push(Arc::new(Frame::new()));
+    }
+
+    #[must_use]
+    pub(crate) fn with_frame(
+        &self,
+        bindings: impl ExactSizeIterator<Item = (Arc<str>, Value)>,
+    ) -> Self {
+        let mut held = Bindings::with_capacity(bindings.len());
+        for (name, value) in bindings {
+            held.insert(name, value);
+        }
+        let mut frames = Vec::with_capacity(self.frames.len() + 2);
+        frames.extend(self.frames.iter().cloned());
+        frames.push(Arc::new(Frame::holding(held)));
+        Self {
+            frames,
+            write_floor: self.write_floor,
+            seal: self.seal,
+        }
     }
 
     /// Drop the innermost frame. No-op if only the root frame remains, and
@@ -428,6 +618,7 @@ impl Env {
 
     /// Look up `name`, walking from innermost to outermost frame.
     pub fn lookup(&self, name: &str) -> Option<Value> {
+        let name = Name::of(name);
         self.frames.iter().rev().find_map(|frame| frame.get(name))
     }
 
@@ -435,6 +626,7 @@ impl Env {
     /// `false` if no such binding exists.
     /// Frames below `write_floor` are skipped — see the field's docs.
     pub fn set(&self, name: &str, value: Value) -> bool {
+        let name = Name::of(name);
         let mut value = value;
         for frame in self.frames[self.write_floor..].iter().rev() {
             match frame.set(name, value) {
@@ -642,7 +834,7 @@ fn release_if_closed(frame: &Arc<Frame>, held: usize) -> bool {
     let strong = Arc::strong_count(frame);
     // A poisoned frame is one whose contents cannot be trusted to be walked;
     // refuse rather than guess.
-    let Ok(bindings) = frame.bindings.lock() else {
+    let Ok(bindings) = frame.bindings.write() else {
         return false;
     };
     let published = if frame.is_frozen() {
@@ -797,7 +989,7 @@ mod tests {
     #[test]
     fn a_frame_carries_one_word_for_its_version() {
         use std::mem::size_of;
-        let fields = size_of::<Mutex<Bindings>>()
+        let fields = size_of::<RwLock<Bindings>>()
             + size_of::<OnceLock<ArcSwapOption<Bindings>>>()
             + size_of::<AtomicBool>()
             + size_of::<AtomicU64>();
@@ -845,7 +1037,7 @@ mod tests {
         let parent = Env::new();
         parent.define("x", Value::Int(1));
         let child = parent.sealed_below_top(Seal::Fork);
-        let held = parent.frames[0].bindings.lock().unwrap();
+        let held = parent.frames[0].bindings.write().unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let _ = tx.send(child.lookup("x"));

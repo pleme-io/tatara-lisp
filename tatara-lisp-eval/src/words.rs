@@ -214,10 +214,13 @@ fn symbols(form: &Spanned, out: &mut BTreeSet<Arc<str>>) {
 /// Return to Lisp every native word that reaches a name registered again
 /// since the words were installed. Run after each registration; a no-op
 /// until [`install_words`] has finished and while nothing changed.
-pub(crate) fn after_register<H: 'static>(interp: &mut Interpreter<H>) {
+pub(crate) fn after_register<H: 'static>(interp: &mut Interpreter<H>, name: &str) {
     let Some(live) = interp.registry.words.clone() else {
         return;
     };
+    if !live.addrs.contains_key(name) {
+        return;
+    }
     if live.revision == interp.registry.revision() {
         return;
     }

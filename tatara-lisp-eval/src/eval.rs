@@ -192,7 +192,7 @@ impl<H: 'static> Interpreter<H> {
             arity,
             callable: FnImpl::Native(Arc::new(callable)),
         });
-        crate::words::after_register(self);
+        crate::words::after_register(self, &name);
         self.globals.define(
             name.clone(),
             Value::NativeFn(Arc::new(NativeFn { name, arity })),
@@ -232,7 +232,7 @@ impl<H: 'static> Interpreter<H> {
             arity,
             callable: FnImpl::Owned(Arc::new(callable)),
         });
-        crate::words::after_register(self);
+        crate::words::after_register(self, &name);
         self.globals.define(
             name.clone(),
             Value::NativeFn(Arc::new(NativeFn { name, arity })),
@@ -257,7 +257,7 @@ impl<H: 'static> Interpreter<H> {
             arity,
             callable: FnImpl::Higher(Arc::new(callable)),
         });
-        crate::words::after_register(self);
+        crate::words::after_register(self, &name);
         self.globals.define(
             name.clone(),
             Value::NativeFn(Arc::new(NativeFn { name, arity })),
@@ -329,7 +329,7 @@ impl<H: 'static> Interpreter<H> {
             arity,
             callable: FnImpl::Awaitable(Arc::new(crate::ffi::Awaitable { ready, call })),
         });
-        crate::words::after_register(self);
+        crate::words::after_register(self, &name);
         self.globals.define(
             name.clone(),
             Value::NativeFn(Arc::new(NativeFn { name, arity })),

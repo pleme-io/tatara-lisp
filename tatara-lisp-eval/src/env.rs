@@ -98,18 +98,17 @@ pub struct Frame {
     /// Skipping only ever declines a release, so the flag cannot make one
     /// wrong.
     scope_open: AtomicBool,
-    writes: AtomicU64,
-    id: OnceLock<u64>,
+    version: AtomicU64,
 }
 
-static NEXT_FRAME_ID: AtomicU64 = AtomicU64::new(1);
+static NEXT_VERSION: AtomicU64 = AtomicU64::new(1);
 
 const STAMP_DEPTH: usize = 8;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EnvStamp {
     depth: usize,
-    frames: [(u64, u64); STAMP_DEPTH],
+    frames: [u64; STAMP_DEPTH],
 }
 
 impl Default for Frame {
@@ -118,8 +117,7 @@ impl Default for Frame {
             bindings: Mutex::default(),
             sealed: OnceLock::new(),
             scope_open: AtomicBool::new(true),
-            writes: AtomicU64::new(0),
-            id: OnceLock::new(),
+            version: AtomicU64::new(0),
         }
     }
 }
@@ -134,14 +132,25 @@ impl Frame {
     }
 
     fn wrote(&self) {
-        self.writes.fetch_add(1, Ordering::Release);
+        if self.version.load(Ordering::Acquire) != 0 {
+            let fresh = NEXT_VERSION.fetch_add(1, Ordering::Relaxed);
+            self.version.store(fresh, Ordering::Release);
+        }
     }
 
-    fn stamp(&self) -> (u64, u64) {
-        let id = *self
-            .id
-            .get_or_init(|| NEXT_FRAME_ID.fetch_add(1, Ordering::Relaxed));
-        (id, self.writes.load(Ordering::Acquire))
+    fn stamp(&self) -> u64 {
+        let current = self.version.load(Ordering::Acquire);
+        if current != 0 {
+            return current;
+        }
+        let fresh = NEXT_VERSION.fetch_add(1, Ordering::Relaxed);
+        match self
+            .version
+            .compare_exchange(0, fresh, Ordering::AcqRel, Ordering::Acquire)
+        {
+            Ok(_) => fresh,
+            Err(won) => won,
+        }
     }
 
     fn slot(&self) -> &ArcSwapOption<Bindings> {
@@ -386,12 +395,13 @@ impl Env {
     }
 
     /// What this environment reads as, stated so a cache can tell it is
-    /// unchanged: each frame's identity and how many writes it has taken, or
-    /// `None` when it is deeper than a stamp holds.
+    /// unchanged: each frame's version, or `None` when it is deeper than a
+    /// stamp holds.
     ///
-    /// Two equal stamps name the same frames in the same order with no write
-    /// between them. Frame identities are never reused and write counts only
-    /// rise, so no sequence of writes returns a frame to a stamp it had.
+    /// A frame draws a version from a counter that never repeats when it is
+    /// first stamped, and draws a new one on every write after that. Two
+    /// equal stamps therefore name the same frames in the same order with no
+    /// write between them, and a frame no one stamped pays nothing per write.
     /// Read the stamp before the lookup it validates: a write that lands
     /// between the two moves the stamp, so the cached value is never trusted.
     ///
@@ -409,7 +419,7 @@ impl Env {
         if depth > STAMP_DEPTH {
             return None;
         }
-        let mut frames = [(0, 0); STAMP_DEPTH];
+        let mut frames = [0; STAMP_DEPTH];
         for (slot, frame) in frames.iter_mut().zip(&self.frames) {
             *slot = frame.stamp();
         }
@@ -783,6 +793,20 @@ fn handles_to_frame(frame: &Arc<Frame>, value: &Value, depth: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_frame_carries_one_word_for_its_version() {
+        use std::mem::size_of;
+        let fields = size_of::<Mutex<Bindings>>()
+            + size_of::<OnceLock<ArcSwapOption<Bindings>>>()
+            + size_of::<AtomicBool>()
+            + size_of::<AtomicU64>();
+        assert!(
+            size_of::<Frame>() <= fields.next_multiple_of(8),
+            "{}",
+            size_of::<Frame>()
+        );
+    }
 
     #[test]
     fn lookup_walks_chain() {

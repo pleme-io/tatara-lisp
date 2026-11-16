@@ -46,9 +46,12 @@ fn every_operator_agrees_with_the_walker_on_a_seeded_corpus() {
         let r = next();
         match r % 5 {
             0 => edges[(r >> 8) as usize % edges.len()].to_string(),
-            1 => format!("{:.3}", (r >> 11) as f64 / 1e12 - 4.0e6),
+            1 => format!(
+                "{:.3}",
+                f64::from(u32::try_from(r >> 32).expect("32 bits")) / 1e3 - 4.0e6
+            ),
             2 => "2.0".to_string(),
-            _ => ((r >> 3) as i64).to_string(),
+            _ => i64::from_le_bytes(r.to_le_bytes()).to_string(),
         }
     };
     let mut overflowed = 0;
@@ -75,7 +78,7 @@ fn an_operator_a_program_rebinds_is_the_program_s() {
 #[test]
 fn an_operator_the_embedder_replaces_is_the_embedder_s() {
     let mut i = fresh();
-    i.register_fn("*", Arity::AtLeast(0), |_: &[Value], _: &mut (), _| {
+    i.register_fn("*", Arity::AtLeast(0), |_: &[Value], (): &mut (), _| {
         Ok(Value::Int(-7))
     });
     let forms = read_spanned("(* 6 7)").expect("reads");
@@ -87,7 +90,7 @@ fn an_operator_the_embedder_replaces_is_the_embedder_s() {
 fn a_fork_that_replaces_an_operator_leaves_its_parent_alone() {
     let parent = fresh();
     let mut child = parent.fork();
-    child.register_fn("-", Arity::AtLeast(0), |_: &[Value], _: &mut (), _| {
+    child.register_fn("-", Arity::AtLeast(0), |_: &[Value], (): &mut (), _| {
         Ok(Value::Int(99))
     });
     let forms = read_spanned("(- 10 4)").expect("reads");

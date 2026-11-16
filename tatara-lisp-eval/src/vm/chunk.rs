@@ -333,8 +333,8 @@ mod tests {
     #[test]
     fn const_pool_dedupes_floats_by_bits() {
         let mut pool = ConstPool::new();
-        let a = pool.push(Value::Float(3.14));
-        let b = pool.push(Value::Float(3.14));
+        let a = pool.push(Value::Float(2.5));
+        let b = pool.push(Value::Float(2.5));
         let c = pool.push(Value::Float(2.71));
         assert_eq!(a, b);
         assert_ne!(a, c);

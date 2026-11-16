@@ -198,6 +198,7 @@ impl Arith {
     }
 
     #[must_use]
+    #[allow(clippy::float_cmp)]
     pub fn floats(self, a: f64, b: f64) -> crate::value::Value {
         use crate::value::Value::{Bool, Float};
         match self {

@@ -324,6 +324,7 @@ pub(crate) enum FnImpl<H> {
 }
 
 impl<H> FnImpl<H> {
+    #[allow(clippy::match_same_arms)]
     fn addr(&self) -> usize {
         match self {
             Self::Native(f) => Arc::as_ptr(f).cast::<()>() as usize,

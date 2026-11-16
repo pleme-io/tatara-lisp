@@ -11,7 +11,26 @@ on:
         default: patch
 
 jobs:
+  blue-conformance:
+    name: blue conformance against this candidate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: tatara-lisp
+      - uses: actions/checkout@v4
+        with:
+          repository: pleme-io/blue
+          path: blue
+      - uses: DeterminateSystems/nix-installer-action@main
+      - name: blue's rows on the candidate tatara-lisp-eval
+        working-directory: blue
+        run: |
+          nix develop -c cargo update -p tatara-lisp-eval -p tatara-lisp -p tatara-lisp-derive --config 'patch.crates-io.tatara-lisp-eval.path="../tatara-lisp/tatara-lisp-eval"' --config 'patch.crates-io.tatara-lisp.path="../tatara-lisp/tatara-lisp"' --config 'patch.crates-io.tatara-lisp-derive.path="../tatara-lisp/tatara-lisp-derive"'
+          nix develop -c cargo test -p blue-lang-test --test conformance --config 'patch.crates-io.tatara-lisp-eval.path="../tatara-lisp/tatara-lisp-eval"' --config 'patch.crates-io.tatara-lisp.path="../tatara-lisp/tatara-lisp"' --config 'patch.crates-io.tatara-lisp-derive.path="../tatara-lisp/tatara-lisp-derive"'
+
   release:
+    needs: blue-conformance
     uses: pleme-io/substrate/.github/workflows/rust-auto-release.yml@main
     with:
       bump-type: ${{ inputs.bump-type || 'patch' }}

@@ -39,18 +39,13 @@
 //! ;; composition macros (program flow)
 //!   (defflow name f1 f2 f3 ...)       ; (define name (compose f3 f2 f1))
 //!
-//! ;; sequence helpers
-//!   first/second/third, rest, last, butlast, empty?, not-empty?
-//!   range, repeat-list, concat
-//!   member?, position
-//!   zip, interleave, intersperse, flatten, distinct, max-by, min-by
-//!
-//! ;; numeric helpers
-//!   inc, dec, zero?, positive?, negative?, even?, odd?
-//!
-//! ;; Predicates
-//!   not=, some?
 //! ```
+//!
+//! The sequence, numeric, map and lazy-stream words a script calls per
+//! element (`first`, `rest`, `last`, `count`, `get`, `assoc`, `inc`,
+//! `even?`, `zip`, `range`, `distinct`, …) run in Rust: they are registered
+//! from [`crate::words`] before this source is evaluated, with the meaning
+//! their Lisp definitions had here.
 
 use crate::eval::Interpreter;
 
@@ -59,13 +54,16 @@ pub const STDLIB_SOURCE: &str = include_str!("lisp_stdlib.tlisp");
 
 /// Install the pure-Lisp stdlib using a host to drive evaluation. The
 /// embedded library is host-state-free; the host is required only to
-/// satisfy `eval_program`'s signature.
+/// satisfy `eval_program`'s signature. The library words that run in Rust
+/// ([`crate::words::WORD_NAMES`]) are registered first, so the Lisp layer and
+/// every caller of this function see them.
 ///
 /// Must be called after `install_primitives` and `install_hof`.
 ///
 /// Panics if the embedded source fails to parse or evaluate. The embedded
 /// library is part of the binary and is verified by `cargo test`.
 pub fn install_lisp_stdlib_with<H: 'static>(interp: &mut Interpreter<H>, host: &mut H) {
+    crate::words::install_words(interp);
     let forms = tatara_lisp::read_spanned(STDLIB_SOURCE)
         .expect("embedded tatara-lisp stdlib failed to parse");
     interp

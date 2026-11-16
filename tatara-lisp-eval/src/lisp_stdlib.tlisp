@@ -17,8 +17,8 @@
 ;; ====================================================================
 
 ;; ── Identity / const / flip / comp ─────────────────────────────────
-
-(define (identity x) x)
+;;
+;; identity and tap run in Rust (src/words.rs).
 
 (define (const x) (lambda (&rest _) x))
 
@@ -45,14 +45,6 @@
 ;; (juxt f g h) x → ((f x) (g x) (h x)).
 (define (juxt &rest fs)
   (lambda (&rest args) (map (lambda (f) (apply f args)) fs)))
-
-;; ── Tap / doto-ish ─────────────────────────────────────────────────
-
-;; (tap f x) runs (f x) for its side effect and returns x unchanged.
-;; Useful in pipelines for logging / debugging.
-(define (tap f x)
-  (f x)
-  x)
 
 ;; ── Threading macros (Clojure-style) ───────────────────────────────
 ;;
@@ -137,130 +129,18 @@
   (name &rest fs)
   `(define ,name (pipe ,@fs)))
 
-;; ── Sequence helpers ───────────────────────────────────────────────
-
-(define (first xs) (car xs))
-
-(define (rest xs) (cdr xs))
-
-(define (second xs) (car (cdr xs)))
-
-(define (third xs) (car (cdr (cdr xs))))
-
-(define (fourth xs) (car (cdr (cdr (cdr xs)))))
-
-(define (last xs) (if (null? (cdr xs)) (car xs) (last (cdr xs))))
-
-(define (butlast xs)
-  (if (null? (cdr xs))
-    ()
-    (cons (car xs) (butlast (cdr xs)))))
-
-;; Safe variants — return nil for out-of-bounds instead of erroring.
-;; Useful for "optional" positional fields like state-machine row guards.
-(define (safe-nth n xs)
-  (cond
-    ((null? xs) ())
-    ((<= n 0) (car xs))
-    (else (safe-nth (- n 1) (cdr xs)))))
-
-(define (empty? xs) (null? xs))
-
-(define (not-empty? xs) (not (empty? xs)))
-
-;; (range n) → (0 1 ... n-1)
-;; (range a b) → (a a+1 ... b-1)
-;; (range a b s) → (a a+s ... < b) for positive s; descending for negative.
-(define (range &rest args)
-  (cond
-    ((= (length args) 1) (range-impl 0 (car args) 1))
-    ((= (length args) 2) (range-impl (car args) (second args) 1))
-    ((= (length args) 3) (range-impl (car args) (second args) (third args)))
-    (else (error-msg "range: arity 1, 2, or 3"))))
-
-(define (range-impl start end step)
-  (cond
-    ((and (> step 0) (>= start end)) ())
-    ((and (< step 0) (<= start end)) ())
-    (else (cons start (range-impl (+ start step) end step)))))
+;; ── Sequence, numeric and map words ────────────────────────────────
+;;
+;; first, rest, second, third, fourth, last, butlast, safe-nth, empty?,
+;; not-empty?, range, repeat-list, concat, member?, position, zip,
+;; interleave, intersperse, flatten, distinct, max-by, min-by, inc, dec,
+;; zero?, positive?, negative?, even?, odd?, some?, plist-get, the lazy
+;; stream readers, and the Clojure map words run in Rust (src/words.rs),
+;; registered before this file is evaluated. not= is the primitive.
 
 (define (error-msg msg)
   (display msg)
   (newline))
-
-;; (repeat-list x n) → (x x x ...) length n
-(define (repeat-list x n) (if (<= n 0) () (cons x (repeat-list x (- n 1)))))
-
-;; (concat &rest lists) — alias for append (already variadic)
-(define (concat &rest lists) (apply append lists))
-
-;; (member? x xs) — true iff (equal? x e) for some e in xs.
-(define (member? x xs) (any? (lambda (e) (equal? e x)) xs))
-
-;; (position x xs) — first index where (equal? x e) holds, or -1.
-(define (position x xs) (find-index (lambda (e) (equal? e x)) xs))
-
-;; (zip xs ys) → ((x0 y0) (x1 y1) ...). Stops at shorter list.
-(define (zip xs ys) (map (lambda (a b) (list a b)) xs ys))
-
-;; (interleave xs ys) → (x0 y0 x1 y1 ...). Stops at shorter list.
-(define (interleave xs ys) (apply append (zip xs ys)))
-
-;; (intersperse sep xs) — insert sep between each pair of items.
-(define (intersperse sep xs)
-  (cond
-    ((null? xs) ())
-    ((null? (cdr xs)) (list (car xs)))
-    (else (cons (car xs) (cons sep (intersperse sep (cdr xs)))))))
-
-;; (flatten xs) — recursively flatten nested lists into one list.
-(define (flatten xs)
-  (cond
-    ((null? xs) ())
-    ((list? (car xs)) (append (flatten (car xs)) (flatten (cdr xs))))
-    (else (cons (car xs) (flatten (cdr xs))))))
-
-;; (distinct xs) — preserve first occurrence; drop duplicates by equal?.
-(define (distinct xs)
-  (foldl
-    (lambda (acc x) (if (member? x acc) acc (append acc (list x))))
-    (list)
-    xs))
-
-;; (max-by f xs) / (min-by f xs) — find element with max/min (f x).
-(define (max-by f xs)
-  (foldl
-    (lambda (best x) (if (> (f x) (f best)) x best))
-    (car xs)
-    (cdr xs)))
-
-(define (min-by f xs)
-  (foldl
-    (lambda (best x) (if (< (f x) (f best)) x best))
-    (car xs)
-    (cdr xs)))
-
-;; ── Numeric helpers ────────────────────────────────────────────────
-
-(define (inc x) (+ x 1))
-
-(define (dec x) (- x 1))
-
-(define (zero? x) (= x 0))
-
-(define (positive? x) (> x 0))
-
-(define (negative? x) (< x 0))
-
-(define (even? x) (= 0 (modulo x 2)))
-
-(define (odd? x) (= 1 (modulo x 2)))
-
-;; ── General predicates ─────────────────────────────────────────────
-
-(define (not= a b) (not (equal? a b)))
-
-(define (some? x) (not (null? x)))
 
 ;; ====================================================================
 ;; STATE MACHINES + AUTOMATA
@@ -289,15 +169,6 @@
 ;;   :on-exit        — list of (state action-fn) — runs on leaving state
 ;;   :on-event       — list of (event action-fn) — runs on every fire
 ;; ====================================================================
-
-;; Plist accessor — pull a value out of a (:k1 v1 :k2 v2 ...) list.
-;; Returns nil when not found.
-(define (plist-get plist key)
-  (cond
-    ((null? plist) ())
-    ((null? (cdr plist)) ())
-    ((equal? (car plist) key) (second plist))
-    (else (plist-get (cdr (cdr plist)) key))))
 
 ;; Lookup a (state event next [guard] [action]) row in the transition
 ;; table. Returns the matching row or nil.
@@ -834,37 +705,15 @@
 ;;   (cycle xs)         — (cycle '(1 2 3)) → (1 2 3 1 2 3 ...)
 ;;   (repeat-lazy x)    — (x x x ...)
 ;;
-;; This is a pure-Lisp layer; the runtime work is in delay/force.
+;; The readers (lazy-empty, lazy-empty?, lazy-head, lazy-rest,
+;; lazy-take, lazy-drop, realize) run in Rust (src/words.rs) and force
+;; through the registered `force`; the constructors below build delayed
+;; thunks, so they stay here.
 ;; ====================================================================
 
 (defmacro lazy-cons
   (head tail-expr)
   `(list ,head (delay ,tail-expr)))
-
-(define (lazy-empty) ())
-
-(define (lazy-empty? s) (null? s))
-
-(define (lazy-head s) (car s))
-
-(define (lazy-rest s) (force (second s)))
-
-(define (lazy-take n s)
-  (cond
-    ((<= n 0) ())
-    ((lazy-empty? s) ())
-    (else (cons (lazy-head s) (lazy-take (- n 1) (lazy-rest s))))))
-
-(define (lazy-drop n s)
-  (cond
-    ((<= n 0) s)
-    ((lazy-empty? s) s)
-    (else (lazy-drop (- n 1) (lazy-rest s)))))
-
-(define (realize s)
-  (if (lazy-empty? s)
-    ()
-    (cons (lazy-head s) (realize (lazy-rest s)))))
 
 (define (lazy-map f s)
   (if (lazy-empty? s)
@@ -915,112 +764,11 @@
 ;; ====================================================================
 ;; CLOJURE-FLAVOR SEQUENCE / MAP HELPERS
 ;; --------------------------------------------------------------------
-;; Bridges between hash-maps and lists, plus path-based update.
+;; Bridges between hash-maps and lists, plus path-based update. assoc,
+;; dissoc, get, get-in, assoc-in, update-in, frequencies,
+;; group-by-into-map, into-hash-map, select-keys, zipmap, count and
+;; unwrap-or run in Rust (src/words.rs).
 ;; ====================================================================
-
-;; (assoc m k v) — alias for hash-map-set; returns m with k→v.
-(define (assoc m k v) (hash-map-set m k v))
-
-;; (dissoc m k) — alias for hash-map-remove.
-(define (dissoc m k) (hash-map-remove m k))
-
-;; (get m k) — alias for hash-map-get; returns nil if missing.
-(define (get m k) (hash-map-get m k))
-
-;; (get-in m path) — walk a chain of nested hash-maps via the path.
-;; (get-in {:a {:b {:c 42}}} '(:a :b :c)) → 42.
-(define (get-in m path)
-  (cond
-    ((null? path) m)
-    ((null? m) ())
-    (else (get-in (hash-map-get m (car path)) (cdr path)))))
-
-;; (assoc-in m path v) — set a deeply-nested value, building intermediate
-;; hash-maps as needed. Returns a new outer map.
-(define (assoc-in m path v)
-  (cond
-    ((null? path) v)
-    ((null? (cdr path)) (hash-map-set (or m (hash-map)) (car path) v))
-    (else
-      (let ((sub (or (hash-map-get m (car path)) (hash-map))))
-        (hash-map-set
-          (or m (hash-map))
-          (car path)
-          (assoc-in
-            sub
-            (cdr path)
-            v))))))
-
-;; (update-in m path fn) — apply fn to the value at path; like assoc-in
-;; but value computed from current.
-(define (update-in m path f) (assoc-in m path (f (get-in m path))))
-
-;; (frequencies xs) → hash-map of value→count. Counts equal? items.
-;; Limitation: keys must be hashable (no list/map keys; throws if so).
-(define (frequencies xs)
-  (foldl
-    (lambda (acc x)
-      (hash-map-update
-        acc
-        x
-        (lambda (n) (if (null? n) 1 (+ n 1)))))
-    (hash-map)
-    xs))
-
-;; (group-by-into-map f xs) → hash-map of key→list, where each item x
-;; in xs is grouped by (f x). Preserves first-seen order WITHIN each
-;; group (Clojure semantics).
-(define (group-by-into-map f xs)
-  (foldl
-    (lambda (acc x)
-      (let* ((k (f x)) (current (or (hash-map-get acc k) (list))))
-        (hash-map-set
-          acc
-          k
-          (append current (list x)))))
-    (hash-map)
-    xs))
-
-;; (into-hash-map plist-or-pairs) — convert an alternating-key-value
-;; list (or list of (k v) pairs) into a hash-map.
-(define (into-hash-map xs)
-  (cond
-    ((null? xs) (hash-map))
-    ((and (list? (car xs)) (= (length (car xs)) 2))
-      (foldl
-        (lambda (acc pair) (hash-map-set acc (car pair) (second pair)))
-        (hash-map)
-        xs))
-    (else (apply hash-map xs))))
-
-;; (select-keys m keys) → sub-map containing only the requested keys.
-(define (select-keys m keys)
-  (foldl
-    (lambda (acc k)
-      (if (hash-map-has? m k)
-        (hash-map-set
-          acc
-          k
-          (hash-map-get m k))
-        acc))
-    (hash-map)
-    keys))
-
-;; (zipmap keys values) → hash-map pairing keys with values.
-(define (zipmap keys vals)
-  (foldl
-    (lambda (acc pair) (hash-map-set acc (car pair) (second pair)))
-    (hash-map)
-    (zip keys vals)))
-
-;; (count xs) — universal length: handles list, map, string.
-(define (count xs)
-  (cond
-    ((null? xs) 0)
-    ((list? xs) (length xs))
-    ((hash-map? xs) (hash-map-count xs))
-    ((string? xs) (string-length xs))
-    (else (error :count "not countable"))))
 
 ;; ====================================================================
 ;; MISC UTILITIES
@@ -1035,9 +783,6 @@
 (defmacro comment
   (&rest _)
   ())
-
-;; (unwrap-or value default) — return value if non-nil, else default.
-(define (unwrap-or v default) (if (null? v) default v))
 
 ;; ====================================================================
 ;; PATTERN MATCHING — (match expr clauses...)

@@ -133,9 +133,7 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
     // on `i64`, which wraps in a release build and panics in a debug one — the
     // answer was a function of the build profile. Wrapping is still there,
     // asked for by name: `wrapping-add`, `wrapping-sub`, `wrapping-mul`.
-    interp.register_fn("+", Arity::AtLeast(0), |args: &[Value], _h: &mut H, sp| {
-        reduce_numeric(args, sp, "+", 0, 0.0, i64::checked_add, |a, b| a + b)
-    });
+    interp.register_fn("+", Arity::AtLeast(0), prim_add::<H>);
     interp.register_fn("-", Arity::AtLeast(1), prim_sub::<H>);
     interp.register_fn("*", Arity::AtLeast(0), |args: &[Value], _h: &mut H, sp| {
         reduce_numeric(args, sp, "*", 1, 1.0, i64::checked_mul, |a, b| a * b)
@@ -178,23 +176,7 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
         },
     );
     interp.register_fn("/", Arity::AtLeast(1), prim_div::<H>);
-    interp.register_fn(
-        "modulo",
-        Arity::Exact(2),
-        |args: &[Value], _h: &mut H, sp| {
-            let a = expect_int(&args[0], sp)?;
-            let b = expect_int(&args[1], sp)?;
-            if b == 0 {
-                return Err(EvalError::DivisionByZero { at: sp });
-            }
-            a.checked_rem_euclid(b)
-                .map(Value::Int)
-                .ok_or(EvalError::IntegerOverflow {
-                    op: "modulo",
-                    at: sp,
-                })
-        },
-    );
+    interp.register_fn("modulo", Arity::Exact(2), prim_modulo::<H>);
     interp.register_fn(
         "abs",
         Arity::Exact(1),
@@ -239,33 +221,15 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
     );
 
     // ── Comparison ────────────────────────────────────────────────
-    interp.register_fn("=", Arity::AtLeast(2), |args: &[Value], _h: &mut H, sp| {
-        cmp_chain(args, sp, |a, b| a == b, |a, b| a == b)
-    });
-    interp.register_fn("<", Arity::AtLeast(2), |args: &[Value], _h: &mut H, sp| {
-        cmp_chain(args, sp, |a, b| a < b, |a, b| a < b)
-    });
-    interp.register_fn(">", Arity::AtLeast(2), |args: &[Value], _h: &mut H, sp| {
-        cmp_chain(args, sp, |a, b| a > b, |a, b| a > b)
-    });
-    interp.register_fn("<=", Arity::AtLeast(2), |args: &[Value], _h: &mut H, sp| {
-        cmp_chain(args, sp, |a, b| a <= b, |a, b| a <= b)
-    });
-    interp.register_fn(">=", Arity::AtLeast(2), |args: &[Value], _h: &mut H, sp| {
-        cmp_chain(args, sp, |a, b| a >= b, |a, b| a >= b)
-    });
+    interp.register_fn("=", Arity::AtLeast(2), prim_num_eq::<H>);
+    interp.register_fn("<", Arity::AtLeast(2), prim_lt::<H>);
+    interp.register_fn(">", Arity::AtLeast(2), prim_gt::<H>);
+    interp.register_fn("<=", Arity::AtLeast(2), prim_le::<H>);
+    interp.register_fn(">=", Arity::AtLeast(2), prim_ge::<H>);
     interp.registry.adopt_operators();
 
     // ── Predicates ────────────────────────────────────────────────
-    interp.register_fn("null?", Arity::Exact(1), |a: &[Value], _h: &mut H, _sp| {
-        // Scheme R7RS: null? holds for both `()` and the empty list literal.
-        // We represent both as `Value::Nil` and `Value::List([])` — accept both.
-        Ok(Value::Bool(match &a[0] {
-            Value::Nil => true,
-            Value::List(xs) => xs.is_empty(),
-            _ => false,
-        }))
-    });
+    interp.register_fn("null?", Arity::Exact(1), prim_null::<H>);
     interp.register_fn("pair?", Arity::Exact(1), |a: &[Value], _h: &mut H, _sp| {
         Ok(Value::Bool(
             matches!(&a[0], Value::List(xs) if !xs.is_empty()),
@@ -829,32 +793,7 @@ pub fn install_primitives<H: 'static>(interp: &mut Interpreter<H>) {
 
     // (error tag message [data]) — tag is keyword/string, message is
     // string, data is an optional plist (alternating key value list).
-    interp.register_fn(
-        "error",
-        Arity::Range(2, 3),
-        |args: &[Value], _h: &mut H, sp| {
-            let tag: Arc<str> = match &args[0] {
-                Value::Keyword(s) | Value::Symbol(s) | Value::Str(s) => s.clone(),
-                other => {
-                    return Err(EvalError::type_mismatch(
-                        "keyword/symbol/string",
-                        other.type_name(),
-                        sp,
-                    ))
-                }
-            };
-            let message: Arc<str> = match &args[1] {
-                Value::Str(s) => s.clone(),
-                other => return Err(EvalError::type_mismatch("string", other.type_name(), sp)),
-            };
-            let data = if args.len() == 3 {
-                plist_to_pairs(&args[2], sp)?
-            } else {
-                Vec::new()
-            };
-            Ok(Value::Error(Arc::new(ErrorObj { tag, message, data })))
-        },
-    );
+    interp.register_fn("error", Arity::Range(2, 3), prim_error::<H>);
 
     // (ex-info message data) — convenience: tag = "ex-info".
     interp.register_fn(
@@ -1047,7 +986,7 @@ fn cmp_to_int(o: std::cmp::Ordering) -> i64 {
 
 /// Borrow a list-shaped Value. `Nil` is the empty list, answered as `None`.
 /// Used by primitives that don't care about ownership.
-fn list_view(v: &Value, sp: Span) -> Result<Option<&List>> {
+pub(crate) fn list_view(v: &Value, sp: Span) -> Result<Option<&List>> {
     match v {
         Value::Nil => Ok(None),
         Value::List(xs) => Ok(Some(xs)),
@@ -1126,7 +1065,7 @@ fn reduce_numeric(
     }
 }
 
-fn prim_sub<H: 'static>(args: &[Value], _h: &mut H, sp: Span) -> Result<Value> {
+pub(crate) fn prim_sub<H: 'static>(args: &[Value], _h: &mut H, sp: Span) -> Result<Value> {
     if args.len() == 1 {
         return match as_number_either(&args[0], sp)? {
             NumVal::I(n) => n
@@ -1230,6 +1169,86 @@ fn prim_div<H: 'static>(args: &[Value], _h: &mut H, sp: Span) -> Result<Value> {
     })
 }
 
+pub(crate) fn prim_add<H: 'static>(args: &[Value], _h: &mut H, sp: Span) -> Result<Value> {
+    reduce_numeric(args, sp, "+", 0, 0.0, i64::checked_add, |a, b| a + b)
+}
+
+pub(crate) fn prim_num_eq<H: 'static>(args: &[Value], _h: &mut H, sp: Span) -> Result<Value> {
+    cmp_chain(args, sp, |a, b| a == b, |a, b| a == b)
+}
+
+pub(crate) fn prim_lt<H: 'static>(args: &[Value], _h: &mut H, sp: Span) -> Result<Value> {
+    cmp_chain(args, sp, |a, b| a < b, |a, b| a < b)
+}
+
+pub(crate) fn prim_gt<H: 'static>(args: &[Value], _h: &mut H, sp: Span) -> Result<Value> {
+    cmp_chain(args, sp, |a, b| a > b, |a, b| a > b)
+}
+
+pub(crate) fn prim_le<H: 'static>(args: &[Value], _h: &mut H, sp: Span) -> Result<Value> {
+    cmp_chain(args, sp, |a, b| a <= b, |a, b| a <= b)
+}
+
+pub(crate) fn prim_ge<H: 'static>(args: &[Value], _h: &mut H, sp: Span) -> Result<Value> {
+    cmp_chain(args, sp, |a, b| a >= b, |a, b| a >= b)
+}
+
+pub(crate) fn prim_modulo<H: 'static>(args: &[Value], _h: &mut H, sp: Span) -> Result<Value> {
+    let a = expect_int(&args[0], sp)?;
+    let b = expect_int(&args[1], sp)?;
+    if b == 0 {
+        return Err(EvalError::DivisionByZero { at: sp });
+    }
+    a.checked_rem_euclid(b)
+        .map(Value::Int)
+        .ok_or(EvalError::IntegerOverflow {
+            op: "modulo",
+            at: sp,
+        })
+}
+
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn prim_null<H: 'static>(args: &[Value], _h: &mut H, _sp: Span) -> Result<Value> {
+    Ok(Value::Bool(is_null(&args[0])))
+}
+
+/// `null?`: `Value::Nil` and the empty list are both the empty list.
+#[must_use]
+pub fn is_null(v: &Value) -> bool {
+    match v {
+        Value::Nil => true,
+        Value::List(xs) => xs.is_empty(),
+        _ => false,
+    }
+}
+
+pub(crate) fn prim_error<H: 'static>(args: &[Value], _h: &mut H, sp: Span) -> Result<Value> {
+    let tag: Arc<str> = match &args[0] {
+        Value::Keyword(s) | Value::Symbol(s) | Value::Str(s) => s.clone(),
+        other => {
+            return Err(EvalError::type_mismatch(
+                "keyword/symbol/string",
+                other.type_name(),
+                sp,
+            ))
+        }
+    };
+    let message: Arc<str> = match &args[1] {
+        Value::Str(s) => s.clone(),
+        other => return Err(EvalError::type_mismatch("string", other.type_name(), sp)),
+    };
+    let data = if args.len() == 3 {
+        plist_to_pairs(&args[2], sp)?
+    } else {
+        Vec::new()
+    };
+    Ok(Value::Error(Arc::new(crate::value::ErrorObj {
+        tag,
+        message,
+        data,
+    })))
+}
+
 fn cmp_chain(
     args: &[Value],
     sp: Span,
@@ -1248,7 +1267,7 @@ fn cmp_chain(
     Ok(Value::Bool(true))
 }
 
-fn prim_car<H: 'static>(args: &[Value], _h: &mut H, sp: Span) -> Result<Value> {
+pub(crate) fn prim_car<H: 'static>(args: &[Value], _h: &mut H, sp: Span) -> Result<Value> {
     match &args[0] {
         Value::List(xs) if !xs.is_empty() => Ok(xs[0].clone()),
         Value::Nil | Value::List(_) => Err(EvalError::native_fn(
@@ -1260,7 +1279,7 @@ fn prim_car<H: 'static>(args: &[Value], _h: &mut H, sp: Span) -> Result<Value> {
     }
 }
 
-fn prim_cdr<H: 'static>(args: &[Value], _h: &mut H, sp: Span) -> Result<Value> {
+pub(crate) fn prim_cdr<H: 'static>(args: &[Value], _h: &mut H, sp: Span) -> Result<Value> {
     match &args[0] {
         Value::List(xs) if !xs.is_empty() => {
             if xs.len() == 1 {
@@ -1283,7 +1302,7 @@ fn prim_cdr<H: 'static>(args: &[Value], _h: &mut H, sp: Span) -> Result<Value> {
 // `Arc::make_mut` updates in place when the count is 1 and copies once
 // otherwise, which is the same decision `map::map_cow` makes for maps.
 
-fn prim_cons<H: 'static>(args: Vec<Value>, _h: &mut H, sp: Span) -> Result<Value> {
+pub(crate) fn prim_cons<H: 'static>(args: Vec<Value>, _h: &mut H, sp: Span) -> Result<Value> {
     let [head, tail] = owned_args::<2>("cons", args, sp)?;
     // The tail is shared, not copied: `push_front` on the persistent list
     // touches O(1) nodes, where the old `Vec` rebuild copied every element.
@@ -1297,7 +1316,7 @@ fn prim_cons<H: 'static>(args: Vec<Value>, _h: &mut H, sp: Span) -> Result<Value
     })
 }
 
-fn prim_append<H: 'static>(args: Vec<Value>, _h: &mut H, sp: Span) -> Result<Value> {
+pub(crate) fn prim_append<H: 'static>(args: Vec<Value>, _h: &mut H, sp: Span) -> Result<Value> {
     // Every operand is checked before the first is touched, so a bad one
     // further along cannot leave the accumulator half-extended.
     let mut lists = Vec::with_capacity(args.len());
@@ -1342,7 +1361,7 @@ fn value_eq_shallow(a: &Value, b: &Value) -> bool {
     }
 }
 
-fn value_eq_deep(a: &Value, b: &Value) -> bool {
+pub(crate) fn value_eq_deep(a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::List(a), Value::List(b)) => {
             if a.len() != b.len() {

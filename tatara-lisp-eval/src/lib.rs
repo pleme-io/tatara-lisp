@@ -38,6 +38,7 @@ pub mod strictness;
 pub mod type_check;
 pub mod value;
 pub mod vm;
+pub mod words;
 
 pub use env::{Env, EnvStamp, Seal};
 pub use error::{EvalError, Result};
@@ -57,6 +58,7 @@ pub use primitive::install_primitives;
 pub use repl::ReplSession;
 pub use strictness::{evidence_of_span, reading_of, TataraFactor, TATARA_LADDER};
 pub use value::{ErrorObj, MapKey, Value};
+pub use words::install_words;
 
 /// One-stop installer: registers the full battery — Rust primitives
 /// (arithmetic, comparison, list, string, IO), higher-order Rust

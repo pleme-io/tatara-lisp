@@ -54,27 +54,7 @@ pub const MAP_NAMES: &[&str] = &[
 ];
 
 pub fn install_map<H: 'static>(interp: &mut Interpreter<H>) {
-    interp.register_fn(
-        "hash-map",
-        Arity::Any,
-        |args: &[Value], _h: &mut H, sp: Span| {
-            if args.len() % 2 != 0 {
-                return Err(EvalError::native_fn(
-                    Arc::<str>::from("hash-map"),
-                    "expected even number of args (k v k v ...)",
-                    sp,
-                ));
-            }
-            let mut m = Map::new();
-            let mut i = 0;
-            while i < args.len() {
-                let k = key_or_err(&args[i], sp)?;
-                m.insert(k, args[i + 1].clone());
-                i += 2;
-            }
-            Ok(Value::Map(Arc::new(m)))
-        },
-    );
+    interp.register_fn("hash-map", Arity::Any, map_new::<H>);
 
     interp.register_fn(
         "hash-map?",
@@ -100,25 +80,9 @@ pub fn install_map<H: 'static>(interp: &mut Interpreter<H>) {
         },
     );
 
-    interp.register_fn(
-        "hash-map-has?",
-        Arity::Exact(2),
-        |args: &[Value], _h: &mut H, sp| {
-            let m = expect_map(&args[0], sp)?;
-            let k = key_or_err(&args[1], sp)?;
-            Ok(Value::Bool(m.contains_key(&k)))
-        },
-    );
+    interp.register_fn("hash-map-has?", Arity::Exact(2), map_has::<H>);
 
-    interp.register_fn(
-        "hash-map-get",
-        Arity::Exact(2),
-        |args: &[Value], _h: &mut H, sp| {
-            let m = expect_map(&args[0], sp)?;
-            let k = key_or_err(&args[1], sp)?;
-            Ok(m.get(&k).cloned().unwrap_or(Value::Nil))
-        },
-    );
+    interp.register_fn("hash-map-get", Arity::Exact(2), map_get::<H>);
 
     interp.register_fn(
         "hash-map-get-or",
@@ -134,29 +98,9 @@ pub fn install_map<H: 'static>(interp: &mut Interpreter<H>) {
     // (`register_owned_fn`), which is what lets `map_cow` reach an unaliased
     // map through `Arc::get_mut`. Everything else in this module only reads
     // its arguments and stays on the borrowed path.
-    interp.register_owned_fn(
-        "hash-map-set",
-        Arity::Exact(3),
-        |args: Vec<Value>, _h: &mut H, sp| {
-            let [m, k, v] = owned_args::<3>("hash-map-set", args, sp)?;
-            let k = key_or_err(&k, sp)?;
-            map_cow(m, sp, move |map| {
-                map.insert(k, v);
-            })
-        },
-    );
+    interp.register_owned_fn("hash-map-set", Arity::Exact(3), map_set::<H>);
 
-    interp.register_owned_fn(
-        "hash-map-remove",
-        Arity::Exact(2),
-        |args: Vec<Value>, _h: &mut H, sp| {
-            let [m, k] = owned_args::<2>("hash-map-remove", args, sp)?;
-            let k = key_or_err(&k, sp)?;
-            map_cow(m, sp, move |map| {
-                map.remove(&k);
-            })
-        },
-    );
+    interp.register_owned_fn("hash-map-remove", Arity::Exact(2), map_remove::<H>);
 
     interp.register_fn(
         "hash-map-keys",
@@ -245,6 +189,52 @@ pub fn install_map<H: 'static>(interp: &mut Interpreter<H>) {
     );
 }
 
+pub(crate) fn map_new<H: 'static>(args: &[Value], _h: &mut H, sp: Span) -> Result<Value> {
+    if !args.len().is_multiple_of(2) {
+        return Err(EvalError::native_fn(
+            Arc::<str>::from("hash-map"),
+            "expected even number of args (k v k v ...)",
+            sp,
+        ));
+    }
+    let mut m = Map::new();
+    let mut i = 0;
+    while i < args.len() {
+        let k = key_or_err(&args[i], sp)?;
+        m.insert(k, args[i + 1].clone());
+        i += 2;
+    }
+    Ok(Value::Map(Arc::new(m)))
+}
+
+pub(crate) fn map_has<H: 'static>(args: &[Value], _h: &mut H, sp: Span) -> Result<Value> {
+    let m = expect_map(&args[0], sp)?;
+    let k = key_or_err(&args[1], sp)?;
+    Ok(Value::Bool(m.contains_key(&k)))
+}
+
+pub(crate) fn map_get<H: 'static>(args: &[Value], _h: &mut H, sp: Span) -> Result<Value> {
+    let m = expect_map(&args[0], sp)?;
+    let k = key_or_err(&args[1], sp)?;
+    Ok(m.get(&k).cloned().unwrap_or(Value::Nil))
+}
+
+pub(crate) fn map_set<H: 'static>(args: Vec<Value>, _h: &mut H, sp: Span) -> Result<Value> {
+    let [m, k, v] = owned_args::<3>("hash-map-set", args, sp)?;
+    let k = key_or_err(&k, sp)?;
+    map_cow(m, sp, move |map| {
+        map.insert(k, v);
+    })
+}
+
+pub(crate) fn map_remove<H: 'static>(args: Vec<Value>, _h: &mut H, sp: Span) -> Result<Value> {
+    let [m, k] = owned_args::<2>("hash-map-remove", args, sp)?;
+    let k = key_or_err(&k, sp)?;
+    map_cow(m, sp, move |map| {
+        map.remove(&k);
+    })
+}
+
 /// Update a map, in place when the caller holds it alone.
 ///
 /// **The one place the copy-on-write decision is made** — every map-rebuilding
@@ -263,7 +253,7 @@ pub fn install_map<H: 'static>(interp: &mut Interpreter<H>) {
 /// [`crate::ffi::NativeCallable`]'s `&[Value]` the borrow is itself a second
 /// reference, so `get_mut` returns `None` every time and the `else` branch is
 /// the only reachable one.
-fn map_cow<F>(v: Value, sp: Span, f: F) -> Result<Value>
+pub(crate) fn map_cow<F>(v: Value, sp: Span, f: F) -> Result<Value>
 where
     F: FnOnce(&mut Map),
 {
@@ -285,14 +275,14 @@ where
     }
 }
 
-fn expect_map(v: &Value, sp: Span) -> Result<Arc<Map>> {
+pub(crate) fn expect_map(v: &Value, sp: Span) -> Result<Arc<Map>> {
     match v {
         Value::Map(m) => Ok(m.clone()),
         other => Err(EvalError::type_mismatch("map", other.type_name(), sp)),
     }
 }
 
-fn key_or_err(v: &Value, sp: Span) -> Result<MapKey> {
+pub(crate) fn key_or_err(v: &Value, sp: Span) -> Result<MapKey> {
     MapKey::from_value(v).ok_or_else(|| {
         EvalError::native_fn(
             Arc::<str>::from("hash-map"),

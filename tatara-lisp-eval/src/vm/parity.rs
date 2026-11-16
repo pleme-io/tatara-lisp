@@ -16,28 +16,24 @@
 //! more readable surface and the test bodies share a single
 //! comparison harness.
 //!
-//! ## VM-closures-into-native-HoFs (Phase 6 — resolved)
+//! ## VM-closures-into-native-HoFs
 //!
 //! VM-compiled closures (`Value::Foreign(CompiledClosure)`) flow into
 //! native higher-order primitives (`map`, `filter`, `foldl`, …)
-//! through `Caller::apply_value`, which routes through the
-//! tree-walker's `apply()`. `apply()` recognizes the Foreign-tagged
-//! variant and lifts it back to a tree-walker `Closure` for
-//! dispatch — see `CompiledClosure::lift_to_closure` for details.
+//! through `Caller::apply_value`, which runs them on a VM the caller
+//! reuses for the whole traversal. That VM reads globals, the registry
+//! and the expander through the same view the top-level VM reads the
+//! interpreter through, so `set!` on a captured cell is shared and a
+//! global's inline cache stays valid across calls.
 //!
-//! Trade-off: the lifted invocation runs through the tree-walker, not
-//! the VM. Correctness is the same (the VM is parity-validated), and
-//! the alternative (re-entering the VM from inside a native HoF
-//! callback) would require threading mutable Interpreter state
-//! through `Caller` — a deeper refactor we may revisit if profiling
-//! shows the lift cost matters for embedder workloads.
-//!
-//! Mutation note: `set!` inside a closure invoked through the lift
-//! path writes to the lifted captured env, NOT to the original VM
-//! upvalue cells. Closures that need shared `set!` semantics with
-//! their VM-side siblings should be invoked from VM contexts
-//! directly (which is the common case — HoF callbacks rarely
-//! mutate captures).
+//! Two shapes still lift to a tree-walker `Closure`
+//! (`CompiledClosure::lift_to_closure`): a body that reaches
+//! `Op::EvalSexp`, whose fallback form must see the callback's locals,
+//! and an interpreter with a call observer. A primitive that parks
+//! inside a callback hands the park sentinel back as the call's value,
+//! as the walker does: the native word's Rust frame cannot be
+//! suspended, so a retry from the top would run the callback's
+//! effects twice.
 
 #[cfg(test)]
 mod tests {
@@ -255,6 +251,69 @@ mod tests {
                   (filter even? (list 1 2 3 4 5))",
         },
         ParityCase {
+            name: "hof-callback-reads-a-capture",
+            src: "(let ((k 10)) (map (lambda (x) (+ x k)) (list 1 2 3)))",
+        },
+        ParityCase {
+            name: "hof-callback-sets-a-captured-cell",
+            src: "(let ((n 0)) (for-each (lambda (x) (set! n (+ n x))) (list 1 2 3 4)) n)",
+        },
+        ParityCase {
+            name: "hof-callback-sets-a-cell-another-closure-reads",
+            src: "(let ((n 0))
+                    (let ((read (lambda () n)))
+                      (map (lambda (x) (set! n (+ n x)) (read)) (list 1 2 3))))",
+        },
+        ParityCase {
+            name: "hof-nested-in-a-callback",
+            src: "(let ((k 2))
+                    (map (lambda (xs) (foldl (lambda (a x) (+ a (* k x))) 0 xs))
+                         (list (list 1 2) (list 3 4 5))))",
+        },
+        ParityCase {
+            name: "hof-callback-makes-a-closure",
+            src: "(map (lambda (x) ((lambda (y) (+ x y)) 1)) (list 1 2))",
+        },
+        ParityCase {
+            name: "hof-callback-calls-a-recursive-global",
+            src: "(define (fact n) (if (= n 0) 1 (* n (fact (- n 1)))))
+                  (map (lambda (n) (fact n)) (list 3 4 5))",
+        },
+        ParityCase {
+            name: "hof-callback-recurses-through-the-hof",
+            src: "(define (depth t) (if (list? t) (+ 1 (foldl (lambda (a c) (max a (depth c))) 0 t)) 0))
+                  (depth (list 1 (list 2 (list 3 (list 4)))))",
+        },
+        ParityCase {
+            name: "hof-callback-raise-caught-outside",
+            src: "(try (map (lambda (x) (if (= x 2) (throw (ex-info \"boom\" (list))) x)) (list 1 2 3))
+                    (catch (e) (error-message e)))",
+        },
+        ParityCase {
+            name: "hof-callback-runtime-error-caught-outside",
+            src: "(try (map (lambda (x) (/ 1 x)) (list 1 0)) (catch (e) (error-tag e)))",
+        },
+        ParityCase {
+            name: "hof-callback-unbound-caught-outside",
+            src: "(try (map (lambda (x) (+ x nowhere)) (list 1)) (catch (e) (error-tag e)))",
+        },
+        ParityCase {
+            name: "hof-callback-arity-caught-outside",
+            src: "(try (map (lambda (a b) a) (list 1)) (catch (e) (error-tag e)))",
+        },
+        ParityCase {
+            name: "hof-callback-catches-its-own-error",
+            src: "(map (lambda (x) (try (/ 10 x) (catch (e) :inf))) (list 1 0 5))",
+        },
+        ParityCase {
+            name: "hof-callback-with-eval-sexp-sees-its-locals",
+            src: "(map (lambda (x) (force (delay (* x 2)))) (list 1 2 3))",
+        },
+        ParityCase {
+            name: "hof-callback-rest-params",
+            src: "(map (lambda (x &rest more) (list x more)) (list 1 2) (list 3 4))",
+        },
+        ParityCase {
             name: "foldl-sum-native",
             src: "(foldl + 0 (list 1 2 3 4 5))",
         },
@@ -388,6 +447,152 @@ mod tests {
                 .join("\n");
             panic!("VM parity failures in {} cases:\n{msg}", PARITY_CASES.len());
         }
+    }
+
+    fn lifts_and_vms(src: &str) -> (Value, usize, usize) {
+        let lifts = crate::vm::run::LIFTS.with(std::cell::Cell::get);
+        let vms = crate::vm::run::CALLBACK_VMS.with(std::cell::Cell::get);
+        let value = eval_vm(src, src);
+        (
+            value,
+            crate::vm::run::LIFTS.with(std::cell::Cell::get) - lifts,
+            crate::vm::run::CALLBACK_VMS.with(std::cell::Cell::get) - vms,
+        )
+    }
+
+    #[test]
+    fn a_hof_callback_runs_on_one_reused_vm_and_never_lifts() {
+        let (value, lifts, vms) =
+            lifts_and_vms("(map (lambda (x) (* x 3)) (list 1 2 3 4 5 6 7 8))");
+        assert_eq!(format!("{value}"), "(3 6 9 12 15 18 21 24)");
+        assert_eq!(lifts, 0, "a compiled callback went through lift_to_closure");
+        assert_eq!(vms, 1, "one VM serves every call of one traversal");
+    }
+
+    #[test]
+    fn each_traversal_gets_its_own_vm_and_nested_ones_do_too() {
+        let (_, lifts, vms) = lifts_and_vms(
+            "(map (lambda (xs) (map (lambda (x) (+ x 1)) xs)) (list (list 1 2) (list 3)))",
+        );
+        assert_eq!(lifts, 0);
+        assert_eq!(vms, 3, "the outer map and each inner map own one VM");
+    }
+
+    #[test]
+    fn a_callback_reaching_eval_sexp_keeps_the_lift() {
+        let (value, lifts, _) =
+            lifts_and_vms("(map (lambda (x) (force (delay (* x 2)))) (list 1 2 3))");
+        assert_eq!(format!("{value}"), "(2 4 6)");
+        assert_eq!(lifts, 3, "an EvalSexp body is lifted on every call");
+    }
+
+    #[test]
+    fn a_callback_whose_inner_lambda_reaches_eval_sexp_keeps_the_lift() {
+        let (_, lifts, _) =
+            lifts_and_vms("(map (lambda (x) ((lambda () (force (delay x))))) (list 1 2))");
+        assert_eq!(lifts, 2);
+    }
+
+    struct Quiet;
+
+    impl crate::observe::CallObserver for Quiet {
+        fn enter(&self, _: &crate::observe::Call<'_>, _: &[Value]) -> Option<Value> {
+            None
+        }
+        fn leave(&self, _: &crate::observe::Call<'_>, _: crate::observe::Exit<'_>) {}
+    }
+
+    #[test]
+    fn an_observed_interpreter_keeps_the_lift() {
+        let mut i: Interpreter<NoHost> = Interpreter::new();
+        install_full_stdlib_with(&mut i, &mut NoHost);
+        i.set_call_observer(Some(std::sync::Arc::new(Quiet)));
+        let before = crate::vm::run::LIFTS.with(std::cell::Cell::get);
+        let forms = read_spanned("(map (lambda (x) x) (list 1 2))").unwrap();
+        i.eval_program_vm(&forms, &mut NoHost).unwrap();
+        assert_eq!(crate::vm::run::LIFTS.with(std::cell::Cell::get) - before, 2);
+    }
+
+    fn with_never_ready(src: &str, vm: bool) -> Value {
+        let mut i: Interpreter<NoHost> = Interpreter::new();
+        install_full_stdlib_with(&mut i, &mut NoHost);
+        i.register_awaitable_fn(
+            "never-ready",
+            crate::ffi::Arity::Exact(0),
+            |_: &[Value], _: &NoHost| false,
+            |_: &[Value], _: &mut NoHost, _| Ok(Value::Nil),
+        );
+        let forms = read_spanned(src).unwrap();
+        if vm {
+            i.eval_program_vm(&forms, &mut NoHost)
+        } else {
+            i.eval_program(&forms, &mut NoHost)
+        }
+        .unwrap_or_else(|e| panic!("{src} on vm={vm}: {e:?}"))
+    }
+
+    #[test]
+    fn a_park_inside_a_callback_answers_what_the_walker_answers() {
+        let src = "(let ((n 0))
+                     (list (length (map (lambda (x) (set! n (+ n 1)) (never-ready) x) (list 1 2 3))) n))";
+        let tree = with_never_ready(src, false);
+        let vm = with_never_ready(src, true);
+        assert_eq!(format!("{tree}"), "(3 3)");
+        assert_eq!(format!("{vm}"), format!("{tree}"));
+    }
+
+    #[test]
+    fn callback_instructions_spend_the_interpreters_fuel() {
+        let mut i: Interpreter<NoHost> = Interpreter::new();
+        install_full_stdlib_with(&mut i, &mut NoHost);
+        i.set_budget(crate::vm::Budget {
+            fuel: Some(5_000),
+            max_depth: Some(crate::vm::DEFAULT_MAX_DEPTH),
+            quantum: None,
+        })
+        .unwrap();
+        i.define_global(
+            "xs",
+            Value::list((0..10_000).map(Value::Int).collect::<Vec<_>>()),
+        );
+        let forms = read_spanned("(for-each (lambda (x) (+ x 1)) xs)").unwrap();
+        let err = i.eval_program_vm(&forms, &mut NoHost).unwrap_err();
+        assert_eq!(err.tag(), "fuel-exhausted", "{err:?}");
+    }
+
+    #[test]
+    fn the_depth_bound_holds_across_nested_callbacks() {
+        let src = "(define (deep n) (if (= n 0) 0 (car (map (lambda (x) (+ 1 (deep (- n 1)))) (list n)))))
+                   (deep 200)";
+        for vm in [false, true] {
+            let mut i: Interpreter<NoHost> = Interpreter::new();
+            install_full_stdlib_with(&mut i, &mut NoHost);
+            i.set_budget(crate::vm::Budget {
+                fuel: None,
+                max_depth: Some(100),
+                quantum: None,
+            })
+            .unwrap();
+            let forms = read_spanned(src).unwrap();
+            let out = if vm {
+                i.eval_program_vm(&forms, &mut NoHost)
+            } else {
+                i.eval_program(&forms, &mut NoHost)
+            };
+            assert_eq!(
+                out.map_err(|e| e.tag()).unwrap_err(),
+                "depth-exceeded",
+                "vm={vm}"
+            );
+        }
+    }
+
+    #[test]
+    fn deep_recursion_through_callbacks_matches_the_walker() {
+        let src = "(define (deep n) (if (= n 0) 0 (car (map (lambda (x) (+ 1 (deep (- n 1)))) (list n)))))
+                   (deep 3000)";
+        assert_eq!(format!("{}", eval_vm(src, src)), "3000");
+        assert_eq!(format!("{}", eval_tree(src, src)), "3000");
     }
 
     /// Sanity: the table covers a meaningful surface. If anyone

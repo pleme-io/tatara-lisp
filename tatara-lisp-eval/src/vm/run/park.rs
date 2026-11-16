@@ -334,6 +334,7 @@ impl Vm {
             blocked: false,
             globals: crate::fasthash::FastMap::default(),
             operators: (0, [false; 8]),
+            entry: None,
         })
     }
 }

@@ -1377,7 +1377,7 @@ fn call_native<H: 'static>(
         // refcount and update an unaliased payload in place.
         FnImpl::Owned(f) => f.call(args, host, call_span),
         FnImpl::Higher(f) => {
-            let caller = Caller { registry, expander };
+            let caller = Caller::new(registry, expander);
             f.call(&args, host, &caller, call_span)
         }
         // The readiness check happens HERE, with `host` reborrowed
@@ -1408,18 +1408,10 @@ fn apply<H: 'static>(
             call_native(entry, args, call_span, registry, expander, host)
         }
         Value::Closure(c) => call_closure(c.clone(), args, call_span, registry, expander, host),
-        // VM-compiled closure flowing into a tree-walker apply path
-        // (typically because a native HoF captured the closure as an
-        // arg). Lift to a tree-walker-shaped Closure and dispatch.
-        // See `CompiledClosure::lift_to_closure` for trade-offs.
         Value::Foreign(any) => {
-            if let Some(cc) = any
-                .clone()
-                .downcast::<crate::vm::run::CompiledClosure>()
-                .ok()
-            {
-                let lifted = cc.lift_to_closure();
-                return call_closure(lifted, args, call_span, registry, expander, host);
+            if let Ok(cc) = any.clone().downcast::<crate::vm::run::CompiledClosure>() {
+                let mut vm = crate::vm::Vm::for_callbacks();
+                return call_compiled(&cc, args, call_span, registry, expander, host, &mut vm);
             }
             Err(EvalError::NotCallable {
                 value_kind: callee.type_name(),
@@ -1431,6 +1423,28 @@ fn apply<H: 'static>(
             at: call_span,
         }),
     }
+}
+
+pub(crate) fn call_compiled<H: 'static>(
+    cc: &Arc<crate::vm::run::CompiledClosure>,
+    args: Vec<Value>,
+    call_span: Span,
+    registry: &FnRegistry<H>,
+    expander: &SpannedExpander,
+    host: &mut H,
+    vm: &mut crate::vm::Vm,
+) -> Result<Value> {
+    if registry.observer.is_none() && vm.runs(cc) {
+        return vm.call_back(cc, args, call_span, registry, expander, host);
+    }
+    call_closure(
+        cc.lift_to_closure(),
+        args,
+        call_span,
+        registry,
+        expander,
+        host,
+    )
 }
 
 // ── Tail-call optimization ────────────────────────────────────────
@@ -1802,12 +1816,12 @@ fn bind_macro_args(
 /// evaluator frames — `call_closure` down to the next `call_closure` — plus
 /// the native primitive it may call can consume.
 #[cfg(not(target_family = "wasm"))]
-const STACK_RED_ZONE: usize = 256 * 1024;
+pub(crate) const STACK_RED_ZONE: usize = 256 * 1024;
 
 /// How much stack one extension adds. Allocated lazily and freed on return,
 /// so a shallow program never pays it.
 #[cfg(not(target_family = "wasm"))]
-const STACK_SEGMENT: usize = 8 * 1024 * 1024;
+pub(crate) const STACK_SEGMENT: usize = 8 * 1024 * 1024;
 
 /// Invoke a closure: one non-tail call, counted against the budget's depth.
 ///
@@ -2849,7 +2863,7 @@ fn expand_one_macro_call<H: 'static>(
 /// Free-function variant of `Interpreter::fully_expand`. Recursively
 /// expands every macro call in the form tree, terminating at fixed
 /// point.
-fn fully_expand_with<H: 'static>(
+pub(crate) fn fully_expand_with<H: 'static>(
     form: &Spanned,
     registry: &FnRegistry<H>,
     expander: &SpannedExpander,

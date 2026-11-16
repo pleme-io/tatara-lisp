@@ -14,11 +14,87 @@ use thiserror::Error;
 
 use super::chunk::{CaptureSource, Chunk, CompiledFn, FnRef};
 use super::op::{Arith, Op};
+use crate::env::Env;
 use crate::error::EvalError;
 use crate::eval::Interpreter;
+use crate::ffi::FnRegistry;
 use crate::value::Value;
 
 mod park;
+
+pub(crate) trait Reach<H: 'static> {
+    const BLOCKS: bool;
+    fn registry(&self) -> &FnRegistry<H>;
+    fn globals(&self) -> &Env;
+    fn may_park(&self, callee: &Value) -> bool;
+    fn apply(
+        &mut self,
+        callee: &Value,
+        args: Vec<Value>,
+        host: &mut H,
+        at: Span,
+    ) -> Result<Value, EvalError>;
+    fn eval_sexp(&mut self, form: &tatara_lisp::Spanned, host: &mut H) -> Result<Value, EvalError>;
+}
+
+impl<H: 'static> Reach<H> for Interpreter<H> {
+    const BLOCKS: bool = true;
+    fn registry(&self) -> &FnRegistry<H> {
+        &self.registry
+    }
+    fn globals(&self) -> &Env {
+        self.globals_snapshot()
+    }
+    fn may_park(&self, callee: &Value) -> bool {
+        self.callee_may_park(callee)
+    }
+    fn apply(
+        &mut self,
+        callee: &Value,
+        args: Vec<Value>,
+        host: &mut H,
+        at: Span,
+    ) -> Result<Value, EvalError> {
+        self.apply_external_value(callee, args, host, at)
+    }
+    fn eval_sexp(&mut self, form: &tatara_lisp::Spanned, host: &mut H) -> Result<Value, EvalError> {
+        self.eval_spanned(form, host)
+    }
+}
+
+struct Callback<'a, H> {
+    registry: &'a FnRegistry<H>,
+    expander: &'a tatara_lisp::SpannedExpander,
+    globals: &'a Env,
+}
+
+impl<H: 'static> Reach<H> for Callback<'_, H> {
+    const BLOCKS: bool = false;
+    fn registry(&self) -> &FnRegistry<H> {
+        self.registry
+    }
+    fn globals(&self) -> &Env {
+        self.globals
+    }
+    fn may_park(&self, _: &Value) -> bool {
+        false
+    }
+    fn apply(
+        &mut self,
+        callee: &Value,
+        args: Vec<Value>,
+        host: &mut H,
+        at: Span,
+    ) -> Result<Value, EvalError> {
+        crate::eval::apply_external(callee, args, at, self.registry, self.expander, host)
+    }
+    fn eval_sexp(&mut self, form: &tatara_lisp::Spanned, host: &mut H) -> Result<Value, EvalError> {
+        let mut env = self.globals.clone();
+        let expanded =
+            crate::eval::fully_expand_with(form, self.registry, self.expander, &env, host)?;
+        crate::eval::eval_in(&mut env, self.registry, self.expander, &expanded, host)
+    }
+}
 
 pub use park::{ParkError, Parked, ParkedFrame, ParkedHandler, ParkedValue};
 
@@ -307,6 +383,7 @@ pub struct Vm {
     blocked: bool,
     globals: crate::fasthash::FastMap<(usize, usize), CachedGlobal>,
     operators: (u64, [bool; 8]),
+    entry: Option<(Arc<CompiledFn>, bool)>,
 }
 
 struct CachedGlobal {
@@ -333,6 +410,20 @@ impl Vm {
         Self {
             stack: Vec::with_capacity(256),
             frames: Vec::with_capacity(64),
+            ..Self::bare()
+        }
+    }
+
+    pub(crate) fn for_callbacks() -> Self {
+        #[cfg(test)]
+        CALLBACK_VMS.with(|n| n.set(n.get() + 1));
+        Self::bare()
+    }
+
+    fn bare() -> Self {
+        Self {
+            stack: Vec::new(),
+            frames: Vec::new(),
             budget: Budget::default(),
             burned: 0,
             slice: 0,
@@ -340,6 +431,7 @@ impl Vm {
             blocked: false,
             globals: crate::fasthash::FastMap::default(),
             operators: (0, [false; 8]),
+            entry: None,
         }
     }
 
@@ -560,10 +652,10 @@ impl Vm {
     /// routes them through any installed `(try ...)` handlers.
     /// `chunk` is `&Arc<Chunk>` (not `&Chunk`) so `Op::MakeClosure` can
     /// stash a cheap `Arc::clone` into the produced `CompiledClosure`.
-    fn run_inner<H: 'static>(
+    fn run_inner<H: 'static, R: Reach<H>>(
         &mut self,
         chunk: &Arc<Chunk>,
-        interp: &mut Interpreter<H>,
+        interp: &mut R,
         host: &mut H,
     ) -> Result<Progress, VmError> {
         loop {
@@ -661,7 +753,7 @@ impl Vm {
                 Op::StoreGlobal(name_idx) => {
                     let name = self.frames[frame_idx].chunk.names.get(name_idx).clone();
                     let v = self.stack.pop().ok_or(VmError::Underflow { ip: 0 })?;
-                    interp.define_global(name, v);
+                    interp.globals().define(name, v);
                 }
 
                 Op::Jmp(target) => {
@@ -726,7 +818,7 @@ impl Vm {
                         body: Arc::new(body),
                         captures: closure_captures,
                         chunk: Arc::clone(&self.frames[frame_idx].chunk),
-                        globals: interp.globals_snapshot().clone(),
+                        globals: interp.globals().clone(),
                         fn_index: fn_idx,
                     };
                     self.stack.push(Value::Foreign(Arc::new(compiled)));
@@ -792,7 +884,7 @@ impl Vm {
                         }
                     };
                     let spanned = tatara_lisp::Spanned::from_sexp_at(&sexp, sp);
-                    let result = interp.eval_spanned(&spanned, host)?;
+                    let result = interp.eval_sexp(&spanned, host)?;
                     self.stack.push(result);
                 }
 
@@ -818,10 +910,10 @@ impl Vm {
     /// through the nearest installed handler. Frames above the
     /// handler are unwound; the handler's frame jumps to its
     /// `catch_ip` with the error value stored at `error_local`.
-    fn run_with_handlers<H: 'static>(
+    fn run_with_handlers<H: 'static, R: Reach<H>>(
         &mut self,
         chunk: &Arc<Chunk>,
-        interp: &mut Interpreter<H>,
+        interp: &mut R,
         host: &mut H,
     ) -> Result<Progress, VmError> {
         loop {
@@ -911,26 +1003,29 @@ impl Vm {
         self.stack.pop().unwrap_or(Value::Nil)
     }
 
-    fn load_global<H: 'static>(
+    fn load_global<H: 'static, R: Reach<H>>(
         &mut self,
-        interp: &Interpreter<H>,
+        interp: &R,
         frame_idx: usize,
         name_idx: usize,
         span: Span,
     ) -> Result<Value, VmError> {
         let chunk = &self.frames[frame_idx].chunk;
         let key = (Arc::as_ptr(chunk) as usize, name_idx);
-        let stamp = interp.globals_snapshot().stamp();
+        let stamp = interp.globals().stamp();
         if let (Some(stamp), Some(hit)) = (stamp, self.globals.get(&key)) {
             if hit.stamp == stamp {
                 return Ok(hit.value.clone());
             }
         }
         let name = chunk.names.get(name_idx);
-        let value = interp.lookup_global(name).ok_or_else(|| VmError::Unbound {
-            name: name.to_string(),
-            at: span,
-        })?;
+        let value = interp
+            .globals()
+            .lookup(name)
+            .ok_or_else(|| VmError::Unbound {
+                name: name.to_string(),
+                at: span,
+            })?;
         if let Some(stamp) = stamp {
             let pin = Arc::downgrade(chunk);
             self.globals.insert(
@@ -945,7 +1040,7 @@ impl Vm {
         Ok(value)
     }
 
-    fn arith_in_place<H: 'static>(&mut self, interp: &Interpreter<H>, kind: Arith) -> bool {
+    fn arith_in_place<H: 'static, R: Reach<H>>(&mut self, interp: &R, kind: Arith) -> bool {
         let [.., callee, a, b] = &self.stack[..] else {
             return false;
         };
@@ -967,18 +1062,18 @@ impl Vm {
         true
     }
 
-    fn operator_intact<H: 'static>(&mut self, interp: &Interpreter<H>, kind: Arith) -> bool {
-        let revision = interp.registry.revision();
+    fn operator_intact<H: 'static, R: Reach<H>>(&mut self, interp: &R, kind: Arith) -> bool {
+        let revision = interp.registry().revision();
         if self.operators.0 != revision {
-            self.operators = (revision, interp.registry.operators_intact());
+            self.operators = (revision, interp.registry().operators_intact());
         }
         self.operators.1[kind as usize]
     }
 
-    fn do_call<H: 'static>(
+    fn do_call<H: 'static, R: Reach<H>>(
         &mut self,
         _chunk: &Chunk,
-        interp: &mut Interpreter<H>,
+        interp: &mut R,
         host: &mut H,
         arity: usize,
         span: Span,
@@ -1030,13 +1125,13 @@ impl Vm {
                 // Only a callee that can park needs it — see
                 // `Interpreter::callee_may_park`, which is conservative in
                 // the safe direction.
-                let args_kept = if interp.callee_may_park(&callee) {
+                let args_kept = if R::BLOCKS && interp.may_park(&callee) {
                     Some(args.clone())
                 } else {
                     None
                 };
-                let result = interp.apply_external_value(&callee, args, host, span)?;
-                if Self::is_park(&result) {
+                let result = interp.apply(&callee, args, host, span)?;
+                if R::BLOCKS && Self::is_park(&result) {
                     // Put the stack back exactly as the Call found it and
                     // rewind to the Call itself, so `resume` re-executes it.
                     // Nothing about this attempt is retained — that is what
@@ -1137,6 +1232,84 @@ impl Vm {
         }
         Ok(())
     }
+
+    pub(crate) fn runs(&mut self, cc: &CompiledClosure) -> bool {
+        match &self.entry {
+            Some((body, runs)) if Arc::ptr_eq(body, &cc.body) => *runs,
+            _ => {
+                let runs = !cc.reaches_eval_sexp();
+                self.entry = Some((Arc::clone(&cc.body), runs));
+                runs
+            }
+        }
+    }
+
+    pub(crate) fn call_back<H: 'static>(
+        &mut self,
+        cc: &Arc<CompiledClosure>,
+        args: Vec<Value>,
+        at: Span,
+        registry: &FnRegistry<H>,
+        expander: &tatara_lisp::SpannedExpander,
+        host: &mut H,
+    ) -> Result<Value, EvalError> {
+        let _depth = registry
+            .meter
+            .enter(at)
+            .map_err(|e| e.in_function(cc.body.name.as_ref()))?;
+        #[cfg(not(target_family = "wasm"))]
+        {
+            stacker::maybe_grow(
+                crate::eval::STACK_RED_ZONE,
+                crate::eval::STACK_SEGMENT,
+                || self.call_back_body(cc, args, at, registry, expander, host),
+            )
+        }
+        #[cfg(target_family = "wasm")]
+        {
+            self.call_back_body(cc, args, at, registry, expander, host)
+        }
+    }
+
+    fn call_back_body<H: 'static>(
+        &mut self,
+        cc: &Arc<CompiledClosure>,
+        args: Vec<Value>,
+        at: Span,
+        registry: &FnRegistry<H>,
+        expander: &tatara_lisp::SpannedExpander,
+        host: &mut H,
+    ) -> Result<Value, EvalError> {
+        self.stack.clear();
+        self.frames.clear();
+        self.budget = Budget {
+            quantum: None,
+            ..registry.meter.budget
+        };
+        self.burned = registry.meter.spent();
+        self.slice = 0;
+        self.blocked = false;
+        let arity = args.len();
+        self.stack.push(Value::Nil);
+        self.stack.extend(args);
+        let chunk = Arc::clone(&cc.chunk);
+        let mut reach = Callback {
+            registry,
+            expander,
+            globals: &cc.globals,
+        };
+        let outcome = self
+            .invoke_compiled(Arc::clone(cc), arity, at, false)
+            .and_then(|()| self.run_with_handlers(&chunk, &mut reach, host));
+        registry.meter.set_spent(self.burned);
+        self.stack.clear();
+        self.frames.clear();
+        match outcome {
+            Ok(Progress::Done(v)) => Ok(v),
+            Ok(Progress::Yielded | Progress::Blocked) => Err(VmError::Deadlocked.into_eval()),
+            Err(e) => Err(e.into_eval()),
+        }
+    }
 }
 
 impl Default for Vm {
@@ -1184,6 +1357,31 @@ impl VmError {
                 at: *at,
             }),
             _ => None,
+        }
+    }
+
+    pub(crate) fn into_eval(self) -> EvalError {
+        match self {
+            Self::Eval(inner) => inner,
+            budget @ Self::BudgetExhausted { .. } => {
+                budget.budget_as_eval().expect("a budget refusal")
+            }
+            Self::Unbound { name, at } => EvalError::unbound(name, at),
+            Self::NotCallable { kind, at } => EvalError::NotCallable {
+                value_kind: kind,
+                at,
+            },
+            Self::Arity { expected, got, at } => EvalError::ArityMismatch {
+                fn_name: Arc::from("<closure>"),
+                expected: crate::ffi::Arity::Exact(expected),
+                got,
+                at,
+            },
+            other => EvalError::native_fn(
+                Arc::<str>::from("vm"),
+                format!("{other}"),
+                Span::synthetic(),
+            ),
         }
     }
 }
@@ -1268,14 +1466,45 @@ pub struct CompiledClosure {
     pub fn_index: usize,
 }
 
+#[cfg(test)]
+thread_local! {
+    pub(crate) static LIFTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    pub(crate) static CALLBACK_VMS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 impl CompiledClosure {
+    /// Does running this closure's body reach an [`Op::EvalSexp`], in the body
+    /// itself or in a lambda it makes?
+    ///
+    /// `EvalSexp` hands a form to the tree-walker against the globals only, so
+    /// a fallback form in a callback (`delay`, `eval`) cannot see the
+    /// callback's locals on the VM. The lift evaluates the whole source body on
+    /// the walker, where it can; a closure that answers `true` is lifted when a
+    /// native higher-order word calls it.
+    #[must_use]
+    pub fn reaches_eval_sexp(&self) -> bool {
+        let mut pending: Vec<&CompiledFn> = vec![&self.body];
+        while let Some(f) = pending.pop() {
+            for op in &f.ops {
+                match op {
+                    Op::EvalSexp(_) => return true,
+                    Op::MakeClosure(i) => pending.extend(self.chunk.fn_table.get(*i)),
+                    _ => {}
+                }
+            }
+        }
+        false
+    }
+
     /// Lift this VM-compiled closure to a tree-walker-shaped
-    /// `crate::value::Closure`. Used when a native higher-order
-    /// primitive (`map`, `filter`, `foldl`, ...) holds a
-    /// `Value::Foreign(CompiledClosure)` and needs to invoke it
-    /// through the standard `Caller::apply_value` path — that path
-    /// goes through `eval::apply()` which knows how to dispatch
-    /// `Value::Closure`.
+    /// `crate::value::Closure`.
+    ///
+    /// A native higher-order primitive (`map`, `filter`, `foldl`, ...) calls a
+    /// compiled closure on a VM it reuses for the whole traversal
+    /// (`Caller::apply_value`). The lift remains for the two cases that VM
+    /// cannot honour: a body that [reaches `EvalSexp`](Self::reaches_eval_sexp),
+    /// and an interpreter with a call observer, which reports tree-walker
+    /// activations the VM does not make.
     ///
     /// The lifted closure carries:
     ///   - the original Spanned body (preserved by the compiler in
@@ -1283,18 +1512,12 @@ impl CompiledClosure {
     ///   - a `captured_env` synthesized from the closure's positional
     ///     captures + the host globals snapshot.
     ///
-    /// Trade-off: the lifted invocation runs through the tree-walker,
-    /// not the VM. Faster paths (direct VM dispatch) are possible but
-    /// would require threading mutable Interpreter state through
-    /// `Caller`. Correctness-wise the tree-walker is authoritative —
-    /// the VM is parity-validated against it.
-    ///
     /// Mutation note: `set!` performed inside the lifted closure
     /// writes to the lifted `captured_env`, NOT to the original
-    /// upvalue cells. For HoF callbacks this is the common case
-    /// (read-only captures); closures that need shared `set!`
-    /// semantics should be invoked through the VM directly.
+    /// upvalue cells. A closure run on the VM writes the cells.
     pub fn lift_to_closure(&self) -> Arc<crate::value::Closure> {
+        #[cfg(test)]
+        LIFTS.with(|n| n.set(n.get() + 1));
         let mut captured_env = self.globals.clone();
         captured_env.push();
         for ((name, _), cell) in self.body.captures.iter().zip(self.captures.iter()) {

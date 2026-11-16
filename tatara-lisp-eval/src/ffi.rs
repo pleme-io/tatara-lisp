@@ -187,13 +187,30 @@ where
 pub struct Caller<'a, H> {
     pub(crate) registry: &'a FnRegistry<H>,
     pub(crate) expander: &'a tatara_lisp::SpannedExpander,
+    vm: std::cell::Cell<Option<Box<crate::vm::Vm>>>,
 }
 
 impl<'a, H: 'static> Caller<'a, H> {
+    pub(crate) fn new(
+        registry: &'a FnRegistry<H>,
+        expander: &'a tatara_lisp::SpannedExpander,
+    ) -> Self {
+        Self {
+            registry,
+            expander,
+            vm: std::cell::Cell::new(None),
+        }
+    }
+
     /// Apply a callable `Value` to `args` against this caller's registry.
     /// Mirrors the eval loop's `apply` precisely — closures get a fresh
     /// frame; native fns dispatch through the registry; higher-order
     /// fns receive a fresh `Caller` of their own.
+    ///
+    /// A VM-compiled closure runs on a VM this caller keeps for every call
+    /// it makes, so a `map` over a million elements reuses one operand stack
+    /// and one global cache rather than lifting the closure to the
+    /// tree-walker a million times.
     pub fn apply_value(
         &self,
         callee: &Value,
@@ -201,6 +218,25 @@ impl<'a, H: 'static> Caller<'a, H> {
         host: &mut H,
         call_span: Span,
     ) -> Result<Value> {
+        if let Value::Foreign(any) = callee {
+            if let Ok(cc) = Arc::clone(any).downcast::<crate::vm::run::CompiledClosure>() {
+                let mut vm = self
+                    .vm
+                    .take()
+                    .unwrap_or_else(|| Box::new(crate::vm::Vm::for_callbacks()));
+                let out = crate::eval::call_compiled(
+                    &cc,
+                    args,
+                    call_span,
+                    self.registry,
+                    self.expander,
+                    host,
+                    &mut vm,
+                );
+                self.vm.set(Some(vm));
+                return out;
+            }
+        }
         crate::eval::apply_external(callee, args, call_span, self.registry, self.expander, host)
     }
 
@@ -393,6 +429,10 @@ impl Meter {
 
     pub(crate) fn spent(&self) -> usize {
         self.spent.load(Ordering::Relaxed)
+    }
+
+    pub(crate) fn set_spent(&self, spent: usize) {
+        self.spent.store(spent, Ordering::Relaxed);
     }
 
     /// Enter one non-tail closure call. The guard leaves it on drop, on every

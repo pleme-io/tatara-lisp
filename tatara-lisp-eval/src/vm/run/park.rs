@@ -333,7 +333,7 @@ impl Vm {
             started: true,
             blocked: false,
             globals: crate::fasthash::FastMap::default(),
-            operators: (0, [false; 8]),
+            operators: (0, [false; crate::vm::op::Arith::COUNT]),
             entry: None,
         })
     }

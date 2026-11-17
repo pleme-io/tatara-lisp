@@ -228,3 +228,91 @@ fn a_tail_call_on_the_vm_runs_in_constant_frames() {
         .expect("runs within 50 frames");
     assert_eq!(format!("{got}"), "(:done :done)");
 }
+
+fn counted_equality(i: &mut Interpreter<()>) -> std::sync::Arc<std::sync::atomic::AtomicUsize> {
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    for (name, negate) in [("equal?", false), ("not=", true)] {
+        let seen = std::sync::Arc::clone(&calls);
+        i.register_fn(name, Arity::Exact(2), move |a: &[Value], (): &mut (), _| {
+            seen.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let same = match (&a[0], &a[1]) {
+                (Value::Int(x), Value::Int(y)) => x == y,
+                (Value::Float(x), Value::Float(y)) => x == y,
+                (Value::Str(x), Value::Str(y)) => x == y,
+                _ => false,
+            };
+            Ok(Value::Bool(same != negate))
+        });
+    }
+    calls
+}
+
+#[test]
+fn an_adopted_equality_runs_in_place_on_numbers_and_calls_its_function_otherwise() {
+    let mut i = fresh();
+    let calls = counted_equality(&mut i);
+    assert!(i.adopt_operator("equal?"));
+    assert!(i.adopt_operator("not="));
+    let forms = read_spanned(
+        "(define (count n acc) (if (equal? n 0) acc (count (- n 1) (+ acc 1)))) \
+         (list (count 1000 0) (not= 1.5 2.5) (equal? 2.0 2.0) (equal? \"a\" \"a\") (not= \"a\" \"b\"))",
+    )
+    .expect("reads");
+    let got = i.eval_program_vm(&forms, &mut ()).expect("runs");
+    assert_eq!(got.to_string(), "(1000 #t #t #t #t)");
+    assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 2);
+}
+
+#[test]
+fn equality_nobody_adopted_and_equality_registered_again_are_called() {
+    let mut i = fresh();
+    let calls = counted_equality(&mut i);
+    let forms = read_spanned("(list (equal? 1 1) (not= 1 2))").expect("reads");
+    i.eval_program_vm(&forms, &mut ()).expect("runs");
+    assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 2);
+    assert!(i.adopt_operator("equal?"));
+    let again = counted_equality(&mut i);
+    let got = i.eval_program_vm(&forms, &mut ()).expect("runs");
+    assert_eq!(got.to_string(), "(#t #t)");
+    assert_eq!(again.load(std::sync::atomic::Ordering::Relaxed), 2);
+    assert!(!i.adopt_operator("length"));
+}
+
+#[test]
+fn adopted_equality_agrees_with_the_walker_on_a_seeded_corpus() {
+    let mut state: u64 = 0x5eed_0000_0000_e0e0;
+    let mut next = move || {
+        state ^= state >> 12;
+        state ^= state << 25;
+        state ^= state >> 27;
+        state.wrapping_mul(0x2545_f491_4f6c_dd1d)
+    };
+    let mut operand = || -> String {
+        let r = next();
+        match r % 6 {
+            0 => ["0", "1", "-1", "0.0", "-0.0", "1.0"][(r >> 8) as usize % 6].to_string(),
+            1 => format!(
+                "{:.1}",
+                f64::from(u32::try_from(r >> 40).expect("bits")) / 10.0
+            ),
+            2 => "\"x\"".to_string(),
+            _ => (i64::from_le_bytes(r.to_le_bytes()) % 4).to_string(),
+        }
+    };
+    for _ in 0..300 {
+        for op in ["equal?", "not="] {
+            let src = format!("({op} {} {})", operand(), operand());
+            let mut w = fresh();
+            counted_equality(&mut w);
+            let mut v = fresh();
+            counted_equality(&mut v);
+            assert!(v.adopt_operator(op));
+            let forms = read_spanned(&src).expect("reads");
+            assert_eq!(
+                outcome(w.eval_program(&forms, &mut ())),
+                outcome(v.eval_program_vm(&forms, &mut ())),
+                "{src}"
+            );
+        }
+    }
+}

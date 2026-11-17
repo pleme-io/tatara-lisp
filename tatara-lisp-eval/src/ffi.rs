@@ -387,7 +387,7 @@ pub(crate) struct FnRegistry<H> {
     entries: Vec<FnEntry<H>>,
     index: Arc<crate::fasthash::FastMap<Arc<str>, usize>>,
     revision: u64,
-    operators: [usize; 8],
+    operators: [usize; crate::vm::op::Arith::COUNT],
     pub(crate) words: Option<crate::words::Live>,
     /// The host's interrupt: once set, the next evaluation step returns
     /// [`crate::EvalError::Halted`]. Shared by clones, since a fork is the
@@ -512,7 +512,7 @@ impl<H> Default for FnRegistry<H> {
             entries: Vec::new(),
             index: Arc::default(),
             revision: 0,
-            operators: [0; 8],
+            operators: [0; crate::vm::op::Arith::COUNT],
             words: None,
             halt: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             meter: Meter::new(Budget::tree_walker_default()),
@@ -570,13 +570,21 @@ impl<H> FnRegistry<H> {
     }
 
     pub(crate) fn adopt_operators(&mut self) {
-        for kind in crate::vm::op::Arith::ALL {
+        for kind in crate::vm::op::Arith::CORE {
             self.operators[kind as usize] =
                 self.lookup(kind.name()).map_or(0, |e| e.callable.addr());
         }
     }
 
-    pub(crate) fn operators_intact(&self) -> [bool; 8] {
+    /// Adopt the function registered under `kind`'s name as the one that
+    /// runs in place: `false` when nothing is registered under it.
+    pub(crate) fn adopt_operator(&mut self, kind: crate::vm::op::Arith) -> bool {
+        let addr = self.addr_of(kind.name());
+        self.operators[kind as usize] = addr;
+        addr != 0
+    }
+
+    pub(crate) fn operators_intact(&self) -> [bool; crate::vm::op::Arith::COUNT] {
         crate::vm::op::Arith::ALL.map(|kind| {
             let adopted = self.operators[kind as usize];
             adopted != 0

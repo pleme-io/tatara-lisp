@@ -382,7 +382,7 @@ pub struct Vm {
     /// run loop, which turns it into [`Progress::Blocked`].
     blocked: bool,
     globals: crate::fasthash::FastMap<(usize, usize), CachedGlobal>,
-    operators: (u64, [bool; 8]),
+    operators: (u64, [bool; crate::vm::op::Arith::COUNT]),
     entry: Option<(Arc<CompiledFn>, bool)>,
 }
 
@@ -430,7 +430,7 @@ impl Vm {
             started: false,
             blocked: false,
             globals: crate::fasthash::FastMap::default(),
-            operators: (0, [false; 8]),
+            operators: (0, [false; crate::vm::op::Arith::COUNT]),
             entry: None,
         }
     }

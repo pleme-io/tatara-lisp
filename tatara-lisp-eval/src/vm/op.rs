@@ -149,10 +149,32 @@ pub enum Arith {
     Le,
     Ge,
     NumEq,
+    Equal,
+    NotEqual,
 }
 
 impl Arith {
-    pub const ALL: [Self; 8] = [
+    /// How many kinds there are: the size of every per-kind table.
+    pub const COUNT: usize = 10;
+
+    pub const ALL: [Self; Self::COUNT] = [
+        Self::Add,
+        Self::Sub,
+        Self::Mul,
+        Self::Lt,
+        Self::Gt,
+        Self::Le,
+        Self::Ge,
+        Self::NumEq,
+        Self::Equal,
+        Self::NotEqual,
+    ];
+
+    /// The kinds the standard library's own primitives answer, adopted when
+    /// it is installed. [`Self::Equal`] and [`Self::NotEqual`] name functions
+    /// an embedder defines; they run in place only after the embedder adopts
+    /// its own (`Interpreter::adopt_operator`).
+    pub const CORE: [Self; 8] = [
         Self::Add,
         Self::Sub,
         Self::Mul,
@@ -174,6 +196,8 @@ impl Arith {
             Self::Le => "<=",
             Self::Ge => ">=",
             Self::NumEq => "=",
+            Self::Equal => "equal?",
+            Self::NotEqual => "not=",
         }
     }
 
@@ -193,7 +217,8 @@ impl Arith {
             Self::Gt => Some(Bool(a > b)),
             Self::Le => Some(Bool(a <= b)),
             Self::Ge => Some(Bool(a >= b)),
-            Self::NumEq => Some(Bool(a == b)),
+            Self::NumEq | Self::Equal => Some(Bool(a == b)),
+            Self::NotEqual => Some(Bool(a != b)),
         }
     }
 
@@ -209,7 +234,8 @@ impl Arith {
             Self::Gt => Bool(a > b),
             Self::Le => Bool(a <= b),
             Self::Ge => Bool(a >= b),
-            Self::NumEq => Bool(a == b),
+            Self::NumEq | Self::Equal => Bool(a == b),
+            Self::NotEqual => Bool(a != b),
         }
     }
 }

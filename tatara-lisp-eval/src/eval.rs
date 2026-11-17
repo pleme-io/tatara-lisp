@@ -179,6 +179,17 @@ impl<H: 'static> Interpreter<H> {
         &self.modules
     }
 
+    /// Vouch that the function registered under `name` answers as an
+    /// operator kind does on two Ints or two Floats, so the VM runs a call of
+    /// it on such a pair in place. `name` is `equal?` or `not=` (answering
+    /// `a == b` and `a != b`) or one of the core operators. Registering the
+    /// name again withdraws the vouch, since only the adopted function runs
+    /// in place. `false` when `name` is not an operator kind or has no
+    /// function.
+    pub fn adopt_operator(&mut self, name: &str) -> bool {
+        crate::vm::op::Arith::of(name).is_some_and(|kind| self.registry.adopt_operator(kind))
+    }
+
     /// Register a native Rust function, exposing it to Lisp code under
     /// `name`. Re-registering the same name overwrites the prior entry
     /// (last-write-wins) and leaves the global binding intact.

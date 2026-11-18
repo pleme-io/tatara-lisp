@@ -33,6 +33,7 @@ pub mod observe;
 pub mod persist;
 pub mod primitive;
 pub mod repl;
+pub mod reuse;
 pub mod special;
 pub mod strictness;
 pub mod type_check;

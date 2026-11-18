@@ -401,6 +401,10 @@ pub(crate) struct FnRegistry<H> {
     pub(crate) observer: Option<Arc<dyn crate::observe::CallObserver>>,
     /// The frames the last error unwound through. Not shared by clones.
     pub(crate) unwind: crate::observe::Unwind,
+    /// Early reuse is on (`Interpreter::set_early_reuse`). Off by default.
+    pub(crate) early_reuse: bool,
+    /// Each closure's last reads, computed once. Shared by clones.
+    pub(crate) reuse: Arc<crate::reuse::Cache>,
 }
 
 /// A [`Budget`] and the two counters that spend it.
@@ -502,6 +506,8 @@ impl<H> Clone for FnRegistry<H> {
             meter: Meter::new(self.meter.budget),
             observer: self.observer.clone(),
             unwind: crate::observe::Unwind::default(),
+            early_reuse: self.early_reuse,
+            reuse: Arc::clone(&self.reuse),
         }
     }
 }
@@ -518,6 +524,8 @@ impl<H> Default for FnRegistry<H> {
             meter: Meter::new(Budget::tree_walker_default()),
             observer: None,
             unwind: crate::observe::Unwind::default(),
+            early_reuse: false,
+            reuse: Arc::default(),
         }
     }
 }

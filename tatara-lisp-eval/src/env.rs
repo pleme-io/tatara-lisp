@@ -395,6 +395,19 @@ impl Frame {
         Ok(())
     }
 
+    /// Move `name`'s value out, leaving `nil` bound. `None` when the frame is
+    /// sealed (a fork may read it) or does not bind `name`.
+    fn take(&self, name: Name<'_>) -> Option<Value> {
+        let mut bindings = self.bindings.write().unwrap();
+        if self.is_frozen() {
+            return None;
+        }
+        let slot = bindings.get_mut(name)?;
+        let value = std::mem::replace(slot, Value::Nil);
+        self.wrote();
+        Some(value)
+    }
+
     /// Publish this frame's map for lock-free reads. Idempotent.
     fn freeze(&self) {
         let mut bindings = self.bindings.write().unwrap();
@@ -467,6 +480,9 @@ pub struct Env {
     /// `write_floor == 0` — the two move together, which is why the
     /// constructor sets both and nothing else may.
     seal: Option<Seal>,
+    /// The current activation's last reads, when early reuse is on (`crate::reuse`).
+    /// Set only on the environment an activation builds for itself, never inherited.
+    moves: Option<Arc<crate::reuse::Moves>>,
 }
 
 impl Default for Env {
@@ -481,6 +497,7 @@ impl Env {
             frames: vec![Arc::new(Frame::new())],
             write_floor: 0,
             seal: None,
+            moves: None,
         }
     }
 
@@ -555,6 +572,7 @@ impl Env {
             frames,
             write_floor: self.write_floor,
             seal: self.seal,
+            moves: None,
         }
     }
 
@@ -620,6 +638,23 @@ impl Env {
     pub fn lookup(&self, name: &str) -> Option<Value> {
         let name = Name::of(name);
         self.frames.iter().rev().find_map(|frame| frame.get(name))
+    }
+
+    /// Mark this activation's last reads (`crate::reuse`).
+    pub(crate) fn set_moves(&mut self, moves: Arc<crate::reuse::Moves>) {
+        self.moves = Some(moves);
+    }
+
+    /// The value of `name` moved out of the innermost frame, when `form` is
+    /// its last read in this activation. `None` sends the caller to
+    /// [`Self::lookup`], which is today's behaviour.
+    #[inline]
+    pub(crate) fn take_marked(&self, form: &tatara_lisp::Spanned, name: &str) -> Option<Value> {
+        let moves = self.moves.as_ref()?;
+        if !moves.marks(form) {
+            return None;
+        }
+        self.frames.last()?.take(Name::of(name))
     }
 
     /// Mutate an existing binding in the nearest enclosing frame. Returns

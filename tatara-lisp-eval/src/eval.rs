@@ -360,6 +360,13 @@ impl<H: 'static> Interpreter<H> {
         self.registry.halt = flag;
     }
 
+    /// Move a parameter out of its frame at its last read, so a copy-on-write
+    /// primitive outside tail position can update it in place (`crate::reuse`).
+    /// Off by default; no program changes meaning either way.
+    pub fn set_early_reuse(&mut self, on: bool) {
+        self.registry.early_reuse = on;
+    }
+
     /// The flag this interpreter halts on (see [`Self::set_interrupt`]).
     #[must_use]
     pub fn interrupt(&self) -> Arc<std::sync::atomic::AtomicBool> {
@@ -1225,7 +1232,13 @@ pub(crate) fn eval_in<H: 'static>(
     registry.step(form.span)?;
     match &form.form {
         SpannedForm::Nil => Ok(Value::Nil),
-        SpannedForm::Atom(a) => eval_atom(a, form.span, env),
+        SpannedForm::Atom(a) => match a {
+            Atom::Symbol(name) => match env.take_marked(form, name.as_str()) {
+                Some(v) => Ok(v),
+                None => eval_atom(a, form.span, env),
+            },
+            _ => eval_atom(a, form.span, env),
+        },
         SpannedForm::Quote(inner) => Ok(quoted_value(inner)),
         SpannedForm::Quasiquote(inner) => quasiquote_eval(inner, env, registry, expander, host),
         SpannedForm::Unquote(_) | SpannedForm::UnquoteSplice(_) => Err(EvalError::bad_form(
@@ -2058,6 +2071,11 @@ fn activate<H: 'static>(
         }
     };
 
+    if registry.early_reuse {
+        if let Some(moves) = registry.reuse.moves_for(current) {
+            env.set_moves(moves);
+        }
+    }
     let step = eval_closure_body(&mut env, current, registry, expander, host);
     // The call's frames die with `env`. Release them while `step` — the
     // result, the tail callee, or the error — is still alive, so anything that

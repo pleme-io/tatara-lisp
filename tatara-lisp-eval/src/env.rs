@@ -940,6 +940,29 @@ fn release_if_closed(frame: &Arc<Frame>, held: usize) -> bool {
 /// while the element's own `Arc` count stays 1. Counting through them counted
 /// one closure twice and released a frame a live closure was still reading
 /// (`tests/scope_release.rs`).
+/// The handles to `frame` an environment a uniquely held closure captured
+/// carries: its own references to the frame, and those inside every other
+/// frame of it that nothing else holds. A closure passed as an argument lives
+/// in the call frame the returned closure captured, so its handle to the
+/// globals sits one frame away; a frame with a second holder, a sealed frame
+/// or one whose lock is taken counts zero, which declines the release.
+fn handles_in_env(frame: &Arc<Frame>, env: &Env, depth: usize) -> usize {
+    let mut n = frames_pointing_at(env, frame);
+    for inner in &env.frames {
+        if Arc::ptr_eq(inner, frame) || Arc::strong_count(inner) != 1 || inner.is_frozen() {
+            continue;
+        }
+        let Ok(bindings) = inner.bindings.try_read() else {
+            continue;
+        };
+        n += bindings
+            .values()
+            .map(|v| handles_to_frame(frame, v, depth))
+            .sum::<usize>();
+    }
+    n
+}
+
 fn handles_to_frame(frame: &Arc<Frame>, value: &Value, depth: usize) -> usize {
     let Some(next) = depth.checked_sub(1) else {
         return 0;
@@ -949,7 +972,7 @@ fn handles_to_frame(frame: &Arc<Frame>, value: &Value, depth: usize) -> usize {
         // for: the frame owns the closure, the closure owns an env, that env
         // owns the frame.
         Value::Closure(c) if Arc::strong_count(c) == 1 => {
-            frames_pointing_at(&c.captured_env, frame)
+            handles_in_env(frame, &c.captured_env, next)
         }
         // The same ring through `sf_delay`: a pending promise's thunk is a
         // closure over the env the promise is bound in.
@@ -959,7 +982,7 @@ fn handles_to_frame(frame: &Arc<Frame>, value: &Value, depth: usize) -> usize {
             };
             match &*state {
                 PromiseState::Pending(thunk) if Arc::strong_count(thunk) == 1 => {
-                    frames_pointing_at(&thunk.captured_env, frame)
+                    handles_in_env(frame, &thunk.captured_env, next)
                 }
                 PromiseState::Pending(_) => 0,
                 PromiseState::Forced(v) => handles_to_frame(frame, v, next),

@@ -74,6 +74,9 @@ pub struct Interpreter<H> {
     /// (not inside any `(require)`) uses an empty path which means
     /// "no current module" — `provide` errors there.
     pub(crate) current_module: Option<Arc<str>>,
+    /// Run when this interpreter is dropped, before its frames are released
+    /// ([`Self::on_release`]). Never inherited by a fork.
+    release_hooks: Vec<Box<dyn Fn() + Send + Sync>>,
 }
 
 /// A dead interpreter frees the frames it owns.
@@ -101,6 +104,9 @@ pub struct Interpreter<H> {
 /// once.
 impl<H> Drop for Interpreter<H> {
     fn drop(&mut self) {
+        for hook in self.release_hooks.drain(..) {
+            hook();
+        }
         self.globals.release_own_frames();
     }
 }
@@ -115,6 +121,7 @@ impl<H: 'static> Interpreter<H> {
             loader: Arc::new(NoLoader),
             macro_expansion_limit: DEFAULT_MACRO_EXPANSION_LIMIT,
             current_module: None,
+            release_hooks: Vec::new(),
         }
     }
 
@@ -165,7 +172,23 @@ impl<H: 'static> Interpreter<H> {
             loader: Arc::clone(&self.loader),
             macro_expansion_limit: self.macro_expansion_limit,
             current_module: self.current_module.clone(),
+            release_hooks: Vec::new(),
         }
+    }
+
+    /// Run `hook` when this interpreter is dropped, before its frames are
+    /// released.
+    ///
+    /// Release frees a frame only when it can prove nothing outside reaches
+    /// it, and a closure held inside a [`Value::Foreign`] container is a
+    /// handle that proof cannot see. A host that keeps closures in such a
+    /// container (a dispatch table, a memo table) registers a hook that
+    /// empties it, so the closure, its captured frames and the container
+    /// itself are freed with the interpreter instead of holding each other
+    /// alive. A hook must empty only what this interpreter owns: a fork does
+    /// not inherit it, and a fork that shares a container keeps it alive.
+    pub fn on_release(&mut self, hook: impl Fn() + Send + Sync + 'static) {
+        self.release_hooks.push(Box::new(hook));
     }
 
     /// Replace the source loader. Required for `(require ...)` to do

@@ -28,8 +28,19 @@ use crate::value::{MapKey, Value};
 
 /// A persistent vector: O(1) clone, amortized O(1) `push_back`, O(log n)
 /// indexed read, split and concatenation.
-#[derive(Clone, Default)]
-pub struct List(imbl::Vector<Value>);
+/// The second field records whether another list may share this one's
+/// tree nodes: set on both sides whenever a list is cloned, sliced or built
+/// from another, never cleared. A list it was never set on holds every node
+/// alone, so an element is reachable through it and no other list.
+#[derive(Default)]
+pub struct List(imbl::Vector<Value>, std::sync::atomic::AtomicBool);
+
+impl Clone for List {
+    fn clone(&self) -> Self {
+        self.1.store(true, std::sync::atomic::Ordering::Relaxed);
+        List(self.0.clone(), std::sync::atomic::AtomicBool::new(true))
+    }
+}
 
 impl List {
     #[must_use]
@@ -45,6 +56,14 @@ impl List {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
+    }
+
+    /// Whether no other list shares this one's tree nodes: it was never
+    /// cloned, sliced or built from another. What lets the release proof
+    /// count through a list only its frames hold.
+    #[must_use]
+    pub fn sole(&self) -> bool {
+        !self.1.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     pub fn iter(&self) -> imbl::vector::Iter<'_, Value, imbl::shared_ptr::DefaultSharedPtr> {
@@ -82,6 +101,9 @@ impl List {
     /// that fold at 40k elements (release): 1.48 s concatenating every
     /// time, 0.18 s with this path.
     pub fn append(&mut self, other: List) {
+        if !other.sole() {
+            self.1.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
         if self.0.is_empty() {
             self.0 = other.0;
         } else if other.0.len() <= 32 {
@@ -94,13 +116,21 @@ impl List {
     /// The elements from `start` on, sharing structure with `self`.
     #[must_use]
     pub fn skip(&self, start: usize) -> List {
-        List(self.0.skip(start.min(self.0.len())))
+        self.1.store(true, std::sync::atomic::Ordering::Relaxed);
+        List(
+            self.0.skip(start.min(self.0.len())),
+            std::sync::atomic::AtomicBool::new(true),
+        )
     }
 
     /// The first `count` elements, sharing structure with `self`.
     #[must_use]
     pub fn take(&self, count: usize) -> List {
-        List(self.0.take(count.min(self.0.len())))
+        self.1.store(true, std::sync::atomic::Ordering::Relaxed);
+        List(
+            self.0.take(count.min(self.0.len())),
+            std::sync::atomic::AtomicBool::new(true),
+        )
     }
 
     #[must_use]
@@ -125,13 +155,19 @@ impl Index<usize> for List {
 
 impl From<Vec<Value>> for List {
     fn from(v: Vec<Value>) -> Self {
-        List(v.into_iter().collect())
+        List(
+            v.into_iter().collect(),
+            std::sync::atomic::AtomicBool::new(false),
+        )
     }
 }
 
 impl FromIterator<Value> for List {
     fn from_iter<I: IntoIterator<Item = Value>>(iter: I) -> Self {
-        List(iter.into_iter().collect())
+        List(
+            iter.into_iter().collect(),
+            std::sync::atomic::AtomicBool::new(false),
+        )
     }
 }
 

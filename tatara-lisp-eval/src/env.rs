@@ -972,6 +972,8 @@ fn release_if_closed(frame: &Arc<Frame>, held: usize) -> bool {
 /// or one whose lock is taken counts zero, which declines the release.
 fn handles_in_env(frame: &Arc<Frame>, env: &Env, depth: usize) -> usize {
     let mut n = frames_pointing_at(env, frame);
+    let mut lists: HashMap<*const crate::persist::List, (usize, Arc<crate::persist::List>)> =
+        HashMap::new();
     for inner in &env.frames {
         if Arc::ptr_eq(inner, frame) || Arc::strong_count(inner) != 1 || inner.is_frozen() {
             continue;
@@ -979,10 +981,22 @@ fn handles_in_env(frame: &Arc<Frame>, env: &Env, depth: usize) -> usize {
         let Ok(bindings) = inner.bindings.try_read() else {
             continue;
         };
-        n += bindings
-            .values()
-            .map(|v| handles_to_frame(frame, v, depth))
-            .sum::<usize>();
+        for v in bindings.values() {
+            match v {
+                Value::List(l) if Arc::strong_count(l) > 1 && l.sole() => {
+                    lists.entry(Arc::as_ptr(l)).or_insert((0, l.clone())).0 += 1;
+                }
+                other => n += handles_to_frame(frame, other, depth),
+            }
+        }
+    }
+    for (slots, l) in lists.values() {
+        if Arc::strong_count(l) == slots + 1 {
+            n += l
+                .iter()
+                .map(|v| handles_to_frame(frame, v, depth.saturating_sub(1)))
+                .sum::<usize>();
+        }
     }
     n
 }
@@ -1055,6 +1069,11 @@ fn handles_to_frame(frame: &Arc<Frame>, value: &Value, depth: usize) -> usize {
         // than one path whatever its own count says; or carrying no `Env` by
         // construction (a scalar, an interned name, a registry key, source
         // text). All three count zero.
+        // A list held once that shares no tree node with another list reaches
+        // its elements alone, so they count as this list's.
+        Value::List(l) if Arc::strong_count(l) == 1 && l.sole() => {
+            l.iter().map(|v| handles_to_frame(frame, v, next)).sum()
+        }
         Value::Closure(_)
         | Value::Promise(_)
         | Value::List(_)

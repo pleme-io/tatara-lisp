@@ -880,11 +880,30 @@ fn release_if_closed(frame: &Arc<Frame>, held: usize) -> bool {
     if strong != held {
         let walked: &Bindings = published.as_deref().unwrap_or(&*bindings);
         let mut aliased: HashMap<*const Closure, (usize, &Arc<Closure>)> = HashMap::new();
+        let mut compiled: HashMap<
+            *const (),
+            (
+                usize,
+                &crate::vm::run::CompiledClosure,
+                &Arc<dyn std::any::Any + Send + Sync>,
+            ),
+        > = HashMap::new();
         let mut internal = 0usize;
         for value in walked.values() {
             match value {
                 Value::Closure(c) if Arc::strong_count(c) > 1 => {
                     aliased.entry(Arc::as_ptr(c)).or_insert((0, c)).0 += 1;
+                }
+                Value::Foreign(any) if Arc::strong_count(any) > 1 => {
+                    match any.downcast_ref::<crate::vm::run::CompiledClosure>() {
+                        Some(cc) => {
+                            compiled
+                                .entry(Arc::as_ptr(any).cast::<()>())
+                                .or_insert((0, cc, any))
+                                .0 += 1;
+                        }
+                        None => internal += handles_to_frame(frame, value, MAX_VALUE_DEPTH),
+                    }
                 }
                 other => internal += handles_to_frame(frame, other, MAX_VALUE_DEPTH),
             }
@@ -893,6 +912,11 @@ fn release_if_closed(frame: &Arc<Frame>, held: usize) -> bool {
             .values()
             .filter(|(slots, c)| Arc::strong_count(c) == *slots)
             .map(|(_, c)| frames_pointing_at(&c.captured_env, frame))
+            .sum::<usize>();
+        internal += compiled
+            .values()
+            .filter(|(slots, _, any)| Arc::strong_count(any) == *slots)
+            .map(|(_, cc, _)| compiled_handles(frame, cc, MAX_VALUE_DEPTH))
             .sum::<usize>();
         if strong != held + internal {
             return false;
@@ -963,6 +987,24 @@ fn handles_in_env(frame: &Arc<Frame>, env: &Env, depth: usize) -> usize {
     n
 }
 
+/// The handles a VM-compiled closure holds to `frame`: through the globals
+/// snapshot it carries, and through each capture cell only it holds.
+fn compiled_handles(
+    frame: &Arc<Frame>,
+    cc: &crate::vm::run::CompiledClosure,
+    next: usize,
+) -> usize {
+    let mut n = frames_pointing_at(&cc.globals, frame);
+    for cell in &cc.captures {
+        if Arc::strong_count(cell) == 1 {
+            if let Ok(captured) = cell.lock() {
+                n += handles_to_frame(frame, &captured, next);
+            }
+        }
+    }
+    n
+}
+
 fn handles_to_frame(frame: &Arc<Frame>, value: &Value, depth: usize) -> usize {
     let Some(next) = depth.checked_sub(1) else {
         return 0;
@@ -999,17 +1041,7 @@ fn handles_to_frame(frame: &Arc<Frame>, value: &Value, depth: usize) -> usize {
         // reads as opaque. Downcasting is not a special case for the VM so
         // much as the reason `Foreign` cannot simply be assumed inert.
         Value::Foreign(any) => match any.downcast_ref::<crate::vm::run::CompiledClosure>() {
-            Some(cc) if Arc::strong_count(any) == 1 => {
-                let mut n = frames_pointing_at(&cc.globals, frame);
-                for cell in &cc.captures {
-                    if Arc::strong_count(cell) == 1 {
-                        if let Ok(captured) = cell.lock() {
-                            n += handles_to_frame(frame, &captured, next);
-                        }
-                    }
-                }
-                n
-            }
+            Some(cc) if Arc::strong_count(any) == 1 => compiled_handles(frame, cc, next),
             // An aliased compiled closure, or any other host-owned payload.
             // Zero here is deliberate rather than lazy: it is the under-count,
             // and an under-count refuses the release. So a host that boxes an

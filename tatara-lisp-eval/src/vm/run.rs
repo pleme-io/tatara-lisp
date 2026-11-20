@@ -366,6 +366,48 @@ struct Frame {
     handlers: Vec<HandlerRecord>,
 }
 
+/// A frame that goes takes its cells with it. A cell a closure captured is
+/// shared with that closure, and a `letrec` stores the closure in the cell it
+/// captures, so the two would hold each other after the frame is gone.
+impl Drop for Frame {
+    fn drop(&mut self) {
+        release_rings(&self.local_cells);
+    }
+}
+
+/// Empty each cell whose only holders are its frame and the captures of the
+/// one closure it holds, a closure nothing else holds: the ring a `letrec`
+/// builds, which nothing outside can reach. A closure that was returned or
+/// stored elsewhere has another holder, and its cell is left as it is.
+fn release_rings(cells: &Cells) {
+    for cell in cells.values() {
+        let freed = {
+            let Ok(mut held) = cell.lock() else {
+                continue;
+            };
+            let Value::Foreign(any) = &*held else {
+                continue;
+            };
+            if Arc::strong_count(any) != 1 {
+                continue;
+            }
+            let Some(closure) = any.downcast_ref::<CompiledClosure>() else {
+                continue;
+            };
+            let own = closure
+                .captures
+                .iter()
+                .filter(|c| Arc::ptr_eq(c, cell))
+                .count();
+            if own == 0 || Arc::strong_count(cell) != 1 + own {
+                continue;
+            }
+            std::mem::replace(&mut *held, Value::Nil)
+        };
+        drop(freed);
+    }
+}
+
 /// The VM. Owns the stack + frame stack while a program runs.
 pub struct Vm {
     stack: Vec<Value>,
@@ -1211,6 +1253,7 @@ impl Vm {
             f.chunk = Arc::clone(&cc.chunk);
             f.ip = 0;
             f.captures = cc.captures.clone();
+            release_rings(&f.local_cells);
             f.local_cells.clear();
             f.handlers.clear();
             // stack_base relative to locals_base stays the same.
